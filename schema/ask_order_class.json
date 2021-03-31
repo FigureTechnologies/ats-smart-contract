@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AskOrderClass",
+  "anyOf": [
+    {
+      "type": "string",
+      "enum": [
+        "Basic"
+      ]
+    },
+    {
+      "type": "object",
+      "required": [
+        "Convertible"
+      ],
+      "properties": {
+        "Convertible": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/AskOrderStatus"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "AskOrderStatus": {
+      "type": "string",
+      "enum": [
+        "Ready",
+        "PendingIssuerApproval"
+      ]
+    }
+  }
+}

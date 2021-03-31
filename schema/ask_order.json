@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AskOrder",
+  "type": "object",
+  "required": [
+    "base",
+    "class",
+    "id",
+    "owner",
+    "quote"
+  ],
+  "properties": {
+    "base": {
+      "$ref": "#/definitions/Coin"
+    },
+    "class": {
+      "$ref": "#/definitions/AskOrderClass"
+    },
+    "id": {
+      "type": "string"
+    },
+    "owner": {
+      "$ref": "#/definitions/HumanAddr"
+    },
+    "quote": {
+      "$ref": "#/definitions/Coin"
+    }
+  },
+  "definitions": {
+    "AskOrderClass": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Basic"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Convertible"
+          ],
+          "properties": {
+            "Convertible": {
+              "type": "object",
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "$ref": "#/definitions/AskOrderStatus"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AskOrderStatus": {
+      "type": "string",
+      "enum": [
+        "Ready",
+        "PendingIssuerApproval"
+      ]
+    },
+    "Coin": {
+      "type": "object",
+      "required": [
+        "amount",
+        "denom"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "denom": {
+          "type": "string"
+        }
+      }
+    },
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}

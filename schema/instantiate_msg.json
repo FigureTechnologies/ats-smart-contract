@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstantiateMsg",
+  "type": "object",
+  "required": [
+    "ask_required_attributes",
+    "base_denom",
+    "bid_required_attributes",
+    "bind_name",
+    "convertible_base_denoms",
+    "executors",
+    "issuers",
+    "name",
+    "supported_quote_denoms"
+  ],
+  "properties": {
+    "ask_required_attributes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "base_denom": {
+      "type": "string"
+    },
+    "bid_required_attributes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "bind_name": {
+      "type": "string"
+    },
+    "convertible_base_denoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "executors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/HumanAddr"
+      }
+    },
+    "issuers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/HumanAddr"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "supported_quote_denoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    }
+  }
+}

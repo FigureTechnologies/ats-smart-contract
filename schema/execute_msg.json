@@ -1,0 +1,209 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecuteMsg",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "cancel_ask"
+      ],
+      "properties": {
+        "cancel_ask": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "cancel_bid"
+      ],
+      "properties": {
+        "cancel_bid": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "create_ask"
+      ],
+      "properties": {
+        "create_ask": {
+          "type": "object",
+          "required": [
+            "id",
+            "quote"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "quote": {
+              "$ref": "#/definitions/Coin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "create_bid"
+      ],
+      "properties": {
+        "create_bid": {
+          "type": "object",
+          "required": [
+            "base",
+            "id"
+          ],
+          "properties": {
+            "base": {
+              "$ref": "#/definitions/Coin"
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "approve_ask"
+      ],
+      "properties": {
+        "approve_ask": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "reject_ask"
+      ],
+      "properties": {
+        "reject_ask": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "expire_ask"
+      ],
+      "properties": {
+        "expire_ask": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "expire_bid"
+      ],
+      "properties": {
+        "expire_bid": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "execute_match"
+      ],
+      "properties": {
+        "execute_match": {
+          "type": "object",
+          "required": [
+            "ask_id",
+            "bid_id"
+          ],
+          "properties": {
+            "ask_id": {
+              "type": "string"
+            },
+            "bid_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "Coin": {
+      "type": "object",
+      "required": [
+        "amount",
+        "denom"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/Uint128"
+        },
+        "denom": {
+          "type": "string"
+        }
+      }
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}
