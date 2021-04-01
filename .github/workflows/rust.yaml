@@ -29,3 +29,17 @@ jobs:
         with:
           command: test
           args: --verbose
+  optimize_wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: into-docker
+        uses: into-docker/build-action@v1
+      - run: >
+          docker run --rm -v $(CURDIR):/code:Z \
+                 		--mount type=volume,source=ats-smart-contract_cache,target=/code/target \
+                 		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+                 		cosmwasm/rust-optimizer:0.10.7
