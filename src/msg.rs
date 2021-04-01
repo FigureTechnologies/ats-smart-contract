@@ -16,13 +16,18 @@ pub struct InstantiateMsg {
     pub bid_required_attributes: Vec<String>,
 }
 
+/// Simple validation of InstantiateMsg data
+///
+/// ### Example
+///
+/// ```rust
+/// use ats_smart_contract::msg::{InstantiateMsg, Validate};
+/// pub fn instantiate(msg: InstantiateMsg){
+///
+///     let result = msg.validate();
+/// }
+/// ```
 impl Validate for InstantiateMsg {
-    /// Simple validation of InstantiateMsg data
-    ///
-    /// ### Example
-    /// ```
-    /// let result = execute_msg.validate();
-    /// ```
     fn validate(&self) -> Result<(), ContractError> {
         let mut invalid_fields: Vec<&str> = vec![];
 
@@ -69,8 +74,14 @@ impl Validate for ExecuteMsg {
     /// Simple validation of ExecuteMsg data
     ///
     /// ### Example
-    /// ```
-    /// let result = execute_msg.validate();
+    ///
+    /// ```rust
+    /// use ats_smart_contract::msg::{ExecuteMsg, Validate};
+    ///
+    /// pub fn execute(msg: ExecuteMsg){
+    ///     let result = msg.validate();
+    ///     todo!()
+    /// }
     /// ```
     fn validate(&self) -> Result<(), ContractError> {
         let mut invalid_fields: Vec<&str> = vec![];
@@ -159,8 +170,13 @@ impl Validate for QueryMsg {
     /// Simple validation of QueryMsg data
     ///
     /// ### Example
-    /// ```
-    /// let result = execute_msg.validate();
+    ///
+    /// ```rust
+    /// use ats_smart_contract::msg::{QueryMsg, Validate};
+    /// pub fn query(msg: QueryMsg){
+    ///
+    ///     let result = msg.validate();
+    /// }
     /// ```
     fn validate(&self) -> Result<(), ContractError> {
         let mut invalid_fields: Vec<&str> = vec![];

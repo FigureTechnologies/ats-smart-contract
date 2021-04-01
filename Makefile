@@ -22,11 +22,11 @@ build:
 
 .PHONY: test
 test:
-	@RUST_BACKTRACE=1 cargo unit-test
+	@cargo test --verbose
 
 .PHONY: schema
 schema:
-	@cargo schema
+	@cargo run --example schema
 
 .PHONY: optimize
 optimize:
