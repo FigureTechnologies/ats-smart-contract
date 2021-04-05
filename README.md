@@ -1,4 +1,5 @@
 ## ATS Exchange Smart Contract
+[![ats-smart-contract](https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml/badge.svg?branch=main&event=push)](https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml)
 
 A ProvWasm smart contract that provides on-chain services to the ATS Exchange.
 
