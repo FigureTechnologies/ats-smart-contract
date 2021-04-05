@@ -52,3 +52,4 @@ jobs:
         with:
           files: |
             artifacts/ats_smart_contract.wasm
+            artifacts/checksums.txt
