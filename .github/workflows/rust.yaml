@@ -37,3 +37,4 @@ jobs:
        with:
          image: cosmwasm/rust-optimizer:0.10.9
          options: -v ${{ github.workspace }}:/code -e ABC=123
+         command: /usr/local/bin/optimize.sh
