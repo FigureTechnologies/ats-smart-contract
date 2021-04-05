@@ -29,14 +29,11 @@ jobs:
         with:
           command: test
           args: --verbose
-  optimize_wasm:
+ optimize_wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: satackey/action-docker-layer-caching@v0.0.11
-        continue-on-error: true
-      - name: build the wasm
-        run: docker run --rm -v $(CURDIR):/code:Z \
-                  --mount type=volume,source=ats-smart-contract_cache,target=/code/target \
-                  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-                  cosmwasm/rust-optimizer:0.10.7
+     - uses: actions/checkout@v2
+     - uses: addnab/docker-run-action@v3
+       with:
+         image: cosmwasm/rust-optimizer:0.10.9
+         options: -v ${{ github.workspace }}:/code -e ABC=123
