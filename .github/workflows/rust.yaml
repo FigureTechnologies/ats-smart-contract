@@ -33,8 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
      - uses: actions/checkout@v2
-     - uses: addnab/docker-run-action@v3
-       with:
-         image: cosmwasm/rust-optimizer:0.10.9
-         options: -v ${{ github.workspace }}:/code -e ABC=123
-         command: /usr/local/bin/optimize.sh
+     - run: pwd
+     - run: ls -lah
+     - run: cd $GITHUB_WORKSPACE;make optimize
