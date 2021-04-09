@@ -162,7 +162,7 @@ fn create_ask(
     Ok(Response {
         submessages: vec![],
         messages: vec![],
-        attributes: vec![attr("action", "create_ask")],
+        attributes: vec![attr("action", "create_ask"), attr("id", &ask_order.id)],
         data: Some(to_binary(&ask_order)?),
     })
 }
@@ -229,7 +229,7 @@ fn create_bid(
     Ok(Response {
         submessages: vec![],
         messages: vec![],
-        attributes: vec![attr("action", "create_bid")],
+        attributes: vec![attr("action", "create_bid"), attr("id", &bid_order.id)],
         data: Some(to_binary(&bid_order)?),
     })
 }
@@ -272,7 +272,7 @@ fn cancel_ask(
             amount: vec![base],
         }
         .into()],
-        attributes: vec![attr("action", "cancel_ask")],
+        attributes: vec![attr("action", "cancel_ask"), attr("id", id)],
         data: None,
     };
 
@@ -317,7 +317,7 @@ fn cancel_bid(
             amount: vec![quote],
         }
         .into()],
-        attributes: vec![attr("action", "cancel_bid")],
+        attributes: vec![attr("action", "cancel_bid"), attr("id", id)],
         data: None,
     };
 
@@ -394,7 +394,11 @@ fn execute_match(
                     }
                     .into(),
                 ],
-                attributes: vec![attr("action", "execute")],
+                attributes: vec![
+                    attr("action", "execute"),
+                    attr("ask_id", &ask_id),
+                    attr("bid_id", &bid_id),
+                ],
                 data: None,
             }
         }
@@ -526,7 +530,7 @@ mod tests {
         };
 
         // initialize
-        let init_response = instantiate(deps.as_mut(), mock_env(), info.to_owned(), init_msg);
+        let init_response = instantiate(deps.as_mut(), mock_env(), info, init_msg);
 
         // verify initialize response
         match init_response {
@@ -591,8 +595,9 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 1);
+                assert_eq!(response.attributes.len(), 2);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
+                assert_eq!(response.attributes[1], attr("id", "ask_id"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -671,8 +676,9 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 1);
+                assert_eq!(response.attributes.len(), 2);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
+                assert_eq!(response.attributes[1], attr("id", "ask_id"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -977,8 +983,9 @@ mod tests {
         // verify execute create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 1);
+                assert_eq!(response.attributes.len(), 2);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("id", "bid_id"));
             }
             Err(error) => {
                 panic!("failed to create bid: {:?}", error)
@@ -1280,11 +1287,12 @@ mod tests {
 
         match cancel_ask_response {
             Ok(cancel_ask_response) => {
-                assert_eq!(cancel_ask_response.attributes.len(), 1);
+                assert_eq!(cancel_ask_response.attributes.len(), 2);
                 assert_eq!(
                     cancel_ask_response.attributes[0],
                     attr("action", "cancel_ask")
                 );
+                assert_eq!(cancel_ask_response.attributes[1], attr("id", "ask_id"));
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
                     cancel_ask_response.messages[0],
@@ -1301,57 +1309,6 @@ mod tests {
         let ask_storage = get_ask_storage_read(&deps.storage);
         assert_eq!(
             ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
-
-        // create bid data
-        store_test_bid(
-            &mut deps.storage,
-            &BidOrder {
-                base: coin(100, "base_1"),
-                id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
-                quote: coin(200, "quote_1"),
-            },
-        );
-
-        // cancel bid order
-        let bidder_info = mock_info("bidder", &[]);
-
-        let cancel_bid_msg = ExecuteMsg::CancelBid {
-            id: "bid_id".to_string(),
-        };
-
-        let cancel_bid_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            bidder_info.clone(),
-            cancel_bid_msg,
-        );
-
-        match cancel_bid_response {
-            Ok(cancel_bid_response) => {
-                assert_eq!(cancel_bid_response.attributes.len(), 1);
-                assert_eq!(
-                    cancel_bid_response.attributes[0],
-                    attr("action", "cancel_bid")
-                );
-                assert_eq!(cancel_bid_response.messages.len(), 1);
-                assert_eq!(
-                    cancel_bid_response.messages[0],
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: bidder_info.sender,
-                        amount: coins(200, "quote_1"),
-                    })
-                );
-            }
-            Err(error) => panic!("unexpected error: {:?}", error),
-        }
-
-        // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
             true
         );
     }
@@ -1531,6 +1488,252 @@ mod tests {
     }
 
     #[test]
+    fn cancel_bid_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: coin(100, "base_1"),
+                id: "bid_id".into(),
+                owner: HumanAddr("bidder".into()),
+                quote: coin(200, "quote_1"),
+            },
+        );
+
+        // cancel bid order
+        let bidder_info = mock_info("bidder", &[]);
+
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "bid_id".to_string(),
+        };
+
+        let cancel_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            cancel_bid_msg,
+        );
+
+        match cancel_bid_response {
+            Ok(cancel_bid_response) => {
+                assert_eq!(cancel_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    cancel_bid_response.attributes[0],
+                    attr("action", "cancel_bid")
+                );
+                assert_eq!(cancel_bid_response.attributes[1], attr("id", "bid_id"));
+                assert_eq!(cancel_bid_response.messages.len(), 1);
+                assert_eq!(
+                    cancel_bid_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: bidder_info.sender,
+                        amount: coins(200, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(
+            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
+            true
+        );
+    }
+
+    #[test]
+    fn cancel_bid_invalid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        // cancel bid order with missing id returns ContractError::Unauthorized
+        let cancel_bid_msg = ExecuteMsg::CancelAsk { id: "".to_string() };
+        let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
+
+        match cancel_response {
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"id".into()))
+                }
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn cancel_bid_non_exist() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        // cancel non-existent bid order returns ContractError::Unauthorized
+        let cancel_bid_msg = ExecuteMsg::CancelAsk {
+            id: "unknown_id".to_string(),
+        };
+
+        let cancel_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            cancel_bid_msg,
+        );
+
+        match cancel_response {
+            Err(error) => match error {
+                ContractError::OrderLoad { .. } => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn cancel_bid_sender_notequal() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: coin(200, "base_1"),
+                id: "bid_id".into(),
+                owner: "not_bidder".into(),
+                quote: coin(100, "quote_1"),
+            },
+        );
+
+        // cancel bid order with sender not equal to owner returns ContractError::Unauthorized
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "bid_id".to_string(),
+        };
+
+        let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
+
+        match cancel_response {
+            Err(error) => match error {
+                ContractError::Unauthorized => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn cancel_bid_with_sent_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        // cancel bid order with sent_funds returns ContractError::CancelWithFunds
+        let bidder_info = mock_info("bidder", &coins(1, "sent_coin"));
+        let cancel_bid_msg = ExecuteMsg::CancelAsk {
+            id: "bid_id".to_string(),
+        };
+
+        let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
+
+        match cancel_response {
+            Err(error) => match error {
+                ContractError::CancelWithFunds => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
     fn execute_valid_data() {
         // setup
         let mut deps = mock_dependencies(&[]);
@@ -1591,8 +1794,10 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 1);
+                assert_eq!(execute_response.attributes.len(), 3);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
+                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
