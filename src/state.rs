@@ -1,4 +1,4 @@
-use cosmwasm_std::{Coin, HumanAddr, Storage};
+use cosmwasm_std::{Coin, Decimal, HumanAddr, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,18 +21,22 @@ pub enum AskOrderClass {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AskOrder {
     pub base: Coin,
+    pub class: AskOrderClass,
     pub id: String,
     pub owner: HumanAddr,
-    pub quote: Coin,
-    pub class: AskOrderClass,
+    pub price: Decimal,
+    pub quote: String,
+    pub size: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrder {
-    pub base: Coin,
+    pub base: String,
     pub id: String,
     pub owner: HumanAddr,
+    pub price: Decimal,
     pub quote: Coin,
+    pub size: Uint128,
 }
 
 pub fn get_ask_storage(storage: &mut dyn Storage) -> Bucket<AskOrder> {

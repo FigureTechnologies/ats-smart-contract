@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Coin, HumanAddr, Uint128};
+use cosmwasm_std::{Decimal, HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -59,15 +59,39 @@ impl Validate for InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    CancelAsk { id: String },
-    CancelBid { id: String },
-    CreateAsk { id: String, quote: Coin },
-    CreateBid { id: String, base: Coin },
-    ApproveAsk { id: String },
-    RejectAsk { id: String },
-    ExpireAsk { id: String },
-    ExpireBid { id: String },
-    ExecuteMatch { ask_id: String, bid_id: String },
+    CancelAsk {
+        id: String,
+    },
+    CancelBid {
+        id: String,
+    },
+    CreateAsk {
+        id: String,
+        quote: String,
+        price: Decimal,
+    },
+    CreateBid {
+        id: String,
+        base: String,
+        price: Decimal,
+        size: Uint128,
+    },
+    ApproveAsk {
+        id: String,
+    },
+    RejectAsk {
+        id: String,
+    },
+    ExpireAsk {
+        id: String,
+    },
+    ExpireBid {
+        id: String,
+    },
+    ExecuteMatch {
+        ask_id: String,
+        bid_id: String,
+    },
 }
 
 impl Validate for ExecuteMsg {
@@ -87,26 +111,34 @@ impl Validate for ExecuteMsg {
         let mut invalid_fields: Vec<&str> = vec![];
 
         match self {
-            ExecuteMsg::CreateAsk { id, quote } => {
+            ExecuteMsg::CreateAsk { id, quote, price } => {
                 if id.is_empty() {
                     invalid_fields.push("id");
                 }
-                if quote.amount.eq(&Uint128::zero()) {
-                    invalid_fields.push("quote.amount");
+                if price.is_zero() {
+                    invalid_fields.push("price");
                 }
-                if quote.denom.is_empty() {
-                    invalid_fields.push("quote.denom");
+                if quote.is_empty() {
+                    invalid_fields.push("quote");
                 }
             }
-            ExecuteMsg::CreateBid { id, base } => {
+            ExecuteMsg::CreateBid {
+                id,
+                base,
+                price,
+                size,
+            } => {
                 if id.is_empty() {
                     invalid_fields.push("id");
                 }
-                if base.amount.eq(&Uint128::zero()) {
-                    invalid_fields.push("base.amount");
+                if base.is_empty() {
+                    invalid_fields.push("base");
                 }
-                if base.denom.is_empty() {
-                    invalid_fields.push("base.denom");
+                if price.is_zero() {
+                    invalid_fields.push("price");
+                }
+                if size.is_zero() {
+                    invalid_fields.push("size");
                 }
             }
             ExecuteMsg::CancelAsk { id } => {
