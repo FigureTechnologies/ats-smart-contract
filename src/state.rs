@@ -1,4 +1,4 @@
-use cosmwasm_std::{Coin, Decimal, HumanAddr, Storage, Uint128};
+use cosmwasm_std::{Coin, HumanAddr, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ pub struct AskOrder {
     pub class: AskOrderClass,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Decimal,
+    pub price: Uint128,
     pub quote: String,
     pub size: Uint128,
 }
@@ -34,7 +34,7 @@ pub struct BidOrder {
     pub base: String,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Decimal,
+    pub price: Uint128,
     pub quote: Coin,
     pub size: Uint128,
 }

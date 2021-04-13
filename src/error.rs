@@ -3,8 +3,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
-    #[error("Ask Order does not match Bid Order")]
-    AskBidMismatch,
+    #[error("Ask Order price does not match Bid Order price")]
+    AskBidPriceMismatch,
 
     #[error("Ask Order not ready: {current_status:?}")]
     AskOrderNotReady { current_status: String },

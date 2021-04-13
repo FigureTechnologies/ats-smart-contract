@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Decimal, HumanAddr, Uint128};
+use cosmwasm_std::{HumanAddr, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -68,12 +68,12 @@ pub enum ExecuteMsg {
     CreateAsk {
         id: String,
         quote: String,
-        price: Decimal,
+        price: Uint128,
     },
     CreateBid {
         id: String,
         base: String,
-        price: Decimal,
+        price: Uint128,
         size: Uint128,
     },
     ApproveAsk {
