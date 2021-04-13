@@ -79,9 +79,9 @@ _note: Address bech32 values and other params may vary._
     
     ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_ask":{"id":"ask_id", "quote":{"amount":"50","denom":"usd"}}}' \
+        '{"create_ask":{"id":"ask_id", "price":"2", "quote":"usd"}}' \
         -t \
-        --amount 1gme \
+        --amount 10gme \
         --from (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
         --keyring-backend test \
         --home build/run/provenanced \
@@ -100,9 +100,9 @@ _note: Address bech32 values and other params may vary._
    
    ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_bid":{"id":"bid_id", "base":{"amount":"1","denom":"gme"}}}' \
+        '{"create_bid":{"id":"bid_id", "base":"gme", "price":"2", "size":"5"}}' \
         -t \
-        --amount 50usd \
+        --amount 10usd \
         --from (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
         --keyring-backend test \
         --home build/run/provenanced \
