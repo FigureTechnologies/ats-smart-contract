@@ -6,11 +6,13 @@
     "base",
     "id",
     "owner",
-    "quote"
+    "price",
+    "quote",
+    "size"
   ],
   "properties": {
     "base": {
-      "$ref": "#/definitions/Coin"
+      "type": "string"
     },
     "id": {
       "type": "string"
@@ -18,8 +20,14 @@
     "owner": {
       "$ref": "#/definitions/HumanAddr"
     },
+    "price": {
+      "$ref": "#/definitions/Uint128"
+    },
     "quote": {
       "$ref": "#/definitions/Coin"
+    },
+    "size": {
+      "$ref": "#/definitions/Uint128"
     }
   },
   "definitions": {

@@ -3,7 +3,7 @@
 
 A ProvWasm smart contract that provides on-chain services to the ATS Exchange.
 
-### Nomenclature
+### Glossary
 
 The following terms are used to identify parts of a token exchange. It is strongly influenced by Forex:
 - token pair - two different currencies that are traded in exchange for each other (ex: BTC/HASH)

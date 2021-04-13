@@ -7,7 +7,9 @@
     "class",
     "id",
     "owner",
-    "quote"
+    "price",
+    "quote",
+    "size"
   ],
   "properties": {
     "base": {
@@ -22,8 +24,14 @@
     "owner": {
       "$ref": "#/definitions/HumanAddr"
     },
+    "price": {
+      "$ref": "#/definitions/Uint128"
+    },
     "quote": {
-      "$ref": "#/definitions/Coin"
+      "type": "string"
+    },
+    "size": {
+      "$ref": "#/definitions/Uint128"
     }
   },
   "definitions": {

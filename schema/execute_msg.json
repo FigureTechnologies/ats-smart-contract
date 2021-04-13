@@ -50,14 +50,18 @@
           "type": "object",
           "required": [
             "id",
+            "price",
             "quote"
           ],
           "properties": {
             "id": {
               "type": "string"
             },
+            "price": {
+              "$ref": "#/definitions/Uint128"
+            },
             "quote": {
-              "$ref": "#/definitions/Coin"
+              "type": "string"
             }
           }
         }
@@ -73,14 +77,22 @@
           "type": "object",
           "required": [
             "base",
-            "id"
+            "id",
+            "price",
+            "size"
           ],
           "properties": {
             "base": {
-              "$ref": "#/definitions/Coin"
+              "type": "string"
             },
             "id": {
               "type": "string"
+            },
+            "price": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "size": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }
@@ -187,21 +199,6 @@
     }
   ],
   "definitions": {
-    "Coin": {
-      "type": "object",
-      "required": [
-        "amount",
-        "denom"
-      ],
-      "properties": {
-        "amount": {
-          "$ref": "#/definitions/Uint128"
-        },
-        "denom": {
-          "type": "string"
-        }
-      }
-    },
     "Uint128": {
       "type": "string"
     }
