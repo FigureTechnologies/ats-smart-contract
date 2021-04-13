@@ -202,6 +202,15 @@ fn create_bid(
         return Err(ContractError::QuoteQuantity);
     }
 
+    // error if quote does not match order
+    if bid_order
+        .quote
+        .amount
+        .ne(&Uint128(bid_order.size.u128() * bid_order.price.u128()))
+    {
+        return Err(ContractError::SentFundsOrderMismatch);
+    }
+
     let contract_info = get_contract_info(deps.storage)?;
 
     // error if order quote is not supported quote denom
@@ -1026,7 +1035,7 @@ mod tests {
             size: Uint128(100),
         };
 
-        let bidder_info = mock_info("bidder", &coins(2, "quote_1"));
+        let bidder_info = mock_info("bidder", &coins(200, "quote_1"));
 
         // execute create bid
         let create_bid_response = execute(
@@ -1066,7 +1075,7 @@ mod tests {
                             id,
                             owner: bidder_info.sender,
                             price,
-                            quote: coin(2, "quote_1"),
+                            quote: coin(200, "quote_1"),
                             size,
                         }
                     )
@@ -1209,7 +1218,7 @@ mod tests {
         let create_bid_response = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("bidder", &coins(100, "quote_2")),
+            mock_info("bidder", &coins(20, "quote_2")),
             create_bid_msg,
         );
 
@@ -1270,6 +1279,52 @@ mod tests {
     }
 
     #[test]
+    fn create_bid_sent_funds_not_equal_price_times_size() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        // create bid
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "bid_id".into(),
+            base: "base_denom".into(),
+            price: Uint128(2),
+            size: Uint128(100),
+        };
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("bidder", &coins(100, "quote_1")),
+            create_bid_msg,
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::SentFundsOrderMismatch => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn create_bid_wrong_account_attributes() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -1301,7 +1356,7 @@ mod tests {
         let create_bid_response = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("bidder", &coins(2, "quote_1")),
+            mock_info("bidder", &coins(200, "quote_1")),
             create_bid_msg,
         );
 

@@ -33,6 +33,9 @@ pub enum ContractError {
     #[error("One quote required in order")]
     QuoteQuantity,
 
+    #[error("Sent funds does not match order")]
+    SentFundsOrderMismatch,
+
     #[error("{0}")]
     Std(#[from] StdError),
 
