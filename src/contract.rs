@@ -442,7 +442,7 @@ fn execute_match(
             }
 
             // 'send quote to asker' and 'send base to bidder' messages
-            Response {
+            let mut response = Response {
                 submessages: vec![],
                 messages: vec![
                     BankMsg::Send {
@@ -455,25 +455,10 @@ fn execute_match(
                     .into(),
                     BankMsg::Send {
                         to_address: bid_order.owner.clone(),
-                        amount:
-                        // bid order completed, refund any remaining quote funds to bidder
-                        if bidder_refund.is_zero() {
-                            vec![Coin {
-                                denom: bid_order.base.clone(),
-                                amount: base_size_to_send,
-                            }]
-                        } else {
-                            vec![
-                                Coin {
-                                    denom: bid_order.base.clone(),
-                                    amount: base_size_to_send,
-                                },
-                                Coin {
-                                    denom: bid_order.quote.denom.clone(),
-                                    amount: bidder_refund,
-                                },
-                            ]
-                        },
+                        amount: vec![Coin {
+                            denom: bid_order.base.clone(),
+                            amount: base_size_to_send,
+                        }],
                     }
                     .into(),
                 ],
@@ -483,7 +468,26 @@ fn execute_match(
                     attr("bid_id", &bid_id),
                 ],
                 data: None,
+            };
+
+            if !bidder_refund.is_zero() {
+                response.messages.push(
+                    BankMsg::Send {
+                        to_address: bid_order.owner.clone(),
+                        amount:
+                        // bid order completed, refund any remaining quote funds to bidder
+                        vec![
+                            Coin {
+                                denom: bid_order.quote.denom.clone(),
+                                amount: bidder_refund,
+                            },
+                        ]
+                    }
+                    .into(),
+                )
             }
+
+            response
         }
         AskOrderClass::Convertible { status } => {
             if status.ne(&AskOrderStatus::Ready) {
@@ -2325,7 +2329,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
-                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
@@ -2337,7 +2341,14 @@ mod tests {
                     execute_response.messages[1],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
-                        amount: vec![coin(100, "base_1"), coin(200, "quote_1")],
+                        amount: vec![coin(100, "base_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(200, "quote_1")],
                     })
                 );
             }
