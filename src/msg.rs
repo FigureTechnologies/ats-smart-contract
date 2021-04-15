@@ -91,6 +91,7 @@ pub enum ExecuteMsg {
     ExecuteMatch {
         ask_id: String,
         bid_id: String,
+        price: Uint128,
     },
 }
 
@@ -115,7 +116,7 @@ impl Validate for ExecuteMsg {
                 if id.is_empty() {
                     invalid_fields.push("id");
                 }
-                if price.is_zero() {
+                if price.le(&Uint128(0)) {
                     invalid_fields.push("price");
                 }
                 if quote.is_empty() {
@@ -134,7 +135,7 @@ impl Validate for ExecuteMsg {
                 if base.is_empty() {
                     invalid_fields.push("base");
                 }
-                if price.is_zero() {
+                if price.le(&Uint128(0)) {
                     invalid_fields.push("price");
                 }
                 if size.is_zero() {
@@ -151,12 +152,19 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("id");
                 }
             }
-            ExecuteMsg::ExecuteMatch { ask_id, bid_id } => {
+            ExecuteMsg::ExecuteMatch {
+                ask_id,
+                bid_id,
+                price,
+            } => {
                 if ask_id.is_empty() {
                     invalid_fields.push("ask_id");
                 }
                 if bid_id.is_empty() {
                     invalid_fields.push("bid_id");
+                }
+                if price.le(&Uint128(0)) {
+                    invalid_fields.push("price");
                 }
             }
             ExecuteMsg::ApproveAsk { id } => {
