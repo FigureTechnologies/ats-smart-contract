@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "ats-smart-contract"
-version = "0.14.0-rc1"
+version = "0.14.0-beta1.1"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
