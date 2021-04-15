@@ -4,3 +4,5 @@
 # build artifacts
 artifacts
 target
+*.profraw
+tarpaulin-report.html
