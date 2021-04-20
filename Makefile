@@ -18,7 +18,7 @@ lint:
 
 .PHONY: build
 build:
-	@cargo wasm
+	@cargo build
 
 .PHONY: test
 test:
@@ -27,6 +27,10 @@ test:
 .PHONY: schema
 schema:
 	@cargo run --example schema
+
+.PHONY: coverage
+coverage:
+	@cargo tarpaulin --out Html
 
 .PHONY: optimize
 optimize:

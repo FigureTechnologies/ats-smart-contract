@@ -1,7 +1,17 @@
-## ATS Exchange Smart Contract
-[![ats-smart-contract](https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml/badge.svg?branch=main&event=push)](https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml)
+# ATS Exchange Smart Contract
+A ProvWasm smart contract that provides on-chain services for the ATS Exchange.
 
-A ProvWasm smart contract that provides on-chain services to the ATS Exchange.
+## Status
+[![Latest Release][release-badge]][release-latest]
+[![Build Status][build-badge]][build-status]
+[![Code Coverage][codecov-badge]][codecov-report]
+
+[release-badge]: https://img.shields.io/github/v/tag/provenance-io/ats-smart-contract.svg?sort=semver
+[release-latest]: https://github.com/provenance-io/ats-smart-contract/releases/latest
+[build-badge]: https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml/badge.svg?branch=main
+[build-status]: https://github.com/provenance-io/ats-smart-contract/actions/workflows/rust.yaml
+[codecov-badge]: https://codecov.io/gh/provenance-io/ats-smart-contract/branch/main/graph/badge.svg
+[codecov-report]: https://codecov.io/gh/provenance-io/ats-smart-contract
 
 ### Glossary
 

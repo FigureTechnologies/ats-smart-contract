@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -31,13 +31,21 @@ jobs:
         with:
           command: clippy
           args: -- -D warnings
-      - name: cargo test
-        uses: actions-rs/cargo@v1
+      - name: cargo tarpaulin html report
+        uses: actions-rs/tarpaulin@v0.1
         with:
-          command: test
-          args: --verbose
+          out-type: Html
+      - name: upload to codecov.io
+        uses: codecov/codecov-action@v1
+        with:
+          fail_ci_if_error:     true
+      - name: archive code coverage results
+        uses: actions/upload-artifact@v1
+        with:
+          name: code-coverage-report
+          path: tarpaulin-report.html
   release:
-    needs: build
+    needs: check
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
