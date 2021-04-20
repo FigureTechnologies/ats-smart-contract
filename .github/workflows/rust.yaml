@@ -35,6 +35,10 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           out-type: Html
+      - name: cargo tarpaulin xml report
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          out-type: Xml
       - name: upload to codecov.io
         uses: codecov/codecov-action@v1
         with:
