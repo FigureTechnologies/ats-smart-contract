@@ -1,5 +1,6 @@
 use cosmwasm_std::{Coin, HumanAddr, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
+use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +25,8 @@ pub struct AskOrder {
     pub class: AskOrderClass,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Uint128,
+    #[schemars(with = "String")]
+    pub price: Decimal,
     pub quote: String,
     pub size: Uint128,
 }
@@ -34,7 +36,8 @@ pub struct BidOrder {
     pub base: String,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Uint128,
+    #[schemars(with = "String")]
+    pub price: Decimal,
     pub quote: Coin,
     pub size: Uint128,
 }

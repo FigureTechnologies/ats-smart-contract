@@ -1,5 +1,7 @@
 use crate::error::ContractError;
 use cosmwasm_std::{HumanAddr, Uint128};
+use rust_decimal::prelude::Zero;
+use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -68,12 +70,14 @@ pub enum ExecuteMsg {
     CreateAsk {
         id: String,
         quote: String,
-        price: Uint128,
+        #[schemars(with = "String")]
+        price: Decimal,
     },
     CreateBid {
         id: String,
         base: String,
-        price: Uint128,
+        #[schemars(with = "String")]
+        price: Decimal,
         size: Uint128,
     },
     ApproveAsk {
@@ -91,7 +95,8 @@ pub enum ExecuteMsg {
     ExecuteMatch {
         ask_id: String,
         bid_id: String,
-        price: Uint128,
+        #[schemars(with = "String")]
+        price: Decimal,
     },
 }
 
@@ -116,7 +121,7 @@ impl Validate for ExecuteMsg {
                 if id.is_empty() {
                     invalid_fields.push("id");
                 }
-                if price.le(&Uint128(0)) {
+                if price.le(&Decimal::zero()) {
                     invalid_fields.push("price");
                 }
                 if quote.is_empty() {
@@ -135,7 +140,7 @@ impl Validate for ExecuteMsg {
                 if base.is_empty() {
                     invalid_fields.push("base");
                 }
-                if price.le(&Uint128(0)) {
+                if price.le(&Decimal::zero()) {
                     invalid_fields.push("price");
                 }
                 if size.is_zero() {
@@ -163,7 +168,7 @@ impl Validate for ExecuteMsg {
                 if bid_id.is_empty() {
                     invalid_fields.push("bid_id");
                 }
-                if price.le(&Uint128(0)) {
+                if price.le(&Decimal::zero()) {
                     invalid_fields.push("price");
                 }
             }

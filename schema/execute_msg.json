@@ -58,7 +58,7 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             },
             "quote": {
               "type": "string"
@@ -89,7 +89,7 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             },
             "size": {
               "$ref": "#/definitions/Uint128"
@@ -195,7 +195,7 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             }
           }
         }

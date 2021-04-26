@@ -3,10 +3,10 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
-    #[error("Ask Order price does not match Bid Order price")]
+    #[error("Ask order price does not match Bid order price")]
     AskBidPriceMismatch,
 
-    #[error("Ask Order not ready: {current_status:?}")]
+    #[error("Ask order not ready: {current_status:?}")]
     AskOrderNotReady { current_status: String },
 
     #[error("One base required in order")]
@@ -21,6 +21,9 @@ pub enum ContractError {
     #[error("Cannot send funds when executing match")]
     ExecuteWithFunds,
 
+    #[error("Execute price must be either the ask or bid price")]
+    ExecutePriceInvalid,
+
     #[error("Inconvertible base denomination")]
     InconvertibleBaseDenom,
 
@@ -29,6 +32,12 @@ pub enum ContractError {
 
     #[error("Failed to load order: {error:?}")]
     OrderLoad { error: StdError },
+
+    #[error("Total (price * size) exceeds max allowed")]
+    TotalOverflow,
+
+    #[error("Total (price * size) must be an integer")]
+    NonIntegerTotal,
 
     #[error("One quote required in order")]
     QuoteQuantity,
@@ -44,4 +53,13 @@ pub enum ContractError {
 
     #[error("Unsupported quote denomination")]
     UnsupportedQuoteDenom,
+}
+
+impl From<ContractError> for StdError {
+    fn from(_: ContractError) -> Self {
+        StdError::ParseErr {
+            target_type: "".to_string(),
+            msg: "".to_string(),
+        }
+    }
 }
