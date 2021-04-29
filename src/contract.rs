@@ -11,7 +11,7 @@ use crate::state::{
     get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrder,
     AskOrderClass, AskOrderStatus, BidOrder,
 };
-use rust_decimal::prelude::{ToPrimitive, Zero};
+use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -159,9 +159,13 @@ fn create_ask(
         return Err(ContractError::UnsupportedQuoteDenom);
     }
 
+    let ask_price =
+        Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        })?;
+
     // error if total is non-integer
-    if ask_order
-        .price
+    if ask_price
         .mul(Decimal::from(ask_order.size.u128()))
         .fract()
         .ne(&Decimal::zero())
@@ -217,9 +221,13 @@ fn create_bid(
         return Err(ContractError::QuoteQuantity);
     }
 
+    let bid_price =
+        Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        })?;
+
     // calculate quote total (price * size), error if overflows
-    let total = bid_order
-        .price
+    let total = bid_price
         .checked_mul(Decimal::from(bid_order.size.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
@@ -385,7 +393,7 @@ fn execute_match(
     info: MessageInfo,
     ask_id: String,
     bid_id: String,
-    price: Decimal,
+    price: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // only executors may execute matches
     if !get_contract_info(deps.storage)?
@@ -410,17 +418,29 @@ fn execute_match(
         .load(bid_id.as_bytes())
         .map_err(|error| ContractError::OrderLoad { error })?;
 
+    let ask_price =
+        Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("AskOrder.price")],
+        })?;
+    let bid_price =
+        Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("BidOrder.price")],
+        })?;
+    let execute_price = Decimal::from_str(&price).map_err(|_| ContractError::InvalidFields {
+        fields: vec![String::from("ExecuteMsg.price")],
+    })?;
+
     match ask_order.price.cmp(&bid_order.price) {
         // order prices overlap, use ask or bid price determined by execute msg provided price
         Ordering::Less => {
-            if price.ne(&ask_order.price) && price.ne(&bid_order.price) {
+            if execute_price.ne(&ask_price) && execute_price.ne(&bid_price) {
                 return Err(ContractError::ExecutePriceInvalid);
             }
         }
         // if order prices are equal, execute price should be equal
         Ordering::Equal => {
-            if price.ne(&ask_order.price) {
-                return Err(ContractError::AskBidPriceMismatch);
+            if execute_price.ne(&ask_price) {
+                return Err(ContractError::ExecutePriceInvalid);
             }
         }
         // ask price is greater than bid price, normal price spread behavior and should not match
@@ -446,7 +466,7 @@ fn execute_match(
             }
 
             // calculate total (price * size), error if overflows
-            let total = price
+            let total = execute_price
                 .checked_mul(Decimal::from(base_size_to_send.u128()))
                 .ok_or(ContractError::TotalOverflow)?;
 
@@ -577,8 +597,6 @@ mod tests {
 
     use super::*;
     use provwasm_mocks::mock_dependencies;
-    use rust_decimal::prelude::FromStr;
-    use rust_decimal::Decimal;
 
     #[test]
     fn instantiate_valid_data() {
@@ -708,7 +726,7 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Decimal::from_str("2.5").unwrap(),
+            price: "2.5".into(),
             quote: "quote_1".into(),
         };
 
@@ -792,7 +810,7 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -868,7 +886,7 @@ mod tests {
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "".into(),
-            price: Decimal::zero(),
+            price: "".into(),
             quote: "".into(),
         };
 
@@ -917,7 +935,7 @@ mod tests {
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -962,7 +980,7 @@ mod tests {
         // create ask with inconvertible base
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -1007,7 +1025,7 @@ mod tests {
         // create ask with unsupported quote
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "unsupported".into(),
         };
 
@@ -1027,14 +1045,6 @@ mod tests {
                 error => panic!("unexpected error: {:?}", error),
             },
         }
-    }
-
-    #[test]
-    fn test_decimal() {
-        let x = Decimal::from_str("0.5").unwrap();
-        println!("x: {}", x);
-        let y = 4u128;
-        println!("{}", x.checked_mul(Decimal::from(y)).unwrap())
     }
 
     #[test]
@@ -1060,7 +1070,7 @@ mod tests {
         // create ask
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: Decimal::from_str("2.1").unwrap(),
+            price: "2.1".into(),
             quote: "quote_1".into(),
         };
 
@@ -1105,7 +1115,7 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -1160,7 +1170,7 @@ mod tests {
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
-            price: Decimal::from_str("2.5").unwrap(),
+            price: "2.5".into(),
             base: "base_denom".into(),
             size: Uint128(100),
         };
@@ -1243,7 +1253,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "".into(),
             base: "".into(),
-            price: Decimal::zero(),
+            price: "".into(),
             size: Uint128(0),
         };
 
@@ -1294,7 +1304,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_1".into(),
-            price: Decimal::from_str("2.5").unwrap(),
+            price: "2.5".into(),
             size: Uint128(100),
         };
 
@@ -1340,7 +1350,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "notbasedenom".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             size: Uint128(10),
         };
 
@@ -1386,7 +1396,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1432,7 +1442,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Decimal::from_str("2.5").unwrap(),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1478,7 +1488,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1528,7 +1538,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -1685,7 +1695,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: "not_asker".into(),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -1775,7 +1785,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -1932,7 +1942,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: "not_bidder".into(),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2025,7 +2035,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2038,7 +2048,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -2048,7 +2058,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2123,7 +2133,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(30),
             },
@@ -2136,7 +2146,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(20, "quote_1"),
                 size: Uint128(10),
             },
@@ -2146,7 +2156,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2193,7 +2203,7 @@ mod tests {
                         class: AskOrderClass::Basic,
                         id: "ask_id".into(),
                         owner: "asker".into(),
-                        price: Decimal::from_str("2").unwrap(),
+                        price: "2".into(),
                         quote: "quote_1".into(),
                         size: Uint128(20)
                     }
@@ -2238,7 +2248,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(50),
             },
@@ -2251,7 +2261,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -2261,7 +2271,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2307,7 +2317,7 @@ mod tests {
                         base: "base_1".into(),
                         id: "bid_id".into(),
                         owner: "bidder".into(),
-                        price: Decimal::from_str("2").unwrap(),
+                        price: "2".into(),
                         quote: coin(100, "quote_1"),
                         size: Uint128(50),
                     }
@@ -2355,7 +2365,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2368,7 +2378,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
             },
@@ -2378,7 +2388,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2460,7 +2470,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2473,7 +2483,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("4").unwrap(),
+                price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
             },
@@ -2483,7 +2493,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("4").unwrap(),
+            price: "4".into(),
         };
 
         let execute_response = execute(
@@ -2553,7 +2563,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "".into(),
             bid_id: "".into(),
-            price: Decimal::zero(),
+            price: "0".into(),
         };
 
         let execute_response = execute(
@@ -2603,7 +2613,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2650,7 +2660,7 @@ mod tests {
                 },
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -2663,7 +2673,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2673,7 +2683,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2723,7 +2733,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2733,7 +2743,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "no_ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2778,7 +2788,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -2788,7 +2798,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "no_bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2836,7 +2846,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2882,7 +2892,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("3").unwrap(),
+                price: "3".into(),
                 quote: "quote_1".into(),
                 size: Uint128(300),
             },
@@ -2895,7 +2905,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2905,7 +2915,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2953,7 +2963,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Decimal::from_str("2").unwrap(),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2966,7 +2976,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Decimal::from_str("4").unwrap(),
+                price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
             },
@@ -2976,7 +2986,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Decimal::from_str("6").unwrap(),
+            price: "6".into(),
         };
 
         let execute_response = execute(
@@ -3029,7 +3039,7 @@ mod tests {
             class: AskOrderClass::Basic,
             id: "ask_id".into(),
             owner: HumanAddr("asker".into()),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: "quote_1".into(),
             size: Uint128(200),
         };
@@ -3044,7 +3054,7 @@ mod tests {
             base: "base_1".into(),
             id: "bid_id".into(),
             owner: HumanAddr("bidder".into()),
-            price: Decimal::from_str("2").unwrap(),
+            price: "2".into(),
             quote: coin(100, "quote_1"),
             size: Uint128(100),
         };
