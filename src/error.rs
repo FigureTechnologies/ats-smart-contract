@@ -21,20 +21,17 @@ pub enum ContractError {
     #[error("Cannot send funds when executing match")]
     ExecuteWithFunds,
 
-    #[error("Execute price must be either the ask or bid price")]
-    ExecutePriceInvalid,
-
     #[error("Inconvertible base denomination")]
     InconvertibleBaseDenom,
+
+    #[error("Execute price must be either the ask or bid price")]
+    InvalidExecutePrice,
 
     #[error("Invalid fields: {fields:?}")]
     InvalidFields { fields: Vec<String> },
 
     #[error("Failed to load order: {error:?}")]
-    OrderLoad { error: StdError },
-
-    #[error("Total (price * size) exceeds max allowed")]
-    TotalOverflow,
+    LoadOrderFailed { error: StdError },
 
     #[error("Total (price * size) must be an integer")]
     NonIntegerTotal,
@@ -48,6 +45,9 @@ pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
 
+    #[error("Total (price * size) exceeds max allowed")]
+    TotalOverflow,
+
     #[error("Unauthorized")]
     Unauthorized,
 
@@ -56,10 +56,9 @@ pub enum ContractError {
 }
 
 impl From<ContractError> for StdError {
-    fn from(_: ContractError) -> Self {
-        StdError::ParseErr {
-            target_type: "".to_string(),
-            msg: "".to_string(),
+    fn from(error: ContractError) -> Self {
+        StdError::GenericErr {
+            msg: error.to_string(),
         }
     }
 }

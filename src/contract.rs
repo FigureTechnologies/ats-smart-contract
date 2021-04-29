@@ -124,8 +124,6 @@ pub fn execute(
             bid_id,
             price,
         } => execute_match(deps, env, info, ask_id, bid_id, price),
-        ExecuteMsg::ApproveAsk { id } => approve_ask(deps, info, id),
-        _ => Err(ContractError::Unauthorized {}),
     }
 }
 
@@ -308,7 +306,7 @@ fn cancel_ask(
         id, owner, base, ..
     } = ask_storage
         .load(id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
@@ -353,7 +351,7 @@ fn cancel_bid(
         id, owner, quote, ..
     } = bid_storage
         .load(id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
@@ -375,15 +373,6 @@ fn cancel_bid(
     };
 
     Ok(response)
-}
-
-// approve an ask order by sending base funds in exchange for convertible base
-fn approve_ask(
-    _deps: DepsMut,
-    _info: MessageInfo,
-    _ask_id: String,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
-    Err(ContractError::Unauthorized)
 }
 
 // match and execute an ask and bid order
@@ -411,12 +400,12 @@ fn execute_match(
     let ask_storage_read = get_ask_storage_read(deps.storage);
     let mut ask_order = ask_storage_read
         .load(ask_id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     let bid_storage_read = get_bid_storage_read(deps.storage);
     let mut bid_order = bid_storage_read
         .load(bid_id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     let ask_price =
         Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
@@ -434,13 +423,13 @@ fn execute_match(
         // order prices overlap, use ask or bid price determined by execute msg provided price
         Ordering::Less => {
             if execute_price.ne(&ask_price) && execute_price.ne(&bid_price) {
-                return Err(ContractError::ExecutePriceInvalid);
+                return Err(ContractError::InvalidExecutePrice);
             }
         }
         // if order prices are equal, execute price should be equal
         Ordering::Equal => {
             if execute_price.ne(&ask_price) {
-                return Err(ContractError::ExecutePriceInvalid);
+                return Err(ContractError::InvalidExecutePrice);
             }
         }
         // ask price is greater than bid price, normal price spread behavior and should not match
@@ -736,7 +725,7 @@ mod tests {
         let create_ask_response = execute(
             deps.as_mut(),
             mock_env(),
-            asker_info.clone(),
+            asker_info,
             create_ask_msg.clone(),
         );
 
@@ -1122,12 +1111,7 @@ mod tests {
         let asker_info = mock_info("asker", &coins(2, "base_denom"));
 
         // execute create ask
-        let create_ask_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            create_ask_msg.clone(),
-        );
+        let create_ask_response = execute(deps.as_mut(), mock_env(), asker_info, create_ask_msg);
 
         // verify execute create ask response
         match create_ask_response {
@@ -1648,16 +1632,11 @@ mod tests {
             id: "unknown_id".to_string(),
         };
 
-        let cancel_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            cancel_ask_msg,
-        );
+        let cancel_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
 
         match cancel_response {
             Err(error) => match error {
-                ContractError::OrderLoad { .. } => {}
+                ContractError::LoadOrderFailed { .. } => {}
                 _ => {
                     panic!("unexpected error: {:?}", error)
                 }
@@ -1896,16 +1875,11 @@ mod tests {
             id: "unknown_id".to_string(),
         };
 
-        let cancel_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            bidder_info.clone(),
-            cancel_bid_msg,
-        );
+        let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
 
         match cancel_response {
             Err(error) => match error {
-                ContractError::OrderLoad { .. } => {}
+                ContractError::LoadOrderFailed { .. } => {}
                 _ => {
                     panic!("unexpected error: {:?}", error)
                 }
@@ -2754,7 +2728,7 @@ mod tests {
         );
 
         match execute_response {
-            Err(ContractError::OrderLoad { .. }) => {}
+            Err(ContractError::LoadOrderFailed { .. }) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }
@@ -2809,7 +2783,7 @@ mod tests {
         );
 
         match execute_response {
-            Err(ContractError::OrderLoad { .. }) => {}
+            Err(ContractError::LoadOrderFailed { .. }) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }
@@ -2998,7 +2972,7 @@ mod tests {
 
         // validate execute response
         match execute_response {
-            Err(ContractError::ExecutePriceInvalid) => (),
+            Err(ContractError::InvalidExecutePrice) => (),
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }

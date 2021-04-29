@@ -76,18 +76,6 @@ pub enum ExecuteMsg {
         price: String,
         size: Uint128,
     },
-    ApproveAsk {
-        id: String,
-    },
-    RejectAsk {
-        id: String,
-    },
-    ExpireAsk {
-        id: String,
-    },
-    ExpireBid {
-        id: String,
-    },
     ExecuteMatch {
         ask_id: String,
         bid_id: String,
@@ -165,26 +153,6 @@ impl Validate for ExecuteMsg {
                 }
                 if price.is_empty() {
                     invalid_fields.push("price");
-                }
-            }
-            ExecuteMsg::ApproveAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::RejectAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::ExpireAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::ExpireBid { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
                 }
             }
         }
