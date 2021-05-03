@@ -2,7 +2,7 @@
 CONTAINER_RUNTIME := $(shell which podman 2>/dev/null || shell which docker 2>/dev/null)
 
 .PHONY: all
-all: fmt lint test schema optimize
+all: clean fmt lint test schema optimize
 
 .PHONY: clean
 clean:
@@ -36,7 +36,7 @@ coverage:
 optimize:
 	$(CONTAINER_RUNTIME) run --rm -v $(CURDIR):/code:Z \
 		--mount type=volume,source=ats-smart-contract_cache,target=/code/target \
-		--mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+		--mount type=volume,source=ats-smart-contract_registry_cache,target=/usr/local/cargo/registry \
 		cosmwasm/rust-optimizer:0.10.9
 
 .PHONY: install

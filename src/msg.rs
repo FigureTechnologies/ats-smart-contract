@@ -68,30 +68,18 @@ pub enum ExecuteMsg {
     CreateAsk {
         id: String,
         quote: String,
-        price: Uint128,
+        price: String,
     },
     CreateBid {
         id: String,
         base: String,
-        price: Uint128,
+        price: String,
         size: Uint128,
-    },
-    ApproveAsk {
-        id: String,
-    },
-    RejectAsk {
-        id: String,
-    },
-    ExpireAsk {
-        id: String,
-    },
-    ExpireBid {
-        id: String,
     },
     ExecuteMatch {
         ask_id: String,
         bid_id: String,
-        price: Uint128,
+        price: String,
     },
 }
 
@@ -116,7 +104,7 @@ impl Validate for ExecuteMsg {
                 if id.is_empty() {
                     invalid_fields.push("id");
                 }
-                if price.le(&Uint128(0)) {
+                if price.is_empty() {
                     invalid_fields.push("price");
                 }
                 if quote.is_empty() {
@@ -135,7 +123,7 @@ impl Validate for ExecuteMsg {
                 if base.is_empty() {
                     invalid_fields.push("base");
                 }
-                if price.le(&Uint128(0)) {
+                if price.is_empty() {
                     invalid_fields.push("price");
                 }
                 if size.is_zero() {
@@ -163,28 +151,8 @@ impl Validate for ExecuteMsg {
                 if bid_id.is_empty() {
                     invalid_fields.push("bid_id");
                 }
-                if price.le(&Uint128(0)) {
+                if price.is_empty() {
                     invalid_fields.push("price");
-                }
-            }
-            ExecuteMsg::ApproveAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::RejectAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::ExpireAsk { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
-                }
-            }
-            ExecuteMsg::ExpireBid { id } => {
-                if id.is_empty() {
-                    invalid_fields.push("id");
                 }
             }
         }

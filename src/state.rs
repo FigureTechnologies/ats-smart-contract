@@ -24,7 +24,7 @@ pub struct AskOrder {
     pub class: AskOrderClass,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Uint128,
+    pub price: String,
     pub quote: String,
     pub size: Uint128,
 }
@@ -34,7 +34,7 @@ pub struct BidOrder {
     pub base: String,
     pub id: String,
     pub owner: HumanAddr,
-    pub price: Uint128,
+    pub price: String,
     pub quote: Coin,
     pub size: Uint128,
 }

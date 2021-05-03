@@ -11,6 +11,8 @@ use crate::state::{
     get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrder,
     AskOrderClass, AskOrderStatus, BidOrder,
 };
+use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
+use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::{Mul, Sub};
@@ -122,8 +124,6 @@ pub fn execute(
             bid_id,
             price,
         } => execute_match(deps, env, info, ask_id, bid_id, price),
-        ExecuteMsg::ApproveAsk { id } => approve_ask(deps, info, id),
-        _ => Err(ContractError::Unauthorized {}),
     }
 }
 
@@ -155,6 +155,20 @@ fn create_ask(
         .contains(&ask_order.quote)
     {
         return Err(ContractError::UnsupportedQuoteDenom);
+    }
+
+    let ask_price =
+        Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        })?;
+
+    // error if total is non-integer
+    if ask_price
+        .mul(Decimal::from(ask_order.size.u128()))
+        .fract()
+        .ne(&Decimal::zero())
+    {
+        return Err(ContractError::NonIntegerTotal);
     }
 
     // error if asker does not have required account attributes
@@ -205,12 +219,23 @@ fn create_bid(
         return Err(ContractError::QuoteQuantity);
     }
 
-    // error if quote does not match order
-    if bid_order
-        .quote
-        .amount
-        .ne(&Uint128(bid_order.size.u128() * bid_order.price.u128()))
-    {
+    let bid_price =
+        Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        })?;
+
+    // calculate quote total (price * size), error if overflows
+    let total = bid_price
+        .checked_mul(Decimal::from(bid_order.size.u128()))
+        .ok_or(ContractError::TotalOverflow)?;
+
+    // error if total is not an integer
+    if total.fract().ne(&Decimal::zero()) {
+        return Err(ContractError::NonIntegerTotal);
+    }
+
+    // error if total is not equal to sent funds
+    if bid_order.quote.amount.u128().ne(&total.to_u128().unwrap()) {
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
@@ -281,7 +306,7 @@ fn cancel_ask(
         id, owner, base, ..
     } = ask_storage
         .load(id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
@@ -326,7 +351,7 @@ fn cancel_bid(
         id, owner, quote, ..
     } = bid_storage
         .load(id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
@@ -350,15 +375,6 @@ fn cancel_bid(
     Ok(response)
 }
 
-// approve an ask order by sending base funds in exchange for convertible base
-fn approve_ask(
-    _deps: DepsMut,
-    _info: MessageInfo,
-    _ask_id: String,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
-    Err(ContractError::Unauthorized)
-}
-
 // match and execute an ask and bid order
 fn execute_match(
     deps: DepsMut,
@@ -366,7 +382,7 @@ fn execute_match(
     info: MessageInfo,
     ask_id: String,
     bid_id: String,
-    price: Uint128,
+    price: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // only executors may execute matches
     if !get_contract_info(deps.storage)?
@@ -384,24 +400,36 @@ fn execute_match(
     let ask_storage_read = get_ask_storage_read(deps.storage);
     let mut ask_order = ask_storage_read
         .load(ask_id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     let bid_storage_read = get_bid_storage_read(deps.storage);
     let mut bid_order = bid_storage_read
         .load(bid_id.as_bytes())
-        .map_err(|error| ContractError::OrderLoad { error })?;
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
+
+    let ask_price =
+        Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("AskOrder.price")],
+        })?;
+    let bid_price =
+        Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("BidOrder.price")],
+        })?;
+    let execute_price = Decimal::from_str(&price).map_err(|_| ContractError::InvalidFields {
+        fields: vec![String::from("ExecuteMsg.price")],
+    })?;
 
     match ask_order.price.cmp(&bid_order.price) {
         // order prices overlap, use ask or bid price determined by execute msg provided price
         Ordering::Less => {
-            if price.ne(&ask_order.price) && price.ne(&bid_order.price) {
-                return Err(ContractError::AskBidPriceMismatch);
+            if execute_price.ne(&ask_price) && execute_price.ne(&bid_price) {
+                return Err(ContractError::InvalidExecutePrice);
             }
         }
         // if order prices are equal, execute price should be equal
         Ordering::Equal => {
-            if price.ne(&ask_order.price) {
-                return Err(ContractError::AskBidPriceMismatch);
+            if execute_price.ne(&ask_price) {
+                return Err(ContractError::InvalidExecutePrice);
             }
         }
         // ask price is greater than bid price, normal price spread behavior and should not match
@@ -426,8 +454,17 @@ fn execute_match(
                 base_size_to_send = bid_order.size;
             }
 
-            // calculate quote total. Uint128.mul only accepts Decimal types so need to (un)wrap
-            let quote_total = Uint128(price.u128().mul(base_size_to_send.u128()));
+            // calculate total (price * size), error if overflows
+            let total = execute_price
+                .checked_mul(Decimal::from(base_size_to_send.u128()))
+                .ok_or(ContractError::TotalOverflow)?;
+
+            // error if total is not an integer
+            if total.fract().ne(&Decimal::zero()) {
+                return Err(ContractError::NonIntegerTotal);
+            }
+
+            let quote_total = Uint128(total.to_u128().ok_or(ContractError::TotalOverflow)?);
 
             ask_order.size = ask_order.size.sub(base_size_to_send)?;
             ask_order.base.amount = ask_order.base.amount.sub(base_size_to_send)?;
@@ -521,6 +558,8 @@ fn execute_match(
 
 // smart contract query entrypoint
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    msg.validate()?;
+
     match msg {
         QueryMsg::GetAsk { id } => {
             let ask_storage_read = get_ask_storage_read(deps.storage);
@@ -676,7 +715,7 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Uint128(2),
+            price: "2.5".into(),
             quote: "quote_1".into(),
         };
 
@@ -686,7 +725,7 @@ mod tests {
         let create_ask_response = execute(
             deps.as_mut(),
             mock_env(),
-            asker_info.clone(),
+            asker_info,
             create_ask_msg.clone(),
         );
 
@@ -705,7 +744,7 @@ mod tests {
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk { id, price, quote } = create_ask_msg {
-            match ask_storage.load("ask_id".to_string().as_bytes()) {
+            match ask_storage.load("ask_id".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -760,7 +799,7 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -789,7 +828,7 @@ mod tests {
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk { id, quote, price } = create_ask_msg {
-            match ask_storage.load("ask_id".to_string().as_bytes()) {
+            match ask_storage.load("ask_id".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -836,7 +875,7 @@ mod tests {
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "".into(),
-            price: Uint128(0),
+            price: "".into(),
             quote: "".into(),
         };
 
@@ -885,7 +924,7 @@ mod tests {
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -930,7 +969,7 @@ mod tests {
         // create ask with inconvertible base
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
@@ -975,7 +1014,7 @@ mod tests {
         // create ask with unsupported quote
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "unsupported".into(),
         };
 
@@ -992,6 +1031,51 @@ mod tests {
             Ok(_) => panic!("expected error, but ok"),
             Err(error) => match error {
                 ContractError::UnsupportedQuoteDenom => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
+    fn create_ask_total_non_integer() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        // create ask
+        let create_ask_msg = ExecuteMsg::CreateAsk {
+            id: "id".into(),
+            price: "2.1".into(),
+            quote: "quote_1".into(),
+        };
+
+        // execute create ask
+        let create_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("asker", &coins(5, "base_denom")),
+            create_ask_msg,
+        );
+
+        // verify execute create ask response
+        match create_ask_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::NonIntegerTotal => (),
                 error => panic!("unexpected error: {:?}", error),
             },
         }
@@ -1020,19 +1104,14 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ask_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "quote_1".into(),
         };
 
         let asker_info = mock_info("asker", &coins(2, "base_denom"));
 
         // execute create ask
-        let create_ask_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            create_ask_msg.clone(),
-        );
+        let create_ask_response = execute(deps.as_mut(), mock_env(), asker_info, create_ask_msg);
 
         // verify execute create ask response
         match create_ask_response {
@@ -1075,12 +1154,12 @@ mod tests {
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2.5".into(),
             base: "base_denom".into(),
             size: Uint128(100),
         };
 
-        let bidder_info = mock_info("bidder", &coins(200, "quote_1"));
+        let bidder_info = mock_info("bidder", &coins(250, "quote_1"));
 
         // execute create bid
         let create_bid_response = execute(
@@ -1111,7 +1190,7 @@ mod tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("bid_id".to_string().as_bytes()) {
+            match bid_storage.load("bid_id".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -1120,7 +1199,7 @@ mod tests {
                             id,
                             owner: bidder_info.sender,
                             price,
-                            quote: coin(200, "quote_1"),
+                            quote: coin(250, "quote_1"),
                             size,
                         }
                     )
@@ -1158,7 +1237,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "".into(),
             base: "".into(),
-            price: Uint128(0),
+            price: "".into(),
             size: Uint128(0),
         };
 
@@ -1209,7 +1288,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_1".into(),
-            price: Uint128(2),
+            price: "2.5".into(),
             size: Uint128(100),
         };
 
@@ -1255,7 +1334,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "notbasedenom".into(),
-            price: Uint128(2),
+            price: "2".into(),
             size: Uint128(10),
         };
 
@@ -1301,7 +1380,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Uint128(2),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1347,7 +1426,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Uint128(2),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1393,7 +1472,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             base: "base_denom".into(),
-            price: Uint128(2),
+            price: "2".into(),
             size: Uint128(100),
         };
 
@@ -1443,7 +1522,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -1484,10 +1563,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -1556,16 +1632,11 @@ mod tests {
             id: "unknown_id".to_string(),
         };
 
-        let cancel_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            cancel_ask_msg,
-        );
+        let cancel_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
 
         match cancel_response {
             Err(error) => match error {
-                ContractError::OrderLoad { .. } => {}
+                ContractError::LoadOrderFailed { .. } => {}
                 _ => {
                     panic!("unexpected error: {:?}", error)
                 }
@@ -1603,7 +1674,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: "not_asker".into(),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -1693,7 +1764,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -1735,10 +1806,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -1807,16 +1875,11 @@ mod tests {
             id: "unknown_id".to_string(),
         };
 
-        let cancel_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            bidder_info.clone(),
-            cancel_bid_msg,
-        );
+        let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
 
         match cancel_response {
             Err(error) => match error {
-                ContractError::OrderLoad { .. } => {}
+                ContractError::LoadOrderFailed { .. } => {}
                 _ => {
                     panic!("unexpected error: {:?}", error)
                 }
@@ -1853,7 +1916,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: "not_bidder".into(),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -1946,7 +2009,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -1959,7 +2022,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -1969,7 +2032,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2007,17 +2070,11 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -2050,7 +2107,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(30),
             },
@@ -2063,7 +2120,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(20, "quote_1"),
                 size: Uint128(10),
             },
@@ -2073,7 +2130,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2111,7 +2168,7 @@ mod tests {
 
         // verify ask order updated
         let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ask_id".to_string().as_bytes()) {
+        match ask_storage.load("ask_id".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -2120,7 +2177,7 @@ mod tests {
                         class: AskOrderClass::Basic,
                         id: "ask_id".into(),
                         owner: "asker".into(),
-                        price: Uint128(2),
+                        price: "2".into(),
                         quote: "quote_1".into(),
                         size: Uint128(20)
                     }
@@ -2133,10 +2190,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -2168,7 +2222,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(50),
             },
@@ -2181,7 +2235,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
             },
@@ -2191,7 +2245,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2229,7 +2283,7 @@ mod tests {
 
         // verify bid order update
         let bid_storage = get_bid_storage_read(&deps.storage);
-        match bid_storage.load("bid_id".to_string().as_bytes()) {
+        match bid_storage.load("bid_id".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -2237,7 +2291,7 @@ mod tests {
                         base: "base_1".into(),
                         id: "bid_id".into(),
                         owner: "bidder".into(),
-                        price: Uint128(2),
+                        price: "2".into(),
                         quote: coin(100, "quote_1"),
                         size: Uint128(50),
                     }
@@ -2250,10 +2304,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
@@ -2288,7 +2339,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2301,7 +2352,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(4),
+                price: "2".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
             },
@@ -2311,7 +2362,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2356,17 +2407,11 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -2399,7 +2444,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
             },
@@ -2412,7 +2457,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(4),
+                price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
             },
@@ -2422,7 +2467,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(4),
+            price: "4".into(),
         };
 
         let execute_response = execute(
@@ -2460,17 +2505,11 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage.load("ask_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage.load("bid_id".to_string().as_bytes()).is_err(),
-            true
-        );
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
     }
 
     #[test]
@@ -2498,7 +2537,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "".into(),
             bid_id: "".into(),
-            price: Uint128(0),
+            price: "0".into(),
         };
 
         let execute_response = execute(
@@ -2548,7 +2587,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2595,7 +2634,7 @@ mod tests {
                 },
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -2608,7 +2647,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2618,7 +2657,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2668,7 +2707,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2678,7 +2717,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "no_ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2689,7 +2728,7 @@ mod tests {
         );
 
         match execute_response {
-            Err(ContractError::OrderLoad { .. }) => {}
+            Err(ContractError::LoadOrderFailed { .. }) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }
@@ -2723,7 +2762,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
             },
@@ -2733,7 +2772,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "no_bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2744,7 +2783,7 @@ mod tests {
         );
 
         match execute_response {
-            Err(ContractError::OrderLoad { .. }) => {}
+            Err(ContractError::LoadOrderFailed { .. }) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }
@@ -2781,7 +2820,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2827,7 +2866,7 @@ mod tests {
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: Uint128(3),
+                price: "3".into(),
                 quote: "quote_1".into(),
                 size: Uint128(300),
             },
@@ -2840,7 +2879,7 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: Uint128(2),
+                price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
             },
@@ -2850,7 +2889,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: Uint128(2),
+            price: "2".into(),
         };
 
         let execute_response = execute(
@@ -2866,6 +2905,85 @@ mod tests {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(_) => panic!("expected error, but ok"),
         }
+    }
+
+    #[test]
+    fn execute_price_not_ask_or_bid() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
+                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrder {
+                base: coin(100, "base_1"),
+                class: AskOrderClass::Basic,
+                id: "ask_id".into(),
+                owner: HumanAddr("asker".into()),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: "base_1".into(),
+                id: "bid_id".into(),
+                owner: HumanAddr("bidder".into()),
+                price: "4".into(),
+                quote: coin(400, "quote_1"),
+                size: Uint128(100),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ask_id".into(),
+            bid_id: "bid_id".into(),
+            price: "6".into(),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(ContractError::InvalidExecutePrice) => (),
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(_) => panic!("expected error, but ok"),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_ok(), true);
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_ok(), true);
     }
 
     #[test]
@@ -2895,7 +3013,7 @@ mod tests {
             class: AskOrderClass::Basic,
             id: "ask_id".into(),
             owner: HumanAddr("asker".into()),
-            price: Uint128(2),
+            price: "2".into(),
             quote: "quote_1".into(),
             size: Uint128(200),
         };
@@ -2910,7 +3028,7 @@ mod tests {
             base: "base_1".into(),
             id: "bid_id".into(),
             owner: HumanAddr("bidder".into()),
-            price: Uint128(2),
+            price: "2".into(),
             quote: coin(100, "quote_1"),
             size: Uint128(100),
         };

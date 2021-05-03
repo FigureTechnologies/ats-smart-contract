@@ -58,7 +58,7 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             },
             "quote": {
               "type": "string"
@@ -89,86 +89,10 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             },
             "size": {
               "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "approve_ask"
-      ],
-      "properties": {
-        "approve_ask": {
-          "type": "object",
-          "required": [
-            "id"
-          ],
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "reject_ask"
-      ],
-      "properties": {
-        "reject_ask": {
-          "type": "object",
-          "required": [
-            "id"
-          ],
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "expire_ask"
-      ],
-      "properties": {
-        "expire_ask": {
-          "type": "object",
-          "required": [
-            "id"
-          ],
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "required": [
-        "expire_bid"
-      ],
-      "properties": {
-        "expire_bid": {
-          "type": "object",
-          "required": [
-            "id"
-          ],
-          "properties": {
-            "id": {
-              "type": "string"
             }
           }
         }
@@ -195,7 +119,7 @@
               "type": "string"
             },
             "price": {
-              "$ref": "#/definitions/Uint128"
+              "type": "string"
             }
           }
         }
