@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-CONTAINER_RUNTIME := $(shell which podman 2>/dev/null || shell which docker 2>/dev/null)
+CONTAINER_RUNTIME := $(shell which docker 2>/dev/null || which podman 2>/dev/null)
 
 .PHONY: all
 all: clean fmt lint test schema optimize
