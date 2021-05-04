@@ -203,8 +203,15 @@ fn create_ask(
     Ok(Response {
         submessages: vec![],
         messages: vec![],
-        attributes: vec![attr("action", "create_ask"), attr("id", &ask_order.id)],
-        data: Some(to_binary(&ask_order)?),
+        attributes: vec![
+            attr("action", "create_ask"),
+            attr("id", &ask_order.id),
+            attr("base", &ask_order.base.denom),
+            attr("quote", &ask_order.quote),
+            attr("price", &ask_order.price),
+            attr("size", &ask_order.size),
+        ],
+        data: None,
     })
 }
 
@@ -280,8 +287,15 @@ fn create_bid(
     Ok(Response {
         submessages: vec![],
         messages: vec![],
-        attributes: vec![attr("action", "create_bid"), attr("id", &bid_order.id)],
-        data: Some(to_binary(&bid_order)?),
+        attributes: vec![
+            attr("action", "create_bid"),
+            attr("id", &bid_order.id),
+            attr("base", &bid_order.base),
+            attr("quote", &bid_order.quote.denom),
+            attr("price", &bid_order.price),
+            attr("size", &bid_order.size),
+        ],
+        data: None,
     })
 }
 
@@ -732,9 +746,13 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 2);
+                assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(response.attributes[1], attr("id", "ask_id"));
+                assert_eq!(response.attributes[2], attr("base", "base_1"));
+                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("size", "2"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -803,7 +821,7 @@ mod tests {
             quote: "quote_1".into(),
         };
 
-        let asker_info = mock_info("asker", &coins(2, "base_1"));
+        let asker_info = mock_info("asker", &coins(5, "base_1"));
 
         // execute create ask
         let create_ask_response = execute(
@@ -816,9 +834,13 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 2);
+                assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(response.attributes[1], attr("id", "ask_id"));
+                assert_eq!(response.attributes[2], attr("base", "base_1"));
+                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[4], attr("price", "2"));
+                assert_eq!(response.attributes[5], attr("size", "5"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -833,13 +855,13 @@ mod tests {
                     assert_eq!(
                         stored_order,
                         AskOrder {
-                            base: coin(2, "base_1"),
+                            base: coin(5, "base_1"),
                             class: AskOrderClass::Basic,
                             id,
                             owner: asker_info.sender,
                             price,
                             quote,
-                            size: Uint128(2),
+                            size: Uint128(5),
                         }
                     )
                 }
@@ -1133,7 +1155,7 @@ mod tests {
                 definition: "def".to_string(),
                 version: "ver".to_string(),
                 bind_name: "contract_bind_name".into(),
-                base_denom: "base_denom".into(),
+                base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
@@ -1155,7 +1177,7 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "bid_id".into(),
             price: "2.5".into(),
-            base: "base_denom".into(),
+            base: "base_1".into(),
             size: Uint128(100),
         };
 
@@ -1172,9 +1194,13 @@ mod tests {
         // verify execute create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 2);
+                assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
                 assert_eq!(response.attributes[1], attr("id", "bid_id"));
+                assert_eq!(response.attributes[2], attr("base", "base_1"));
+                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("size", "100"));
             }
             Err(error) => {
                 panic!("failed to create bid: {:?}", error)
