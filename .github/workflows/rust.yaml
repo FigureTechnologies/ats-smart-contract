@@ -20,7 +20,7 @@ jobs:
       - name: toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.51.0-x86_64-unknown-linux-gnu
       - name: cargo format
         uses: actions-rs/cargo@v1
         with:
