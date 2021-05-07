@@ -433,7 +433,7 @@ fn execute_match(
         fields: vec![String::from("ExecuteMsg.price")],
     })?;
 
-    match ask_order.price.cmp(&bid_order.price) {
+    match ask_price.cmp(&bid_price) {
         // order prices overlap, use ask or bid price determined by execute msg provided price
         Ordering::Less => {
             if execute_price.ne(&ask_price) && execute_price.ne(&bid_price) {
@@ -2361,13 +2361,13 @@ mod tests {
         store_test_ask(
             &mut deps.storage,
             &AskOrder {
-                base: coin(100, "base_1"),
+                base: coin(777, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
                 owner: HumanAddr("asker".into()),
-                price: "2".into(),
+                price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128(777),
             },
         );
 
@@ -2378,9 +2378,9 @@ mod tests {
                 base: "base_1".into(),
                 id: "bid_id".into(),
                 owner: HumanAddr("bidder".into()),
-                price: "2".into(),
-                quote: coin(400, "quote_1"),
-                size: Uint128(100),
+                price: "100.000000000000000000".into(),
+                quote: coin(500, "quote_1"),
+                size: Uint128(5),
             },
         );
 
@@ -2388,7 +2388,7 @@ mod tests {
         let execute_msg = ExecuteMsg::ExecuteMatch {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
-            price: "2".into(),
+            price: "2.000000000000000000".into(),
         };
 
         let execute_response = execute(
@@ -2411,29 +2411,29 @@ mod tests {
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
-                        amount: coins(200, "quote_1"),
+                        amount: coins(10, "quote_1"),
                     })
                 );
                 assert_eq!(
                     execute_response.messages[1],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
-                        amount: vec![coin(100, "base_1")],
+                        amount: vec![coin(5, "base_1")],
                     })
                 );
                 assert_eq!(
                     execute_response.messages[2],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
-                        amount: vec![coin(200, "quote_1")],
+                        amount: vec![coin(490, "quote_1")],
                     })
                 );
             }
         }
 
-        // verify ask order removed from storage
+        // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), false);
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
