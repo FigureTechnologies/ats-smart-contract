@@ -517,6 +517,10 @@ fn execute_match(
                     attr("action", "execute"),
                     attr("ask_id", &ask_id),
                     attr("bid_id", &bid_id),
+                    attr("base", &bid_order.base),
+                    attr("quote", &ask_order.quote),
+                    attr("price", &execute_price),
+                    attr("size", &base_size_to_send),
                 ],
                 data: None,
             };
@@ -2072,10 +2076,14 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 3);
+                assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "2"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
@@ -2170,10 +2178,14 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 3);
+                assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "2"));
+                assert_eq!(execute_response.attributes[6], attr("size", "10"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
@@ -2285,10 +2297,14 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 3);
+                assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "2"));
+                assert_eq!(execute_response.attributes[6], attr("size", "50"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
@@ -2402,10 +2418,17 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 3);
+                assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(
+                    execute_response.attributes[5],
+                    attr("price", "2.000000000000000000")
+                );
+                assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0],
@@ -2507,10 +2530,14 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 3);
+                assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
                 assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "4"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
