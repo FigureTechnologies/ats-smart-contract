@@ -27,6 +27,9 @@ pub enum ContractError {
     #[error("Execute price must be either the ask or bid price")]
     InvalidExecutePrice,
 
+    #[error("Execute size must be either the ask or bid price")]
+    InvalidExecuteSize,
+
     #[error("Invalid fields: {fields:?}")]
     InvalidFields { fields: Vec<String> },
 

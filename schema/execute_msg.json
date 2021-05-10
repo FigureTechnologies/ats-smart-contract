@@ -109,7 +109,8 @@
           "required": [
             "ask_id",
             "bid_id",
-            "price"
+            "price",
+            "size"
           ],
           "properties": {
             "ask_id": {
@@ -120,6 +121,9 @@
             },
             "price": {
               "type": "string"
+            },
+            "size": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }
