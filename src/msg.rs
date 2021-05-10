@@ -80,6 +80,7 @@ pub enum ExecuteMsg {
         ask_id: String,
         bid_id: String,
         price: String,
+        size: Uint128,
     },
 }
 
@@ -126,7 +127,7 @@ impl Validate for ExecuteMsg {
                 if price.is_empty() {
                     invalid_fields.push("price");
                 }
-                if size.is_zero() {
+                if size.lt(&Uint128(1)) {
                     invalid_fields.push("size");
                 }
             }
@@ -144,6 +145,7 @@ impl Validate for ExecuteMsg {
                 ask_id,
                 bid_id,
                 price,
+                size,
             } => {
                 if ask_id.is_empty() {
                     invalid_fields.push("ask_id");
@@ -152,6 +154,9 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("bid_id");
                 }
                 if price.is_empty() {
+                    invalid_fields.push("price");
+                }
+                if size.lt(&Uint128(1)) {
                     invalid_fields.push("price");
                 }
             }
