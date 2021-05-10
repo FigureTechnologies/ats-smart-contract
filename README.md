@@ -51,7 +51,7 @@ _note: Address bech32 values and other params may vary._
     build/provenanced tx wasm store ats_smart_contract.wasm \
         -t \
         --source "https://github.com/provenance-io/ats-smart-contract" \
-        --builder "cosmwasm/rust-optimizer:0.10.7" \
+        --builder "cosmwasm/rust-optimizer:0.11.3" \
         --from validator \
         --keyring-backend test \
         --home build/run/provenanced \
@@ -61,7 +61,7 @@ _note: Address bech32 values and other params may vary._
         --broadcast-mode block \
         --yes | jq;
     ```
-   
+
 0. Instantiate the contract, binding the name `ats-exchange.sc.pb` to the contract address:
     ```shell
     build/provenanced tx wasm instantiate 1 \
@@ -83,10 +83,10 @@ _note: Address bech32 values and other params may vary._
     ```
 
 0. Create an `ask` order:
-   
+
     _note: The json data '{"create_ask":{}}' is the action and order data to pass into the smart contract. The actual
    marker token sent is the order base, identified by `--amount` below._
-    
+
     ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
         '{"create_ask":{"id":"ask_id", "price":"2", "quote":"usd"}}' \
@@ -102,12 +102,12 @@ _note: Address bech32 values and other params may vary._
         --broadcast-mode block \
         --yes | jq
     ```
-   
+
 0. Create a `bid` order:
 
     _note: The json data '{"create_bid":{}}' is the action and order data to pass into the smart contract, he actual
    marker token sent is the order quote, identified by `--amount` below._
-   
+
    ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
         '{"create_bid":{"id":"bid_id", "base":"gme", "price":"2", "size":"5"}}' \
@@ -125,7 +125,7 @@ _note: Address bech32 values and other params may vary._
     ```
 
 0. Match and execute the ask and bid orders.
-   
+
    ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
         '{"execute_match":{"ask_id":"ask_id", "bid_id":"bid_id"}}' \

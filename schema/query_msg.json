@@ -19,7 +19,8 @@
             }
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     {
       "type": "object",
@@ -38,7 +39,8 @@
             }
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     {
       "type": "object",
@@ -49,7 +51,8 @@
         "get_contract_info": {
           "type": "object"
         }
-      }
+      },
+      "additionalProperties": false
     }
   ]
 }

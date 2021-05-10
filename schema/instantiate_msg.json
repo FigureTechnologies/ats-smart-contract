@@ -41,13 +41,13 @@
     "executors": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/HumanAddr"
+        "type": "string"
       }
     },
     "issuers": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/HumanAddr"
+        "type": "string"
       }
     },
     "name": {
@@ -58,11 +58,6 @@
       "items": {
         "type": "string"
       }
-    }
-  },
-  "definitions": {
-    "HumanAddr": {
-      "type": "string"
     }
   }
 }
