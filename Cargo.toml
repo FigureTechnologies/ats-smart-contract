@@ -1,6 +1,6 @@
 [package]
 name = "ats-smart-contract"
-version = "0.14.0-beta1.3"
+version = "0.14.0-beta1.4"
 authors = ["Ken Talley <ktalley@figure.com>"]
 edition = "2018"
 
@@ -28,15 +28,15 @@ overflow-checks = true
 #backtraces = ["cosmwasm-std/backtraces"]
 
 [dependencies]
-cosmwasm-std = { version = "0.14.0-beta1", features = ["staking"] }
-cosmwasm-storage = { version = "0.14.0-beta1" }
-cw-storage-plus = { version = "0.6.0-alpha1" }
-provwasm-std = { version = "0.14.0-beta1" }
+cosmwasm-std = { version = "0.14.0", features = ["staking"] }
+cosmwasm-storage = { version = "0.14.0" }
+cw-storage-plus = { version = "0.6.0" }
+provwasm-std = { version = "0.14.0" }
 rust_decimal = { version = "1.12.2" }
-schemars = "0.7"
+schemars = "0.8.1"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.23" }
 
 [dev-dependencies]
-cosmwasm-schema = { version = "0.14.0-beta1" }
-provwasm-mocks = { version = "0.14.0-beta1" }
+cosmwasm-schema = { version = "0.14.0" }
+provwasm-mocks = { version = "0.14.0" }

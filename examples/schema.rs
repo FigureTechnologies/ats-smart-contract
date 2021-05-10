@@ -3,9 +3,9 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
+use ats_smart_contract::contract_info::ContractInfo;
 use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use ats_smart_contract::state::{AskOrder, AskOrderClass, AskOrderStatus, BidOrder};
-use cosmwasm_std::ContractInfo;
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    attr, to_binary, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdError,
-    StdResult, Uint128,
+    attr, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
+    StdError, StdResult, Uint128,
 };
 use provwasm_std::{bind_name, NameBinding, ProvenanceMsg, ProvenanceQuerier};
 
@@ -15,7 +15,7 @@ use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::ops::{Mul, Sub};
+use std::ops::Mul;
 
 pub const CONTRACT_DEFINITION: &str = env!("CARGO_CRATE_NAME");
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -29,6 +29,20 @@ pub fn instantiate(
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     msg.validate()?;
 
+    // Validate and convert executors to addresses
+    let mut executors: Vec<Addr> = Vec::new();
+    for executor_str in msg.executors {
+        let address = deps.api.addr_validate(&executor_str)?;
+        executors.push(address);
+    }
+
+    // Validate and convert issuers to addresses
+    let mut issuers: Vec<Addr> = Vec::new();
+    for issuer_str in msg.issuers {
+        let address = deps.api.addr_validate(&issuer_str)?;
+        issuers.push(address);
+    }
+
     // set contract info
     let contract_info = ContractInfo {
         name: msg.name,
@@ -38,8 +52,8 @@ pub fn instantiate(
         base_denom: msg.base_denom,
         convertible_base_denoms: msg.convertible_base_denoms,
         supported_quote_denoms: msg.supported_quote_denoms,
-        executors: msg.executors,
-        issuers: msg.issuers,
+        executors,
+        issuers,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
     };
@@ -176,7 +190,7 @@ fn create_ask(
     if !contract_info.ask_required_attributes.is_empty() {
         let querier = ProvenanceQuerier::new(&deps.querier);
         let none: Option<String> = None;
-        let attributes_container = querier.get_attributes(&info.sender, none)?;
+        let attributes_container = querier.get_attributes(info.sender.clone(), none)?;
         let attributes_names: HashSet<String> = attributes_container
             .attributes
             .into_iter()
@@ -266,7 +280,7 @@ fn create_bid(
     if !contract_info.bid_required_attributes.is_empty() {
         let querier = ProvenanceQuerier::new(&deps.querier);
         let none: Option<String> = None;
-        let attributes_container = querier.get_attributes(&info.sender, none)?;
+        let attributes_container = querier.get_attributes(info.sender.clone(), none)?;
         let attributes_names: HashSet<String> = attributes_container
             .attributes
             .into_iter()
@@ -334,7 +348,7 @@ fn cancel_ask(
     let response = Response {
         submessages: vec![],
         messages: vec![BankMsg::Send {
-            to_address: owner,
+            to_address: owner.to_string(),
             amount: vec![base],
         }
         .into()],
@@ -379,7 +393,7 @@ fn cancel_bid(
     let response = Response {
         submessages: vec![],
         messages: vec![BankMsg::Send {
-            to_address: owner,
+            to_address: owner.to_string(),
             amount: vec![quote],
         }
         .into()],
@@ -477,16 +491,17 @@ fn execute_match(
 
             let quote_total = Uint128(total.to_u128().ok_or(ContractError::TotalOverflow)?);
 
-            ask_order.size = ask_order.size.sub(size)?;
-            ask_order.base.amount = ask_order.base.amount.sub(size)?;
-            bid_order.size = bid_order.size.sub(size)?;
-            bid_order.quote.amount = bid_order.quote.amount.sub(quote_total)?;
+            ask_order.size = Uint128(ask_order.size.u128() - size.u128());
+            ask_order.base.amount = Uint128(ask_order.base.amount.u128() - size.u128());
+            bid_order.size = Uint128(bid_order.size.u128() - size.u128());
+            bid_order.quote.amount = Uint128(bid_order.quote.amount.u128() - quote_total.u128());
 
             // calculate refund to bidder if bid order is completed but quote funds remain
             let mut bidder_refund = Uint128(0);
             if bid_order.size.is_zero() && !bid_order.quote.amount.is_zero() {
                 bidder_refund = bid_order.quote.amount;
-                bid_order.quote.amount = bid_order.quote.amount.sub(bidder_refund)?;
+                bid_order.quote.amount =
+                    Uint128(bid_order.quote.amount.u128() - bidder_refund.u128());
             }
 
             // 'send quote to asker' and 'send base to bidder' messages
@@ -494,7 +509,7 @@ fn execute_match(
                 submessages: vec![],
                 messages: vec![
                     BankMsg::Send {
-                        to_address: ask_order.owner.clone(),
+                        to_address: ask_order.owner.to_string(),
                         amount: vec![Coin {
                             denom: ask_order.quote.clone(),
                             amount: quote_total,
@@ -502,7 +517,7 @@ fn execute_match(
                     }
                     .into(),
                     BankMsg::Send {
-                        to_address: bid_order.owner.clone(),
+                        to_address: bid_order.owner.to_string(),
                         amount: vec![Coin {
                             denom: bid_order.base.clone(),
                             amount: size,
@@ -525,7 +540,7 @@ fn execute_match(
             if !bidder_refund.is_zero() {
                 response.messages.push(
                     BankMsg::Send {
-                        to_address: bid_order.owner.clone(),
+                        to_address: bid_order.owner.to_string(),
                         amount:
                         // bid order completed, refund any remaining quote funds to bidder
                         vec![
@@ -593,7 +608,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 mod tests {
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::CosmosMsg;
-    use cosmwasm_std::{coin, coins, BankMsg, HumanAddr, Storage, Uint128};
+    use cosmwasm_std::{coin, coins, Addr, BankMsg, Storage, Uint128};
     use provwasm_std::{NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute};
 
     use crate::contract_info::ContractInfo;
@@ -613,8 +628,8 @@ mod tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-            executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-            issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+            executors: vec!["exec_1".into(), "exec_2".into()],
+            issuers: vec!["issuer_1".into(), "issuer_2".into()],
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
         };
@@ -632,7 +647,7 @@ mod tests {
                         route: ProvenanceRoute::Name,
                         params: ProvenanceMsgParams::Name(NameMsgParams::BindName {
                             name: init_msg.bind_name,
-                            address: MOCK_CONTRACT_ADDR.into(),
+                            address: Addr::unchecked(MOCK_CONTRACT_ADDR),
                             restrict: true
                         }),
                         version: "2.0.0".to_string(),
@@ -646,8 +661,8 @@ mod tests {
                     base_denom: "base_denom".into(),
                     convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                    executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                    issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                    executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                    issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 };
@@ -712,8 +727,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -771,7 +786,7 @@ mod tests {
                             base: coin(2, "base_1"),
                             class: AskOrderClass::Basic,
                             id,
-                            owner: "asker".into(),
+                            owner: Addr::unchecked("asker"),
                             price,
                             quote,
                             size: Uint128(2)
@@ -800,8 +815,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -888,8 +903,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -937,8 +952,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -982,8 +997,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1027,8 +1042,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1072,8 +1087,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1117,8 +1132,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1159,8 +1174,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1253,8 +1268,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1304,8 +1319,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1350,8 +1365,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1396,8 +1411,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1442,8 +1457,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1488,8 +1503,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1534,8 +1549,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1548,7 +1563,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
@@ -1580,7 +1595,7 @@ mod tests {
                 assert_eq!(
                     cancel_ask_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: asker_info.sender,
+                        to_address: asker_info.sender.to_string(),
                         amount: coins(100, "base_1"),
                     })
                 );
@@ -1606,8 +1621,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1645,8 +1660,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1685,8 +1700,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1700,7 +1715,7 @@ mod tests {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: "not_asker".into(),
+                owner: Addr::unchecked("not_asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
@@ -1738,8 +1753,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1777,8 +1792,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1790,7 +1805,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
@@ -1823,7 +1838,7 @@ mod tests {
                 assert_eq!(
                     cancel_bid_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: bidder_info.sender,
+                        to_address: bidder_info.sender.to_string(),
                         amount: coins(200, "quote_1"),
                     })
                 );
@@ -1849,8 +1864,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1888,8 +1903,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1928,8 +1943,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -1942,7 +1957,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: "not_bidder".into(),
+                owner: Addr::unchecked("not_bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
@@ -1980,8 +1995,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2021,8 +2036,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2035,7 +2050,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
@@ -2048,7 +2063,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
@@ -2124,8 +2139,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2138,7 +2153,7 @@ mod tests {
                 base: coin(30, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(30),
@@ -2151,7 +2166,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(20, "quote_1"),
                 size: Uint128(10),
@@ -2213,7 +2228,7 @@ mod tests {
                         base: coin(20, "base_1"),
                         class: AskOrderClass::Basic,
                         id: "ask_id".into(),
-                        owner: "asker".into(),
+                        owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
                         size: Uint128(20)
@@ -2244,8 +2259,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2258,7 +2273,7 @@ mod tests {
                 base: coin(50, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(50),
@@ -2271,7 +2286,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
                 size: Uint128(100),
@@ -2332,7 +2347,7 @@ mod tests {
                     BidOrder {
                         base: "base_1".into(),
                         id: "bid_id".into(),
-                        owner: "bidder".into(),
+                        owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: coin(100, "quote_1"),
                         size: Uint128(50),
@@ -2366,8 +2381,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2380,7 +2395,7 @@ mod tests {
                 base: coin(777, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
                 size: Uint128(777),
@@ -2393,7 +2408,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "100.000000000000000000".into(),
                 quote: coin(500, "quote_1"),
                 size: Uint128(5),
@@ -2479,8 +2494,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2493,7 +2508,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
@@ -2506,7 +2521,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
@@ -2581,8 +2596,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2632,8 +2647,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2675,8 +2690,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2690,7 +2705,7 @@ mod tests {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
@@ -2703,7 +2718,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
@@ -2751,8 +2766,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2764,7 +2779,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
@@ -2807,8 +2822,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2820,7 +2835,7 @@ mod tests {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(200),
@@ -2863,13 +2878,13 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 executors: vec![
-                    HumanAddr::from(
+                    Addr::unchecked(
                         "exec_1\
                 ",
                     ),
-                    HumanAddr::from("exec_2"),
+                    Addr::unchecked("exec_2"),
                 ],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
@@ -2912,8 +2927,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2926,7 +2941,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "3".into(),
                 quote: "quote_1".into(),
                 size: Uint128(300),
@@ -2939,7 +2954,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
                 size: Uint128(200),
@@ -2984,8 +2999,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -2998,7 +3013,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
@@ -3011,7 +3026,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
@@ -3064,8 +3079,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -3078,7 +3093,7 @@ mod tests {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "ask_id".into(),
-                owner: HumanAddr("asker".into()),
+                owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
                 size: Uint128(100),
@@ -3091,7 +3106,7 @@ mod tests {
             &BidOrder {
                 base: "base_1".into(),
                 id: "bid_id".into(),
-                owner: HumanAddr("bidder".into()),
+                owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
                 size: Uint128(100),
@@ -3143,8 +3158,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                executors: vec![HumanAddr::from("exec_1"), HumanAddr::from("exec_2")],
-                issuers: vec![HumanAddr::from("issuer_1"), HumanAddr::from("issuer_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             },
@@ -3155,7 +3170,7 @@ mod tests {
             base: coin(200, "base_1"),
             class: AskOrderClass::Basic,
             id: "ask_id".into(),
-            owner: HumanAddr("asker".into()),
+            owner: Addr::unchecked("asker"),
             price: "2".into(),
             quote: "quote_1".into(),
             size: Uint128(200),
@@ -3170,7 +3185,7 @@ mod tests {
         let bid_order = BidOrder {
             base: "base_1".into(),
             id: "bid_id".into(),
-            owner: HumanAddr("bidder".into()),
+            owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: coin(100, "quote_1"),
             size: Uint128(100),

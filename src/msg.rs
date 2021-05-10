@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use cosmwasm_std::{HumanAddr, Uint128};
+use cosmwasm_std::Uint128;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +10,8 @@ pub struct InstantiateMsg {
     pub base_denom: String,
     pub convertible_base_denoms: Vec<String>,
     pub supported_quote_denoms: Vec<String>,
-    pub executors: Vec<HumanAddr>,
-    pub issuers: Vec<HumanAddr>,
+    pub executors: Vec<String>,
+    pub issuers: Vec<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
 }
