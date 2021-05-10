@@ -33,6 +33,9 @@ pub enum ContractError {
     #[error("Invalid fields: {fields:?}")]
     InvalidFields { fields: Vec<String> },
 
+    #[error("Size increment must be a multiple of (10 ^ price precision)")]
+    InvalidPricePrecisionSizePair,
+
     #[error("Failed to load order: {error:?}")]
     LoadOrderFailed { error: StdError },
 

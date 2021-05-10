@@ -6,6 +6,7 @@ use provwasm_std::{bind_name, NameBinding, ProvenanceMsg, ProvenanceQuerier};
 
 use crate::contract_info::{get_contract_info, set_contract_info, ContractInfo};
 use crate::error::ContractError;
+use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, Validate};
 use crate::state::{
     get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrder,
@@ -56,7 +57,13 @@ pub fn instantiate(
         issuers,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
+        price_precision: msg.price_precision,
+        size_increment: msg.size_increment,
     };
+
+    if (msg.size_increment.u128() % 10u128.pow(msg.price_precision.u128() as u32)).ne(&0) {
+        return Err(InvalidPricePrecisionSizePair);
+    }
 
     set_contract_info(deps.storage, &contract_info)?;
 
@@ -172,18 +179,29 @@ fn create_ask(
         return Err(ContractError::UnsupportedQuoteDenom);
     }
 
+    // error if order size is not multiple of size_increment
+    if (ask_order.size.u128() % contract_info.size_increment.u128()).ne(&0) {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        });
+    }
+
     let ask_price =
         Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
             fields: vec![String::from("price")],
         })?;
 
-    // error if total is non-integer
+    // error if price smaller than allow price precision
     if ask_price
-        .mul(Decimal::from(ask_order.size.u128()))
+        .mul(Decimal::from(
+            10u128.pow(contract_info.price_precision.u128() as u32),
+        ))
         .fract()
         .ne(&Decimal::zero())
     {
-        return Err(ContractError::NonIntegerTotal);
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        });
     }
 
     // error if asker does not have required account attributes
@@ -241,10 +259,32 @@ fn create_bid(
         return Err(ContractError::QuoteQuantity);
     }
 
+    let contract_info = get_contract_info(deps.storage)?;
+
     let bid_price =
         Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
             fields: vec![String::from("price")],
         })?;
+
+    // error if price smaller than allow price precision
+    if bid_price
+        .mul(Decimal::from(
+            10u128.pow(contract_info.price_precision.u128() as u32),
+        ))
+        .fract()
+        .ne(&Decimal::zero())
+    {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        });
+    }
+
+    // error if order size is not multiple of size_increment
+    if (bid_order.size.u128() % contract_info.size_increment.u128()).ne(&0) {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        });
+    }
 
     // calculate quote total (price * size), error if overflows
     let total = bid_price
@@ -260,8 +300,6 @@ fn create_bid(
     if bid_order.quote.amount.u128().ne(&total.to_u128().unwrap()) {
         return Err(ContractError::SentFundsOrderMismatch);
     }
-
-    let contract_info = get_contract_info(deps.storage)?;
 
     // error if order quote is not supported quote denom
     if !&contract_info
@@ -632,6 +670,8 @@ mod tests {
             issuers: vec!["issuer_1".into(), "issuer_2".into()],
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
         };
 
         // initialize
@@ -665,6 +705,8 @@ mod tests {
                     issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                    price_precision: Uint128(2),
+                    size_increment: Uint128(100),
                 };
 
                 assert_eq!(init_response.attributes.len(), 2);
@@ -693,6 +735,8 @@ mod tests {
             issuers: vec![],
             ask_required_attributes: vec![],
             bid_required_attributes: vec![],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
         };
 
         // initialize
@@ -715,6 +759,38 @@ mod tests {
     }
 
     #[test]
+    fn instantiate_invalid_price_size_increment_pair() {
+        // create invalid init data
+        let mut deps = mock_dependencies(&[]);
+        let info = mock_info("contract_owner", &[]);
+        let init_msg = InstantiateMsg {
+            name: "contract_name".into(),
+            bind_name: "contract_bind_name".into(),
+            base_denom: "base_denom".into(),
+            convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+            supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            executors: vec!["exec_1".into(), "exec_2".into()],
+            issuers: vec!["issuer_1".into(), "issuer_2".into()],
+            ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+            bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(10),
+        };
+
+        // initialize
+        let init_response = instantiate(deps.as_mut(), mock_env(), info, init_msg);
+
+        // verify initialize response
+        match init_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                InvalidPricePrecisionSizePair => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn create_ask_valid_data() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -731,6 +807,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -749,7 +827,7 @@ mod tests {
             quote: "quote_1".into(),
         };
 
-        let asker_info = mock_info("asker", &coins(2, "base_1"));
+        let asker_info = mock_info("asker", &coins(200, "base_1"));
 
         // execute create ask
         let create_ask_response = execute(
@@ -768,7 +846,7 @@ mod tests {
                 assert_eq!(response.attributes[2], attr("base", "base_1"));
                 assert_eq!(response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[4], attr("price", "2.5"));
-                assert_eq!(response.attributes[5], attr("size", "2"));
+                assert_eq!(response.attributes[5], attr("size", "200"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -783,13 +861,13 @@ mod tests {
                     assert_eq!(
                         stored_order,
                         AskOrder {
-                            base: coin(2, "base_1"),
+                            base: coin(200, "base_1"),
                             class: AskOrderClass::Basic,
                             id,
                             owner: Addr::unchecked("asker"),
                             price,
                             quote,
-                            size: Uint128(2)
+                            size: Uint128(200)
                         }
                     )
                 }
@@ -819,6 +897,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -837,7 +917,7 @@ mod tests {
             quote: "quote_1".into(),
         };
 
-        let asker_info = mock_info("asker", &coins(5, "base_1"));
+        let asker_info = mock_info("asker", &coins(500, "base_1"));
 
         // execute create ask
         let create_ask_response = execute(
@@ -856,7 +936,7 @@ mod tests {
                 assert_eq!(response.attributes[2], attr("base", "base_1"));
                 assert_eq!(response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[4], attr("price", "2"));
-                assert_eq!(response.attributes[5], attr("size", "5"));
+                assert_eq!(response.attributes[5], attr("size", "500"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -871,13 +951,13 @@ mod tests {
                     assert_eq!(
                         stored_order,
                         AskOrder {
-                            base: coin(5, "base_1"),
+                            base: coin(500, "base_1"),
                             class: AskOrderClass::Basic,
                             id,
                             owner: asker_info.sender,
                             price,
                             quote,
-                            size: Uint128(5),
+                            size: Uint128(500),
                         }
                     )
                 }
@@ -907,6 +987,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -956,6 +1038,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1001,6 +1085,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1046,6 +1132,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1075,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn create_ask_total_non_integer() {
+    fn create_ask_invalid_price_precision() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
@@ -1089,15 +1177,17 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
         // create ask
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "id".into(),
-            price: "2.1".into(),
+            price: "2.123".into(),
             quote: "quote_1".into(),
         };
 
@@ -1105,7 +1195,7 @@ mod tests {
         let create_ask_response = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("asker", &coins(5, "base_denom")),
+            mock_info("asker", &coins(500, "base_denom")),
             create_ask_msg,
         );
 
@@ -1113,7 +1203,9 @@ mod tests {
         match create_ask_response {
             Ok(_) => panic!("expected error, but ok"),
             Err(error) => match error {
-                ContractError::NonIntegerTotal => (),
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"price".into()))
+                }
                 error => panic!("unexpected error: {:?}", error),
             },
         }
@@ -1136,6 +1228,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1146,7 +1240,7 @@ mod tests {
             quote: "quote_1".into(),
         };
 
-        let asker_info = mock_info("asker", &coins(2, "base_denom"));
+        let asker_info = mock_info("asker", &coins(200, "base_denom"));
 
         // execute create ask
         let create_ask_response = execute(deps.as_mut(), mock_env(), asker_info, create_ask_msg);
@@ -1178,6 +1272,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1272,6 +1368,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1323,6 +1421,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1369,6 +1469,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1377,14 +1479,14 @@ mod tests {
             id: "bid_id".into(),
             base: "notbasedenom".into(),
             price: "2".into(),
-            size: Uint128(10),
+            size: Uint128(100),
         };
 
         // execute create ask
         let create_bid_response = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("bidder", &coins(20, "quote_2")),
+            mock_info("bidder", &coins(200, "quote_2")),
             create_bid_msg,
         );
 
@@ -1415,6 +1517,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1461,6 +1565,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1507,6 +1613,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1537,6 +1645,56 @@ mod tests {
     }
 
     #[test]
+    fn create_bid_invalid_price_precision() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "bid_id".into(),
+            base: "base_denom".into(),
+            price: "2.123".into(),
+            size: Uint128(100),
+        };
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("bidder", &coins(200, "quote_1")),
+            create_bid_msg,
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"price".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn cancel_ask_valid() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -1553,6 +1711,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1625,6 +1785,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1664,6 +1826,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1704,6 +1868,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1757,6 +1923,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1796,6 +1964,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1868,6 +2038,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1907,6 +2079,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1947,6 +2121,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -1999,6 +2175,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2040,6 +2218,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2143,6 +2323,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2263,6 +2445,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2385,6 +2569,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2498,6 +2684,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2600,6 +2788,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2651,6 +2841,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2694,6 +2886,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
         // store valid ask order
@@ -2770,6 +2964,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2826,6 +3022,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
         // store valid ask order
@@ -2877,17 +3075,13 @@ mod tests {
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                executors: vec![
-                    Addr::unchecked(
-                        "exec_1\
-                ",
-                    ),
-                    Addr::unchecked("exec_2"),
-                ],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -2931,6 +3125,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -3003,6 +3199,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -3083,6 +3281,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
@@ -3162,6 +3362,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
             },
         );
 
