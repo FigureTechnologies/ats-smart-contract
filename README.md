@@ -51,23 +51,20 @@ _note: Address bech32 values and other params may vary._
     build/provenanced tx wasm store ats_smart_contract.wasm \
         -t \
         --source "https://github.com/provenance-io/ats-smart-contract" \
-        --builder "cosmwasm/rust-optimizer:0.11.3" \
+        --builder "cosmwasm/rust-optimizer:0.10.7" \
         --from validator \
         --keyring-backend test \
         --home build/run/provenanced \
         --chain-id testing \
         --gas auto \
-        --fees 40000nhash \
+        --fees 500000nhash \
         --broadcast-mode block \
         --yes | jq;
     ```
 
-0. Instantiate the contract, binding the name `ats-exchange.sc.pb` to the contract address:
+0. Instantiate the contract, binding the name `atsgmeusd.sc` to the contract address:
     ```shell
-    build/provenanced tx wasm instantiate 1 \
-        '{"name":"ats-gme-usd", "bind_name":"atsgmeusd.sc", "base_denom":"gme","convertible_base_denoms":[],"supported_quote_denoms":["usd"],
-        "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"],"issuers":[],
-        "ask_required_attributes":[],"bid_required_attributes":[]}' \
+    build/provenanced tx wasm instantiate 1 '{"name":"ats-ex", "bind_name":"ats-ex.sc", "base_denom":"gme", "convertible_base_denoms":[], "supported_quote_denoms":["usd"], "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"], "issuers":[], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
         -t \
         --admin (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
         --from validator \
@@ -77,7 +74,7 @@ _note: Address bech32 values and other params may vary._
         --label ats-gme-usd \
         --gas auto \
         --gas-adjustment 1.4 \
-        --fees 6000nhash \
+        --fees 7000nhash \
         --broadcast-mode block \
         --yes | jq
     ```
@@ -89,9 +86,9 @@ _note: Address bech32 values and other params may vary._
 
     ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_ask":{"id":"ask_id", "price":"2", "quote":"usd"}}' \
+        '{"create_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "quote":"usd", "price": "1"}}' \
         -t \
-        --amount 10gme \
+        --amount 700gme \
         --from (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
         --keyring-backend test \
         --home build/run/provenanced \
@@ -108,11 +105,10 @@ _note: Address bech32 values and other params may vary._
     _note: The json data '{"create_bid":{}}' is the action and order data to pass into the smart contract, he actual
    marker token sent is the order quote, identified by `--amount` below._
 
-   ```shell
+    ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_bid":{"id":"bid_id", "base":"gme", "price":"2", "size":"5"}}' \
-        -t \
-        --amount 10usd \
+        '{"create_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277", "base":"gme", "size":"500", "price": "2"}}' \
+        --amount 1000usd \
         --from (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
         --keyring-backend test \
         --home build/run/provenanced \
@@ -121,62 +117,79 @@ _note: Address bech32 values and other params may vary._
         --gas-adjustment 1.4 \
         --fees 5000nhash \
         --broadcast-mode block \
-        --yes | jq
+        --yes \
+        --testnet | jq
     ```
 
 0. Match and execute the ask and bid orders.
 
-   ```shell
+    ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"execute_match":{"ask_id":"ask_id", "bid_id":"bid_id"}}' \
-        -t \
+        '{"execute_match":{"ask_id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "bid_id":"6a25ffc2-181e-4187-9ac6-572c17038277", "price":"2", "size": "100"}}' \
         --from validator \
         --keyring-backend test \
         --home build/run/provenanced \
         --chain-id testing \
         --gas auto \
         --gas-adjustment 1.4 \
-        --fees 5000nhash \
+        --fees 6000nhash \
         --broadcast-mode block \
-        --yes | jq
+        --yes \
+        --testnet | jq
     ```
 
 ## Other actions
 
-Cancel the contract.
+Cancel an ask order:
 
 ```shell
-build/provenanced tx wasm execute \
-    tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-    '{"cancel_ask":{"id":"ask_id"}}' \
+build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
+    '{"cancel_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
+    -t \
     --from (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
     --keyring-backend test \
-    --home build/node0 \
-    --chain-id chain-local \
+    --home build/run/provenanced \
+    --chain-id testing \
     --gas auto \
     --gas-adjustment 1.4 \
     --fees 5000nhash \
     --broadcast-mode block \
-    --yes \
-    --testnet | jq
+    --yes | jq
+```
+
+Cancel a bid order:
+
+```shell
+build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
+    '{"cancel_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+    -t \
+    --from (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
+    --keyring-backend test \
+    --home build/run/provenanced \
+    --chain-id testing \
+    --gas auto \
+    --gas-adjustment 1.4 \
+    --fees 5000nhash \
+    --broadcast-mode block \
+    --yes | jq
 ```
 
 Query for ask order information:
 
 ```shell
 build/provenanced query wasm contract-state smart tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-    '{"get_ask":{"id":"ask_id"}}' \
-    --ascii \
-    --testnet
+  '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
+  --ascii \
+  --testnet
 ```
 
 Query for bid order information:
 
 ```shell
 build/provenanced query wasm contract-state smart tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-    '{"get_bid":{"id":"bid_id"}}' \
-    --ascii \
-    --testnet
+  '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+  --ascii \
+  --testnet
 ```
 
 Query for general contract information
