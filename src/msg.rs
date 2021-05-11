@@ -226,6 +226,29 @@ impl Validate for QueryMsg {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrateMsg {
+    Migrate {},
+}
+
+impl Validate for MigrateMsg {
+    /// Simple validation of MigrateMsg data
+    ///
+    /// ### Example
+    ///
+    /// ```rust
+    /// use ats_smart_contract::msg::{MigrateMsg, Validate};
+    /// pub fn query(msg: MigrateMsg){
+    ///
+    ///     let result = msg.validate();
+    /// }
+    /// ```
+    fn validate(&self) -> Result<(), ContractError> {
+        Ok(())
+    }
+}
+
 pub trait Validate {
     fn validate(&self) -> Result<(), ContractError>;
 }

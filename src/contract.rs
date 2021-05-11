@@ -1,13 +1,13 @@
 use cosmwasm_std::{
-    attr, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdError, StdResult, Uint128,
+    attr, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{bind_name, NameBinding, ProvenanceMsg, ProvenanceQuerier};
 
 use crate::contract_info::{get_contract_info, set_contract_info, ContractInfo};
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, Validate};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::state::{
     get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrder,
     AskOrderClass, AskOrderStatus, BidOrder,
@@ -22,6 +22,7 @@ pub const CONTRACT_DEFINITION: &str = env!("CARGO_CRATE_NAME");
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // smart contract initialization entrypoint
+#[entry_point]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -90,6 +91,7 @@ pub fn instantiate(
 }
 
 // smart contract execute entrypoint
+#[entry_point]
 pub fn execute(
     deps: DepsMut,
     env: Env,
@@ -636,7 +638,19 @@ fn execute_match(
     Ok(response)
 }
 
+// smart contract migrate/upgrade entrypoint
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    // always update version info
+    let mut contract_info = get_contract_info(deps.storage)?;
+    contract_info.version = CONTRACT_VERSION.into();
+    set_contract_info(deps.storage, &contract_info)?;
+
+    Ok(Response::default())
+}
+
 // smart contract query entrypoint
+#[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     msg.validate()?;
 
@@ -3937,6 +3951,42 @@ mod tests {
         );
 
         assert_eq!(query_bid_response, to_binary(&bid_order));
+    }
+
+    #[test]
+    fn migrate_valid() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "0.0.1".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // migrate
+        let migrate_response = migrate(deps.as_mut(), mock_env(), MigrateMsg::Migrate {});
+
+        match migrate_response {
+            Ok(_) => {
+                // verify contract_info version updated
+                let contract_info = get_contract_info(&deps.storage).unwrap();
+                assert_eq!(contract_info.version, CONTRACT_VERSION)
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
     }
 
     fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfo) {
