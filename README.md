@@ -51,7 +51,7 @@ _note: Address bech32 values and other params may vary._
     build/provenanced tx wasm store ats_smart_contract.wasm \
         -t \
         --source "https://github.com/provenance-io/ats-smart-contract" \
-        --builder "cosmwasm/rust-optimizer:0.10.7" \
+        --builder "cosmwasm/rust-optimizer:0.11.3" \
         --from validator \
         --keyring-backend test \
         --home build/run/provenanced \
@@ -198,4 +198,41 @@ Query for general contract information
 build/provenanced query wasm contract-state smart \
     tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
     '{"get_contract_info":{}}' --testnet
+```
+
+## Migrate/Upgrade contract
+
+0. Store the new `ats-smart-contract` WASM:
+    ```shell
+    build/provenanced tx wasm store ats_smart_contract.wasm \
+        -t \
+        --source "https://github.com/provenance-io/ats-smart-contract" \
+        --builder "cosmwasm/rust-optimizer:0.11.3" \
+        --from validator \
+        --keyring-backend test \
+        --home build/run/provenanced \
+        --chain-id testing \
+        --gas auto \
+        --fees 500000nhash \
+        --broadcast-mode block \
+        --yes | jq;
+    ```
+
+0. Migrate/Upgrade to the new code id:
+   
+   _note: The `CODE_ID` is the `code_id` returned when storing the new wasm in the previous step._
+
+```shell
+build/provenanced tx wasm migrate tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz CODE_ID \
+'{"migrate":{}}' \
+    --from validator \
+    --keyring-backend test \
+    --home build/run/provenanced \
+    --chain-id testing \
+    --gas auto \
+    --gas-adjustment 1.4 \
+    --fees 6000nhash \
+    --broadcast-mode block \
+    --yes \
+    --testnet | jq
 ```
