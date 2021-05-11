@@ -45,6 +45,7 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
+          args: '-- --ignore-tests'
   release:
     needs: check
     runs-on: ubuntu-latest

@@ -30,7 +30,7 @@ schema:
 
 .PHONY: coverage
 coverage:
-	@cargo tarpaulin --out Html
+	@cargo tarpaulin --ignore-tests --out Html
 
 .PHONY: optimize
 optimize:
