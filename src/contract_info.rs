@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, StdResult, Storage};
+use cosmwasm_std::{Addr, StdResult, Storage, Uint128};
 use cw_storage_plus::Item;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,8 @@ pub struct ContractInfo {
     pub issuers: Vec<Addr>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
+    pub price_precision: Uint128,
+    pub size_increment: Uint128,
 }
 
 pub fn set_contract_info(
@@ -40,7 +42,7 @@ mod tests {
     use provwasm_mocks::mock_dependencies;
 
     use crate::contract_info::{get_contract_info, set_contract_info, ContractInfo};
-    use cosmwasm_std::Addr;
+    use cosmwasm_std::{Addr, Uint128};
 
     #[test]
     pub fn set_contract_info_with_valid_data() {
@@ -59,6 +61,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                price_precision: Uint128(3),
+                size_increment: Uint128(1000),
             },
         );
         match result {
@@ -98,6 +102,8 @@ mod tests {
                     contract_info.bid_required_attributes,
                     vec!["ask_tag_1", "ask_tag_2"]
                 );
+                assert_eq!(contract_info.price_precision, Uint128(3));
+                assert_eq!(contract_info.size_increment, Uint128(1000));
             }
             result => panic!("unexpected error: {:?}", result),
         }
