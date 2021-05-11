@@ -49,7 +49,7 @@ impl Validate for InstantiateMsg {
         if self.executors.is_empty() {
             invalid_fields.push("executors");
         }
-        if self.price_precision.lt(&Uint128(1)) || self.price_precision.gt(&Uint128(18)) {
+        if self.price_precision.lt(&Uint128(0)) || self.price_precision.gt(&Uint128(18)) {
             invalid_fields.push("price_precision");
         }
         if self.size_increment.lt(&Uint128(1)) {
