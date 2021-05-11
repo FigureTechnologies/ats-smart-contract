@@ -513,7 +513,7 @@ fn execute_match(
         AskOrderClass::Basic => {
             // at least one side of the order will always execute fully, both sides if order sizes equal
             // so the provided execute match size must be either the ask or bid size (or both if equal)
-            if size.ne(&ask_order.size) && size.ne(&bid_order.size) {
+            if size.gt(&ask_order.size) || size.gt(&bid_order.size) {
                 return Err(ContractError::InvalidExecuteSize);
             }
 
@@ -2548,6 +2548,145 @@ mod tests {
         assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
     }
 
+    #[test]
+    fn execute_partial_both_orders() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrder {
+                base: coin(200, "base_1"),
+                class: AskOrderClass::Basic,
+                id: "ask_id".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(200),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: "base_1".into(),
+                id: "bid_id".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
+                quote: coin(600, "quote_1"),
+                size: Uint128(300),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ask_id".into(),
+            bid_id: "bid_id".into(),
+            price: "2".into(),
+            size: Uint128(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
+                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "2"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(
+                    execute_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(200, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: coins(100, "base_1"),
+                    })
+                );
+            }
+        }
+
+        // verify ask order updated
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ask_id".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrder {
+                        base: coin(100, "base_1"),
+                        class: AskOrderClass::Basic,
+                        id: "ask_id".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128(100)
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("bid_id".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrder {
+                        base: "base_1".into(),
+                        id: "bid_id".into(),
+                        owner: Addr::unchecked("bidder"),
+                        price: "2".into(),
+                        quote: coin(400, "quote_1"),
+                        size: Uint128(200),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
     // since using ask price, and ask.price < bid.price, bidder should be refunded
     // remaining quote balance if remaining order size = 0
     #[test]
@@ -3263,7 +3402,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_size_not_ask_or_bid() {
+    fn execute_size_greater_than_ask_and_bid() {
         // setup
         let mut deps = mock_dependencies(&[]);
         let mock_env = mock_env();
@@ -3318,7 +3457,7 @@ mod tests {
             ask_id: "ask_id".into(),
             bid_id: "bid_id".into(),
             price: "4".into(),
-            size: Uint128(50),
+            size: Uint128(200),
         };
 
         let execute_response = execute(
