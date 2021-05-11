@@ -822,7 +822,7 @@ mod tests {
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "ask_id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2.5".into(),
             quote: "quote_1".into(),
         };
@@ -842,7 +842,10 @@ mod tests {
             Ok(response) => {
                 assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
-                assert_eq!(response.attributes[1], attr("id", "ask_id"));
+                assert_eq!(
+                    response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
                 assert_eq!(response.attributes[2], attr("base", "base_1"));
                 assert_eq!(response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[4], attr("price", "2.5"));
@@ -856,7 +859,7 @@ mod tests {
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk { id, price, quote } = create_ask_msg {
-            match ask_storage.load("ask_id".as_bytes()) {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -912,7 +915,7 @@ mod tests {
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "ask_id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2".into(),
             quote: "quote_1".into(),
         };
@@ -932,7 +935,10 @@ mod tests {
             Ok(response) => {
                 assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
-                assert_eq!(response.attributes[1], attr("id", "ask_id"));
+                assert_eq!(
+                    response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
                 assert_eq!(response.attributes[2], attr("base", "base_1"));
                 assert_eq!(response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[4], attr("price", "2"));
@@ -946,7 +952,7 @@ mod tests {
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk { id, quote, price } = create_ask_msg {
-            match ask_storage.load("ask_id".as_bytes()) {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -1045,7 +1051,7 @@ mod tests {
 
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "ask_id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2".into(),
             quote: "quote_1".into(),
         };
@@ -1092,7 +1098,7 @@ mod tests {
 
         // create ask with inconvertible base
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2".into(),
             quote: "quote_1".into(),
         };
@@ -1139,7 +1145,7 @@ mod tests {
 
         // create ask with unsupported quote
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2".into(),
             quote: "unsupported".into(),
         };
@@ -1186,7 +1192,7 @@ mod tests {
 
         // create ask
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2.123".into(),
             quote: "quote_1".into(),
         };
@@ -1235,7 +1241,7 @@ mod tests {
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "ask_id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2".into(),
             quote: "quote_1".into(),
         };
@@ -1287,7 +1293,7 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.5".into(),
             base: "base_1".into(),
             size: Uint128(100),
@@ -1308,7 +1314,10 @@ mod tests {
             Ok(response) => {
                 assert_eq!(response.attributes.len(), 6);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
-                assert_eq!(response.attributes[1], attr("id", "bid_id"));
+                assert_eq!(
+                    response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(response.attributes[2], attr("base", "base_1"));
                 assert_eq!(response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[4], attr("price", "2.5"));
@@ -1328,7 +1337,7 @@ mod tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("bid_id".as_bytes()) {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -1428,7 +1437,7 @@ mod tests {
 
         // create bid missing quote
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             price: "2.5".into(),
             size: Uint128(100),
@@ -1476,7 +1485,7 @@ mod tests {
 
         // create bid with invalid base
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "notbasedenom".into(),
             price: "2".into(),
             size: Uint128(100),
@@ -1524,7 +1533,7 @@ mod tests {
 
         // create bid
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             price: "2".into(),
             size: Uint128(100),
@@ -1572,7 +1581,7 @@ mod tests {
 
         // create bid
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             price: "2".into(),
             size: Uint128(100),
@@ -1620,7 +1629,7 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             price: "2".into(),
             size: Uint128(100),
@@ -1668,7 +1677,7 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             price: "2.123".into(),
             size: Uint128(100),
@@ -1722,7 +1731,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -1734,7 +1743,7 @@ mod tests {
         let asker_info = mock_info("asker", &[]);
 
         let cancel_ask_msg = ExecuteMsg::CancelAsk {
-            id: "ask_id".to_string(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
         let cancel_ask_response = execute(
             deps.as_mut(),
@@ -1750,7 +1759,10 @@ mod tests {
                     cancel_ask_response.attributes[0],
                     attr("action", "cancel_ask")
                 );
-                assert_eq!(cancel_ask_response.attributes[1], attr("id", "ask_id"));
+                assert_eq!(
+                    cancel_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
                     cancel_ask_response.messages[0],
@@ -1835,7 +1847,7 @@ mod tests {
 
         // cancel non-existent ask order returns ContractError::Unauthorized
         let cancel_ask_msg = ExecuteMsg::CancelAsk {
-            id: "unknown_id".to_string(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
@@ -1880,7 +1892,7 @@ mod tests {
             &AskOrder {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("not_asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -1890,7 +1902,7 @@ mod tests {
 
         // cancel ask order with sender not equal to owner returns ContractError::Unauthorized
         let cancel_ask_msg = ExecuteMsg::CancelAsk {
-            id: "ask_id".to_string(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
@@ -1931,7 +1943,7 @@ mod tests {
         // cancel ask order with sent_funds returns ContractError::CancelWithFunds
         let asker_info = mock_info("asker", &coins(1, "sent_coin"));
         let cancel_ask_msg = ExecuteMsg::CancelAsk {
-            id: "ask_id".to_string(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
@@ -1974,7 +1986,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
@@ -1986,7 +1998,7 @@ mod tests {
         let bidder_info = mock_info("bidder", &[]);
 
         let cancel_bid_msg = ExecuteMsg::CancelBid {
-            id: "bid_id".to_string(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
         let cancel_bid_response = execute(
@@ -2003,7 +2015,10 @@ mod tests {
                     cancel_bid_response.attributes[0],
                     attr("action", "cancel_bid")
                 );
-                assert_eq!(cancel_bid_response.attributes[1], attr("id", "bid_id"));
+                assert_eq!(
+                    cancel_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
                     cancel_bid_response.messages[0],
@@ -2088,7 +2103,7 @@ mod tests {
 
         // cancel non-existent bid order returns ContractError::Unauthorized
         let cancel_bid_msg = ExecuteMsg::CancelAsk {
-            id: "unknown_id".to_string(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
@@ -2132,7 +2147,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("not_bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
@@ -2142,7 +2157,7 @@ mod tests {
 
         // cancel bid order with sender not equal to owner returns ContractError::Unauthorized
         let cancel_bid_msg = ExecuteMsg::CancelBid {
-            id: "bid_id".to_string(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
@@ -2183,7 +2198,7 @@ mod tests {
         // cancel bid order with sent_funds returns ContractError::CancelWithFunds
         let bidder_info = mock_info("bidder", &coins(1, "sent_coin"));
         let cancel_bid_msg = ExecuteMsg::CancelAsk {
-            id: "bid_id".to_string(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
         let cancel_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
@@ -2229,7 +2244,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -2242,7 +2257,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
@@ -2252,8 +2267,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(100),
         };
@@ -2271,8 +2286,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
@@ -2297,11 +2318,21 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
     }
 
     #[test]
@@ -2334,7 +2365,7 @@ mod tests {
             &AskOrder {
                 base: coin(30, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -2347,7 +2378,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(20, "quote_1"),
@@ -2357,8 +2388,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(10),
         };
@@ -2376,8 +2407,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
@@ -2402,14 +2439,14 @@ mod tests {
 
         // verify ask order updated
         let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ask_id".as_bytes()) {
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
                     AskOrder {
                         base: coin(20, "base_1"),
                         class: AskOrderClass::Basic,
-                        id: "ask_id".into(),
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
@@ -2424,7 +2461,12 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
     }
 
     #[test]
@@ -2456,7 +2498,7 @@ mod tests {
             &AskOrder {
                 base: coin(50, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -2469,7 +2511,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(200, "quote_1"),
@@ -2479,8 +2521,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(50),
         };
@@ -2498,8 +2540,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
@@ -2524,13 +2572,13 @@ mod tests {
 
         // verify bid order update
         let bid_storage = get_bid_storage_read(&deps.storage);
-        match bid_storage.load("bid_id".as_bytes()) {
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
                     BidOrder {
                         base: "base_1".into(),
-                        id: "bid_id".into(),
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: coin(100, "quote_1"),
@@ -2577,7 +2625,7 @@ mod tests {
             &AskOrder {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -2590,7 +2638,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(600, "quote_1"),
@@ -2600,8 +2648,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(100),
         };
@@ -2619,8 +2667,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
@@ -2645,14 +2699,14 @@ mod tests {
 
         // verify ask order updated
         let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ask_id".as_bytes()) {
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
                     AskOrder {
                         base: coin(100, "base_1"),
                         class: AskOrderClass::Basic,
-                        id: "ask_id".into(),
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
@@ -2667,13 +2721,13 @@ mod tests {
 
         // verify bid order update
         let bid_storage = get_bid_storage_read(&deps.storage);
-        match bid_storage.load("bid_id".as_bytes()) {
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
                     BidOrder {
                         base: "base_1".into(),
-                        id: "bid_id".into(),
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: coin(400, "quote_1"),
@@ -2719,7 +2773,7 @@ mod tests {
             &AskOrder {
                 base: coin(777, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
@@ -2732,7 +2786,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "100.000000000000000000".into(),
                 quote: coin(500, "quote_1"),
@@ -2742,8 +2796,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.000000000000000000".into(),
             size: Uint128(5),
         };
@@ -2761,8 +2815,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(
@@ -2797,11 +2857,21 @@ mod tests {
 
         // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), false);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            false
+        );
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
     }
 
     #[test]
@@ -2834,7 +2904,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -2847,7 +2917,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
@@ -2857,8 +2927,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
             size: Uint128(100),
         };
@@ -2876,8 +2946,14 @@ mod tests {
             Ok(execute_response) => {
                 assert_eq!(execute_response.attributes.len(), 7);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(execute_response.attributes[1], attr("ask_id", "ask_id"));
-                assert_eq!(execute_response.attributes[2], attr("bid_id", "bid_id"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
                 assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
@@ -2902,11 +2978,21 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
     }
 
     #[test]
@@ -2987,8 +3073,8 @@ mod tests {
 
         // execute by non-executor
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(1),
         };
@@ -3037,7 +3123,7 @@ mod tests {
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -3050,7 +3136,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
@@ -3060,8 +3146,8 @@ mod tests {
 
         // execute when ask order not ready returns ContractError::PendingIssuerApproval
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(200),
         };
@@ -3113,7 +3199,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
@@ -3123,8 +3209,8 @@ mod tests {
 
         // execute on non-existent ask order and bid order returns ContractError::OrderLoad
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "no_ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(200),
         };
@@ -3171,7 +3257,7 @@ mod tests {
             &AskOrder {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -3181,8 +3267,8 @@ mod tests {
 
         // execute on non-existent bid order and bid order returns ContractError::OrderLoad
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "no_bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(200),
         };
@@ -3226,8 +3312,8 @@ mod tests {
 
         // execute with sent_funds returns ContractError::ExecuteWithFunds
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(1),
         };
@@ -3275,7 +3361,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "3".into(),
                 quote: "quote_1".into(),
@@ -3288,7 +3374,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: coin(100, "quote_1"),
@@ -3298,8 +3384,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
             size: Uint128(200),
         };
@@ -3349,7 +3435,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -3362,7 +3448,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
@@ -3372,8 +3458,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "6".into(),
             size: Uint128(100),
         };
@@ -3394,11 +3480,21 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_ok(), true);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_ok(),
+            true
+        );
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_ok(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_ok(),
+            true
+        );
     }
 
     #[test]
@@ -3431,7 +3527,7 @@ mod tests {
             &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
-                id: "ask_id".into(),
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
@@ -3444,7 +3540,7 @@ mod tests {
             &mut deps.storage,
             &BidOrder {
                 base: "base_1".into(),
-                id: "bid_id".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: coin(400, "quote_1"),
@@ -3454,8 +3550,8 @@ mod tests {
 
         // execute on matched ask order and bid order
         let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ask_id".into(),
-            bid_id: "bid_id".into(),
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
             size: Uint128(200),
         };
@@ -3476,15 +3572,63 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_ok(), true);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_ok(),
+            true
+        );
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_ok(), true);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_ok(),
+            true
+        );
     }
 
     #[test]
-    fn query_with_valid_data() {
+    fn query_contract_info() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // query for contract_info
+        let query_contract_info_response =
+            query(deps.as_ref(), mock_env(), QueryMsg::GetContractInfo {});
+
+        match query_contract_info_response {
+            Ok(contract_info) => {
+                assert_eq!(
+                    contract_info,
+                    to_binary(&get_contract_info(&deps.storage).unwrap()).unwrap()
+                )
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+    }
+
+    #[test]
+    fn query_ask_order() {
         // setup
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -3510,7 +3654,7 @@ mod tests {
         let ask_order = AskOrder {
             base: coin(200, "base_1"),
             class: AskOrderClass::Basic,
-            id: "ask_id".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             owner: Addr::unchecked("asker"),
             price: "2".into(),
             quote: "quote_1".into(),
@@ -3518,14 +3662,61 @@ mod tests {
         };
 
         let mut ask_storage = get_ask_storage(&mut deps.storage);
-        if let Err(error) = ask_storage.save(&"ask_id".as_bytes(), &ask_order) {
+        if let Err(error) = ask_storage.save(
+            &"ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            &ask_order,
+        ) {
             panic!("unexpected error: {:?}", error)
         };
+
+        // verify ask order still exists
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_ok(),
+            true
+        );
+
+        // query for ask order
+        let query_ask_response = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::GetAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            },
+        );
+
+        assert_eq!(query_ask_response, to_binary(&ask_order));
+    }
+
+    #[test]
+    fn query_bid_order() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
 
         // store valid bid order
         let bid_order = BidOrder {
             base: "base_1".into(),
-            id: "bid_id".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: coin(100, "quote_1"),
@@ -3537,37 +3728,12 @@ mod tests {
             panic!("unexpected error: {:?}", error);
         };
 
-        // query for contract_info
-        let query_contract_info_response =
-            query(deps.as_ref(), mock_env(), QueryMsg::GetContractInfo {});
-
-        match query_contract_info_response {
-            Ok(contract_info) => {
-                assert_eq!(
-                    contract_info,
-                    to_binary(&get_contract_info(&deps.storage).unwrap()).unwrap()
-                )
-            }
-            Err(error) => panic!("unexpected error: {:?}", error),
-        }
-
-        // query for ask order
-        let query_ask_response = query(
-            deps.as_ref(),
-            mock_env(),
-            QueryMsg::GetAsk {
-                id: "ask_id".into(),
-            },
-        );
-
-        assert_eq!(query_ask_response, to_binary(&ask_order));
-
         // query for bid order
         let query_bid_response = query(
             deps.as_ref(),
             mock_env(),
             QueryMsg::GetBid {
-                id: bid_order.id.clone(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             },
         );
 

@@ -36,6 +36,7 @@ rust_decimal = { version = "1.12.2" }
 schemars = "0.8.1"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.23" }
+uuid = { version= "0.8.2" }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "0.14.0" }
