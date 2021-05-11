@@ -640,7 +640,8 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response> {
+    msg.validate()?;
     // always update version info
     let mut contract_info = get_contract_info(deps.storage)?;
     contract_info.version = CONTRACT_VERSION.into();
