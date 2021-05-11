@@ -2,6 +2,7 @@ use crate::error::ContractError;
 use cosmwasm_std::Uint128;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -110,7 +111,7 @@ impl Validate for ExecuteMsg {
 
         match self {
             ExecuteMsg::CreateAsk { id, quote, price } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
                 if price.is_empty() {
@@ -126,7 +127,7 @@ impl Validate for ExecuteMsg {
                 price,
                 size,
             } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
                 if base.is_empty() {
@@ -140,12 +141,12 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::CancelAsk { id } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::CancelBid { id } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
@@ -155,10 +156,10 @@ impl Validate for ExecuteMsg {
                 price,
                 size,
             } => {
-                if ask_id.is_empty() {
+                if Uuid::parse_str(ask_id).is_err() {
                     invalid_fields.push("ask_id");
                 }
-                if bid_id.is_empty() {
+                if Uuid::parse_str(bid_id).is_err() {
                     invalid_fields.push("bid_id");
                 }
                 if price.is_empty() {
@@ -204,12 +205,12 @@ impl Validate for QueryMsg {
 
         match self {
             QueryMsg::GetAsk { id } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             QueryMsg::GetBid { id } => {
-                if id.is_empty() {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
