@@ -15,7 +15,10 @@ pub enum AskOrderStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub enum AskOrderClass {
     Basic,
-    Convertible { status: AskOrderStatus },
+    Convertible {
+        converted_base: Option<Coin>,
+        status: AskOrderStatus,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -59,6 +59,16 @@
                 "status"
               ],
               "properties": {
+                "converted_base": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/Coin"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "status": {
                   "$ref": "#/definitions/AskOrderStatus"
                 }

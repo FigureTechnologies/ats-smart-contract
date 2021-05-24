@@ -10,7 +10,7 @@
     "convertible_base_denoms",
     "definition",
     "executors",
-    "issuers",
+    "issuer",
     "name",
     "price_precision",
     "size_increment",
@@ -51,11 +51,8 @@
         "$ref": "#/definitions/Addr"
       }
     },
-    "issuers": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/Addr"
-      }
+    "issuer": {
+      "$ref": "#/definitions/Addr"
     },
     "name": {
       "type": "string"
