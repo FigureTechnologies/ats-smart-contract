@@ -440,7 +440,11 @@ fn cancel_ask(
 
     let ask_storage = get_ask_storage_read(deps.storage);
     let AskOrder {
-        id, owner, base, ..
+        id,
+        owner,
+        base,
+        class,
+        ..
     } = ask_storage
         .load(id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
@@ -452,8 +456,9 @@ fn cancel_ask(
     let mut ask_storage = get_ask_storage(deps.storage);
     ask_storage.remove(id.as_bytes());
 
-    // 'send base back to owner' message
-    let response = Response {
+    // return 'base' to owner, return converted_base to issuer if applicable
+
+    let mut response = Response {
         submessages: vec![],
         messages: vec![BankMsg::Send {
             to_address: owner.to_string(),
@@ -463,6 +468,24 @@ fn cancel_ask(
         attributes: vec![attr("action", "cancel_ask"), attr("id", id)],
         data: None,
     };
+
+    if let AskOrderClass::Convertible {
+        converted_base,
+        status,
+    } = class
+    {
+        if let (Some(converted_base), AskOrderStatus::Ready) = (converted_base, status) {
+            let contract_info = get_contract_info(deps.storage)?;
+
+            response.messages.push(
+                BankMsg::Send {
+                    to_address: contract_info.issuer.to_string(),
+                    amount: vec![converted_base],
+                }
+                .into(),
+            );
+        }
+    }
 
     Ok(response)
 }
@@ -2089,6 +2112,93 @@ mod tests {
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: asker_info.sender.to_string(),
                         amount: coins(100, "base_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn cancel_ask_convertible_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfo {
+                name: "contract_name".into(),
+                definition: "def".to_string(),
+                version: "ver".to_string(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                issuer: Addr::unchecked("issuer_1"),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrder {
+                base: coin(100, "con_base_1"),
+                class: AskOrderClass::Convertible {
+                    converted_base: Some(coin(100, "base_denom")),
+                    status: AskOrderStatus::Ready,
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // cancel ask order
+        let asker_info = mock_info("asker", &[]);
+
+        let cancel_ask_msg = ExecuteMsg::CancelAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+        let cancel_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            cancel_ask_msg,
+        );
+
+        match cancel_ask_response {
+            Ok(cancel_ask_response) => {
+                assert_eq!(cancel_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    cancel_ask_response.attributes[0],
+                    attr("action", "cancel_ask")
+                );
+                assert_eq!(
+                    cancel_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(cancel_ask_response.messages.len(), 2);
+                assert_eq!(
+                    cancel_ask_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: asker_info.sender.to_string(),
+                        amount: coins(100, "con_base_1"),
+                    })
+                );
+                assert_eq!(
+                    cancel_ask_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "issuer_1".to_string(),
+                        amount: coins(100, "base_denom"),
                     })
                 );
             }
