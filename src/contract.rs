@@ -775,6 +775,9 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response>
     // always update version info
     let mut contract_info = get_contract_info(deps.storage)?;
     contract_info.version = CONTRACT_VERSION.into();
+    if !contract_info.issuers.is_empty() {
+        contract_info.issuer = deps.api.addr_validate(&contract_info.issuers[0])?;
+    }
     set_contract_info(deps.storage, &contract_info)?;
 
     Ok(Response::default())
