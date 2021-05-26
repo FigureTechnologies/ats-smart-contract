@@ -19,6 +19,8 @@ pub struct ContractInfo {
     pub supported_quote_denoms: Vec<String>,
     pub executors: Vec<Addr>,
     pub issuer: Addr,
+    #[deprecated(since = "0.14.1")]
+    pub issuers: Vec<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -59,6 +61,7 @@ mod tests {
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 issuer: Addr::unchecked("issuer_1"),
+                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 price_precision: Uint128(3),

@@ -11,6 +11,7 @@
     "definition",
     "executors",
     "issuer",
+    "issuers",
     "name",
     "price_precision",
     "size_increment",
@@ -53,6 +54,13 @@
     },
     "issuer": {
       "$ref": "#/definitions/Addr"
+    },
+    "issuers": {
+      "deprecated": true,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "name": {
       "type": "string"
