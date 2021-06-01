@@ -59,16 +59,6 @@
                 "status"
               ],
               "properties": {
-                "converted_base": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/definitions/Coin"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
                 "status": {
                   "$ref": "#/definitions/AskOrderStatus"
                 }
@@ -80,10 +70,37 @@
       ]
     },
     "AskOrderStatus": {
-      "type": "string",
-      "enum": [
-        "Ready",
-        "PendingIssuerApproval"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "PendingIssuerApproval"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Ready"
+          ],
+          "properties": {
+            "Ready": {
+              "type": "object",
+              "required": [
+                "approver",
+                "converted_base"
+              ],
+              "properties": {
+                "approver": {
+                  "$ref": "#/definitions/Addr"
+                },
+                "converted_base": {
+                  "$ref": "#/definitions/Coin"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
       ]
     },
     "Coin": {

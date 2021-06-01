@@ -3,6 +3,7 @@
   "title": "ContractInfo",
   "type": "object",
   "required": [
+    "approvers",
     "ask_required_attributes",
     "base_denom",
     "bid_required_attributes",
@@ -10,8 +11,6 @@
     "convertible_base_denoms",
     "definition",
     "executors",
-    "issuer",
-    "issuers",
     "name",
     "price_precision",
     "size_increment",
@@ -19,6 +18,12 @@
     "version"
   ],
   "properties": {
+    "approvers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Addr"
+      }
+    },
     "ask_required_attributes": {
       "type": "array",
       "items": {
@@ -50,16 +55,6 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/Addr"
-      }
-    },
-    "issuer": {
-      "$ref": "#/definitions/Addr"
-    },
-    "issuers": {
-      "deprecated": true,
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     },
     "name": {

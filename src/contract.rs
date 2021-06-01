@@ -38,6 +38,13 @@ pub fn instantiate(
         executors.push(address);
     }
 
+    // Validate and convert issuers to addresses
+    let mut approvers: Vec<Addr> = Vec::new();
+    for approver_str in msg.approvers {
+        let address = deps.api.addr_validate(&approver_str)?;
+        approvers.push(address);
+    }
+
     // set contract info
     let contract_info = ContractInfo {
         name: msg.name,
@@ -48,8 +55,7 @@ pub fn instantiate(
         convertible_base_denoms: msg.convertible_base_denoms,
         supported_quote_denoms: msg.supported_quote_denoms,
         executors,
-        issuer: deps.api.addr_validate(&msg.issuer)?,
-        issuers: vec![],
+        approvers,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
         price_precision: msg.price_precision,
@@ -153,7 +159,7 @@ fn approve_ask(
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
-    if info.sender.ne(&contract_info.issuer) {
+    if !contract_info.approvers.contains(&info.sender) {
         return Err(ContractError::Unauthorized);
     }
 
@@ -181,8 +187,10 @@ fn approve_ask(
                     }
 
                     stored_ask_order.class = AskOrderClass::Convertible {
-                        converted_base: Some(converted_base.clone()),
-                        status: AskOrderStatus::Ready,
+                        status: AskOrderStatus::Ready {
+                            approver: info.sender.clone(),
+                            converted_base: converted_base.clone(),
+                        },
                     };
 
                     Ok(stored_ask_order)
@@ -285,7 +293,6 @@ fn create_ask(
 
     if ask_order.base.denom.ne(&contract_info.base_denom) {
         ask_order.class = AskOrderClass::Convertible {
-            converted_base: None,
             status: AskOrderStatus::PendingIssuerApproval,
         };
     };
@@ -304,6 +311,7 @@ fn create_ask(
         attributes: vec![
             attr("action", "create_ask"),
             attr("id", &ask_order.id),
+            attr("class", format!("{:?}", &ask_order.class)),
             attr("base", &ask_order.base.denom),
             attr("quote", &ask_order.quote),
             attr("price", &ask_order.price),
@@ -471,21 +479,19 @@ fn cancel_ask(
     };
 
     if let AskOrderClass::Convertible {
-        converted_base,
-        status,
+        status: AskOrderStatus::Ready {
+            approver,
+            converted_base,
+        },
     } = class
     {
-        if let (Some(converted_base), AskOrderStatus::Ready) = (converted_base, status) {
-            let contract_info = get_contract_info(deps.storage)?;
-
-            response.messages.push(
-                BankMsg::Send {
-                    to_address: contract_info.issuer.to_string(),
-                    amount: vec![converted_base],
-                }
-                .into(),
-            );
-        }
+        response.messages.push(
+            BankMsg::Send {
+                to_address: approver.to_string(),
+                amount: vec![converted_base],
+            }
+            .into(),
+        );
     }
 
     Ok(response)
@@ -623,17 +629,11 @@ fn execute_match(
 
     let ask_order_class = &mut ask_order.class;
 
-    match ask_order_class {
-        AskOrderClass::Basic => {}
-        AskOrderClass::Convertible {
-            ref mut converted_base,
-            ..
-        } => match converted_base {
-            Some(ref mut converted_base) => {
-                converted_base.amount = ask_order.base.amount;
-            }
-            None => (),
-        },
+    if let AskOrderClass::Convertible {
+        status: AskOrderStatus::Ready { converted_base, .. },
+    } = ask_order_class
+    {
+        converted_base.amount = ask_order.base.amount;
     }
 
     bid_order.size = Uint128(bid_order.size.u128() - size.u128());
@@ -680,56 +680,52 @@ fn execute_match(
             data: None,
         },
         AskOrderClass::Convertible {
-            converted_base,
-            status,
-        } => {
-            if status.eq(&AskOrderStatus::PendingIssuerApproval) {
-                return Err(ContractError::AskOrderNotReady {
-                    current_status: format!("{:?}", status),
-                });
-            }
-
-            let contract_info = get_contract_info(deps.storage)?;
-
-            Response {
-                submessages: vec![],
-                messages: vec![
-                    BankMsg::Send {
-                        to_address: ask_order.owner.to_string(),
-                        amount: vec![Coin {
+            status:
+                AskOrderStatus::Ready {
+                    approver,
+                    converted_base,
+                },
+        } => Response {
+            submessages: vec![],
+            messages: vec![
+                BankMsg::Send {
+                    to_address: approver.to_string(),
+                    amount: vec![
+                        Coin {
                             denom: bid_order.quote.denom.clone(),
                             amount: quote_total,
-                        }],
-                    }
-                    .into(),
-                    BankMsg::Send {
-                        to_address: bid_order.owner.to_string(),
-                        amount: vec![Coin {
-                            denom: converted_base.clone().unwrap().denom,
-                            amount: size,
-                        }],
-                    }
-                    .into(),
-                    BankMsg::Send {
-                        to_address: contract_info.issuer.to_string(),
-                        amount: vec![Coin {
+                        },
+                        Coin {
                             denom: ask_order.base.denom.clone(),
                             amount: size,
-                        }],
-                    }
-                    .into(),
-                ],
-                attributes: vec![
-                    attr("action", "execute"),
-                    attr("ask_id", &ask_id),
-                    attr("bid_id", &bid_id),
-                    attr("base", &bid_order.base),
-                    attr("quote", &ask_order.quote),
-                    attr("price", &execute_price),
-                    attr("size", &size),
-                ],
-                data: None,
-            }
+                        },
+                    ],
+                }
+                .into(),
+                BankMsg::Send {
+                    to_address: bid_order.owner.to_string(),
+                    amount: vec![Coin {
+                        denom: converted_base.clone().denom,
+                        amount: size,
+                    }],
+                }
+                .into(),
+            ],
+            attributes: vec![
+                attr("action", "execute"),
+                attr("ask_id", &ask_id),
+                attr("bid_id", &bid_id),
+                attr("base", &bid_order.base),
+                attr("quote", &ask_order.quote),
+                attr("price", &execute_price),
+                attr("size", &size),
+            ],
+            data: None,
+        },
+        AskOrderClass::Convertible { status } => {
+            return Err(ContractError::AskOrderNotReady {
+                current_status: format!("{:?}", status),
+            });
         }
     };
 
@@ -775,9 +771,6 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response>
     // always update version info
     let mut contract_info = get_contract_info(deps.storage)?;
     contract_info.version = CONTRACT_VERSION.into();
-    if !contract_info.issuers.is_empty() {
-        contract_info.issuer = deps.api.addr_validate(&contract_info.issuers[0])?;
-    }
     set_contract_info(deps.storage, &contract_info)?;
 
     Ok(Response::default())
@@ -826,8 +819,8 @@ mod tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec!["approver_1".into(), "approver_2".into()],
             executors: vec!["exec_1".into(), "exec_2".into()],
-            issuer: "issuer_1".into(),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128(2),
@@ -861,9 +854,8 @@ mod tests {
                     base_denom: "base_denom".into(),
                     convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                    approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                     executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    issuer: Addr::unchecked("issuer_1"),
-                    issuers: vec![],
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                     price_precision: Uint128(2),
@@ -892,8 +884,8 @@ mod tests {
             base_denom: "".into(),
             convertible_base_denoms: vec![],
             supported_quote_denoms: vec![],
+            approvers: vec![],
             executors: vec![],
-            issuer: "".into(),
             ask_required_attributes: vec![],
             bid_required_attributes: vec![],
             price_precision: Uint128(2),
@@ -930,8 +922,8 @@ mod tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec!["approver_1".into(), "approver_2".into()],
             executors: vec!["exec_1".into(), "exec_2".into()],
-            issuer: "issuer_1".into(),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128(2),
@@ -964,9 +956,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1002,16 +993,17 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 6);
+                assert_eq!(response.attributes.len(), 7);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("price", "2.5"));
-                assert_eq!(response.attributes[5], attr("size", "200"));
+                assert_eq!(response.attributes[2], attr("class", "Basic"));
+                assert_eq!(response.attributes[3], attr("base", "base_1"));
+                assert_eq!(response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[5], attr("price", "2.5"));
+                assert_eq!(response.attributes[6], attr("size", "200"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -1058,9 +1050,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1096,16 +1087,17 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 6);
+                assert_eq!(response.attributes.len(), 7);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("price", "2"));
-                assert_eq!(response.attributes[5], attr("size", "500"));
+                assert_eq!(response.attributes[2], attr("class", "Basic"));
+                assert_eq!(response.attributes[3], attr("base", "base_1"));
+                assert_eq!(response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[5], attr("price", "2"));
+                assert_eq!(response.attributes[6], attr("size", "500"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -1152,9 +1144,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128(2),
@@ -1242,9 +1233,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1294,9 +1284,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1342,9 +1331,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1390,9 +1378,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1438,9 +1425,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128(2),
@@ -1488,9 +1474,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1533,9 +1518,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1633,9 +1617,8 @@ mod tests {
                 base_denom: "base_1".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1732,9 +1715,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1786,9 +1768,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1835,9 +1816,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1884,9 +1864,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1933,9 +1912,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -1982,9 +1960,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2031,9 +2008,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128(2),
@@ -2082,9 +2058,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2160,9 +2135,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2176,8 +2150,10 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: Some(coin(100, "base_denom")),
-                    status: AskOrderStatus::Ready,
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_1"),
+                        converted_base: coin(100, "base_denom"),
+                    },
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -2222,7 +2198,7 @@ mod tests {
                 assert_eq!(
                     cancel_ask_response.messages[1],
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "issuer_1".to_string(),
+                        to_address: "approver_1".to_string(),
                         amount: coins(100, "base_denom"),
                     })
                 );
@@ -2248,9 +2224,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2290,9 +2265,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2333,9 +2307,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2389,9 +2362,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2431,9 +2403,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2509,9 +2480,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2551,9 +2521,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2594,9 +2563,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2649,9 +2617,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2693,9 +2660,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2815,9 +2781,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -2949,9 +2914,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3077,9 +3041,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3223,9 +3186,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3239,8 +3201,10 @@ mod tests {
             &AskOrder {
                 base: coin(200, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: Some(coin(200, "base_1")),
-                    status: AskOrderStatus::Ready,
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_2"),
+                        converted_base: coin(200, "base_1"),
+                    },
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3296,12 +3260,12 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "asker".into(),
-                        amount: coins(200, "quote_1"),
+                        to_address: "approver_2".into(),
+                        amount: vec![coin(200, "quote_1"), coin(100, "con_base_1")],
                     })
                 );
                 assert_eq!(
@@ -3309,13 +3273,6 @@ mod tests {
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
-                    })
-                );
-                assert_eq!(
-                    execute_response.messages[2],
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "issuer_1".into(),
-                        amount: coins(100, "con_base_1"),
                     })
                 );
             }
@@ -3330,8 +3287,10 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: Some(coin(100, "base_1")),
-                            status: AskOrderStatus::Ready
+                            status: AskOrderStatus::Ready {
+                                approver: Addr::unchecked("approver_2"),
+                                converted_base: coin(100, "base_1"),
+                            }
                         },
 
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -3386,9 +3345,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3518,9 +3476,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3640,9 +3597,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3656,8 +3612,10 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: Some(coin(100, "base_denom")),
-                    status: AskOrderStatus::Ready,
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_1"),
+                        converted_base: coin(100, "base_denom"),
+                    },
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3713,12 +3671,12 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "asker".into(),
-                        amount: coins(400, "quote_1"),
+                        to_address: "approver_1".into(),
+                        amount: vec![coin(400, "quote_1"), coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
@@ -3726,13 +3684,6 @@ mod tests {
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_denom"),
-                    })
-                );
-                assert_eq!(
-                    execute_response.messages[2],
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "issuer_1".into(),
-                        amount: coins(100, "con_base_1"),
                     })
                 );
             }
@@ -3771,9 +3722,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3825,9 +3775,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3871,9 +3820,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -3886,7 +3834,6 @@ mod tests {
             &AskOrder {
                 base: coin(200, "base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -3951,9 +3898,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4010,9 +3956,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4068,9 +4013,8 @@ mod tests {
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
@@ -4115,9 +4059,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4190,9 +4133,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4283,9 +4225,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4376,9 +4317,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4392,7 +4332,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4406,7 +4345,7 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("issuer_1", &[coin(100, "base_denom")]),
+            mock_info("approver_1", &[coin(100, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             },
@@ -4445,8 +4384,10 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: Some(coin(100, "base_denom")),
-                            status: AskOrderStatus::Ready,
+                            status: AskOrderStatus::Ready {
+                                approver: Addr::unchecked("approver_1"),
+                                converted_base: coin(100, "base_denom"),
+                            },
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
@@ -4477,9 +4418,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4493,7 +4433,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4507,7 +4446,7 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("issuer_1", &[coin(100, "base_denom")]),
+            mock_info("approver_1", &[coin(100, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "59e82f8f-268e-433f-9711-e9f2d2cc19a5".into(),
             },
@@ -4533,7 +4472,6 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: None,
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4565,9 +4503,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4581,7 +4518,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4595,7 +4531,7 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("issuer_1", &[]),
+            mock_info("approver_1", &[]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             },
@@ -4619,7 +4555,6 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: None,
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4651,9 +4586,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4667,7 +4601,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4681,7 +4614,7 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("issuer_1", &[coin(100, "wrong_base_denom")]),
+            mock_info("approver_1", &[coin(100, "wrong_base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             },
@@ -4705,7 +4638,6 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: None,
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4737,9 +4669,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4753,7 +4684,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4767,7 +4697,7 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("issuer_1", &[coin(101, "base_denom")]),
+            mock_info("approver_1", &[coin(101, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             },
@@ -4791,7 +4721,6 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: None,
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4823,9 +4752,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4839,7 +4767,6 @@ mod tests {
             &AskOrder {
                 base: coin(100, "con_base_1"),
                 class: AskOrderClass::Convertible {
-                    converted_base: None,
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4877,7 +4804,6 @@ mod tests {
                     AskOrder {
                         base: coin(100, "con_base_1"),
                         class: AskOrderClass::Convertible {
-                            converted_base: None,
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4908,9 +4834,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -4947,9 +4872,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -5011,9 +4935,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
@@ -5062,9 +4985,8 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                issuer: Addr::unchecked("issuer_1"),
-                issuers: vec![],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128(2),
