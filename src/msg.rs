@@ -13,6 +13,7 @@ pub struct InstantiateMsg {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<String>,
     pub executors: Vec<String>,
+    pub issuers: Vec<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -237,7 +238,7 @@ impl Validate for QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
-    Migrate {},
+    Migrate { approvers: Vec<String> },
 }
 
 impl Validate for MigrateMsg {
