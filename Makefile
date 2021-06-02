@@ -14,7 +14,7 @@ fmt:
 
 .PHONY: lint
 lint:
-	@cargo clippy -- -D warnings
+	@cargo clippy
 
 .PHONY: build
 build:

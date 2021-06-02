@@ -5,6 +5,26 @@
     {
       "type": "object",
       "required": [
+        "approve_ask"
+      ],
+      "properties": {
+        "approve_ask": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "cancel_ask"
       ],
       "properties": {

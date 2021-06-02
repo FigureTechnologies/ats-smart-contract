@@ -8,8 +8,11 @@ pub static NAMESPACE_ORDER_BID: &[u8] = b"bid";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub enum AskOrderStatus {
-    Ready,
     PendingIssuerApproval,
+    Ready {
+        approver: Addr,
+        converted_base: Coin,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

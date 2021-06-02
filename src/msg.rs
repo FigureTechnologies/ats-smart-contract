@@ -11,6 +11,7 @@ pub struct InstantiateMsg {
     pub base_denom: String,
     pub convertible_base_denoms: Vec<String>,
     pub supported_quote_denoms: Vec<String>,
+    pub approvers: Vec<String>,
     pub executors: Vec<String>,
     pub issuers: Vec<String>,
     pub ask_required_attributes: Vec<String>,
@@ -68,6 +69,9 @@ impl Validate for InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    ApproveAsk {
+        id: String,
+    },
     CancelAsk {
         id: String,
     },
@@ -110,6 +114,11 @@ impl Validate for ExecuteMsg {
         let mut invalid_fields: Vec<&str> = vec![];
 
         match self {
+            ExecuteMsg::ApproveAsk { id } => {
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
             ExecuteMsg::CreateAsk { id, quote, price } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
@@ -229,7 +238,7 @@ impl Validate for QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateMsg {
-    Migrate {},
+    Migrate { approvers: Vec<String> },
 }
 
 impl Validate for MigrateMsg {

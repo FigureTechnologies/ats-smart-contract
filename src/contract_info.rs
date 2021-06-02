@@ -17,7 +17,10 @@ pub struct ContractInfo {
     pub base_denom: String,
     pub convertible_base_denoms: Vec<String>,
     pub supported_quote_denoms: Vec<String>,
+    #[serde(default)]
+    pub approvers: Vec<Addr>,
     pub executors: Vec<Addr>,
+    #[deprecated(since = "0.14.2")]
     pub issuers: Vec<Addr>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
@@ -57,6 +60,7 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -85,6 +89,10 @@ mod tests {
                 assert_eq!(
                     contract_info.supported_quote_denoms,
                     vec!["quo_base_1", "quo_base_2"]
+                );
+                assert_eq!(
+                    contract_info.approvers,
+                    vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")]
                 );
                 assert_eq!(
                     contract_info.executors,

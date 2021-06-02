@@ -5,4 +5,5 @@
 artifacts
 target
 *.profraw
+cobertura.xml
 tarpaulin-report.html

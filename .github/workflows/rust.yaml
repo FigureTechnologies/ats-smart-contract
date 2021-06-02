@@ -21,6 +21,8 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.51.0-x86_64-unknown-linux-gnu
+          default: true
+          components: clippy, rustfmt
       - name: cargo format
         uses: actions-rs/cargo@v1
         with:
@@ -30,7 +32,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
       - name: cargo tarpaulin xml report
         uses: actions-rs/tarpaulin@v0.1
         with:

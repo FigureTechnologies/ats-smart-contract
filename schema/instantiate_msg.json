@@ -3,6 +3,7 @@
   "title": "InstantiateMsg",
   "type": "object",
   "required": [
+    "approvers",
     "ask_required_attributes",
     "base_denom",
     "bid_required_attributes",
@@ -16,6 +17,12 @@
     "supported_quote_denoms"
   ],
   "properties": {
+    "approvers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "ask_required_attributes": {
       "type": "array",
       "items": {

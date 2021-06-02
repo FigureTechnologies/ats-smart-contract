@@ -59,6 +59,12 @@ pub enum ContractError {
 
     #[error("Unsupported quote denomination")]
     UnsupportedQuoteDenom,
+
+    #[error("Unsupported upgrade: {source_version:?} => {target_version:?}")]
+    UnsupportedUpgrade {
+        source_version: String,
+        target_version: String,
+    },
 }
 
 impl From<ContractError> for StdError {

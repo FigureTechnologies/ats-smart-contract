@@ -18,6 +18,13 @@
     "version"
   ],
   "properties": {
+    "approvers": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Addr"
+      }
+    },
     "ask_required_attributes": {
       "type": "array",
       "items": {
@@ -52,6 +59,7 @@
       }
     },
     "issuers": {
+      "deprecated": true,
       "type": "array",
       "items": {
         "$ref": "#/definitions/Addr"
