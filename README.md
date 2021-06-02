@@ -1,5 +1,5 @@
-# ATS Exchange Smart Contract
-A ProvWasm smart contract that provides on-chain services for the ATS Exchange.
+# ATS Smart Contract
+A ProvWasm smart contract that provides on-chain services for the Provenance ATS.
 
 ## Status
 [![Latest Release][release-badge]][release-latest]
@@ -15,8 +15,8 @@ A ProvWasm smart contract that provides on-chain services for the ATS Exchange.
 
 ### Glossary
 
-The following terms are used to identify parts of a token exchange. It is strongly influenced by Forex:
-- token pair - two different currencies that are traded in exchange for each other (ex: BTC/HASH)
+The following terms are used to identify parts of a token swap. It is strongly influenced by Forex:
+- token pair - two different currencies that are traded for each other (ex: BTC/HASH)
 - base (token) - the token being sold, indicated by the first token in the pair representation BASE/QUOTE
 - quote (token) - the token used to buy the base token, identified by the second token in the pair representation BASE/QUOTE
 - ask - the sell order
