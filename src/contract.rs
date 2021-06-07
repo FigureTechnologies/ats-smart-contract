@@ -321,7 +321,7 @@ fn create_ask(
             attr("action", "create_ask"),
             attr("id", &ask_order.id),
             attr("class", format!("{:?}", &ask_order.class)),
-            attr("converted_base", &contract_info.base_denom),
+            attr("target_base", &contract_info.base_denom),
             attr("base", &ask_order.base.denom),
             attr("quote", &ask_order.quote),
             attr("price", &ask_order.price),
@@ -1039,7 +1039,7 @@ mod tests {
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
                 assert_eq!(response.attributes[2], attr("class", "Basic"));
-                assert_eq!(response.attributes[3], attr("converted_base", "base_1"));
+                assert_eq!(response.attributes[3], attr("target_base", "base_1"));
                 assert_eq!(response.attributes[4], attr("base", "base_1"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("price", "2.5"));
@@ -1135,7 +1135,7 @@ mod tests {
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
                 assert_eq!(response.attributes[2], attr("class", "Basic"));
-                assert_eq!(response.attributes[3], attr("converted_base", "base_1"));
+                assert_eq!(response.attributes[3], attr("target_base", "base_1"));
                 assert_eq!(response.attributes[4], attr("base", "base_1"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("price", "2"));
