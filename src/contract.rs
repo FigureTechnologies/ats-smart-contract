@@ -215,7 +215,6 @@ fn approve_ask(
             attr("action", "approve_ask"),
             attr("id", &updated_ask_order.id),
             attr("class", format!("{:?}", &updated_ask_order.class)),
-            attr("converted_base", &converted_base.denom),
             attr("quote", &updated_ask_order.quote),
             attr("price", &updated_ask_order.price),
             attr("size", &updated_ask_order.size),
@@ -4442,7 +4441,7 @@ mod tests {
         match approve_ask_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(approve_ask_response) => {
-                assert_eq!(approve_ask_response.attributes.len(), 7);
+                assert_eq!(approve_ask_response.attributes.len(), 6);
                 assert_eq!(
                     approve_ask_response.attributes[0],
                     attr("action", "approve_ask")
@@ -4452,13 +4451,9 @@ mod tests {
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
                 assert_eq!(approve_ask_response.attributes[2], attr("class", "Convertible { status: Ready { approver: Addr(\"approver_1\"), converted_base: Coin { denom: \"base_denom\", amount: Uint128(100) } } }"));
-                assert_eq!(
-                    approve_ask_response.attributes[3],
-                    attr("converted_base", "base_denom")
-                );
-                assert_eq!(approve_ask_response.attributes[4], attr("quote", "quote_1"));
-                assert_eq!(approve_ask_response.attributes[5], attr("price", "2"));
-                assert_eq!(approve_ask_response.attributes[6], attr("size", "100"));
+                assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(approve_ask_response.attributes[4], attr("price", "2"));
+                assert_eq!(approve_ask_response.attributes[5], attr("size", "100"));
                 assert_eq!(approve_ask_response.messages.len(), 0);
             }
         }
