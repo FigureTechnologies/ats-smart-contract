@@ -214,7 +214,7 @@ fn approve_ask(
         attributes: vec![
             attr("action", "approve_ask"),
             attr("id", &updated_ask_order.id),
-            attr("converted_base", &converted_base.denom),
+            attr("class", format!("{:?}", &updated_ask_order.class)),
             attr("quote", &updated_ask_order.quote),
             attr("price", &updated_ask_order.price),
             attr("size", &updated_ask_order.size),
@@ -320,6 +320,7 @@ fn create_ask(
             attr("action", "create_ask"),
             attr("id", &ask_order.id),
             attr("class", format!("{:?}", &ask_order.class)),
+            attr("target_base", &contract_info.base_denom),
             attr("base", &ask_order.base.denom),
             attr("quote", &ask_order.quote),
             attr("price", &ask_order.price),
@@ -1030,17 +1031,18 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
                 assert_eq!(response.attributes[2], attr("class", "Basic"));
-                assert_eq!(response.attributes[3], attr("base", "base_1"));
-                assert_eq!(response.attributes[4], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[5], attr("price", "2.5"));
-                assert_eq!(response.attributes[6], attr("size", "200"));
+                assert_eq!(response.attributes[3], attr("target_base", "base_1"));
+                assert_eq!(response.attributes[4], attr("base", "base_1"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("price", "2.5"));
+                assert_eq!(response.attributes[7], attr("size", "200"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -1125,17 +1127,18 @@ mod tests {
         // verify create ask response
         match create_ask_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_ask"));
                 assert_eq!(
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
                 assert_eq!(response.attributes[2], attr("class", "Basic"));
-                assert_eq!(response.attributes[3], attr("base", "base_1"));
-                assert_eq!(response.attributes[4], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[5], attr("price", "2"));
-                assert_eq!(response.attributes[6], attr("size", "500"));
+                assert_eq!(response.attributes[3], attr("target_base", "base_1"));
+                assert_eq!(response.attributes[4], attr("base", "base_1"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("price", "2"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -4447,10 +4450,7 @@ mod tests {
                     approve_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(
-                    approve_ask_response.attributes[2],
-                    attr("converted_base", "base_denom")
-                );
+                assert_eq!(approve_ask_response.attributes[2], attr("class", "Convertible { status: Ready { approver: Addr(\"approver_1\"), converted_base: Coin { denom: \"base_denom\", amount: Uint128(100) } } }"));
                 assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(approve_ask_response.attributes[4], attr("price", "2"));
                 assert_eq!(approve_ask_response.attributes[5], attr("size", "100"));
