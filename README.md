@@ -19,7 +19,7 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 | 0.14.1           | 14      |
 | 0.14.2           | 16      |
 | 0.14.3           | 20      |
-| 0.14.4           |         |
+| 0.14.4           | 21      |
 
 ## Build
 
