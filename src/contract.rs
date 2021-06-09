@@ -214,7 +214,7 @@ fn approve_ask(
         attributes: vec![
             attr("action", "approve_ask"),
             attr("id", &updated_ask_order.id),
-            attr("class", format!("{:?}", &updated_ask_order.class)),
+            attr("class", serde_json::to_string(&updated_ask_order.class)?),
             attr("quote", &updated_ask_order.quote),
             attr("price", &updated_ask_order.price),
             attr("size", &updated_ask_order.size),
@@ -319,7 +319,7 @@ fn create_ask(
         attributes: vec![
             attr("action", "create_ask"),
             attr("id", &ask_order.id),
-            attr("class", format!("{:?}", &ask_order.class)),
+            attr("class", serde_json::to_string(&ask_order.class)?),
             attr("target_base", &contract_info.base_denom),
             attr("base", &ask_order.base.denom),
             attr("quote", &ask_order.quote),
@@ -1037,7 +1037,13 @@ mod tests {
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("class", "Basic"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr(
+                        "class",
+                        serde_json::to_string(&AskOrderClass::Basic {}).unwrap()
+                    )
+                );
                 assert_eq!(response.attributes[3], attr("target_base", "base_1"));
                 assert_eq!(response.attributes[4], attr("base", "base_1"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
@@ -1133,7 +1139,13 @@ mod tests {
                     response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("class", "Basic"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr(
+                        "class",
+                        serde_json::to_string(&AskOrderClass::Basic {}).unwrap()
+                    )
+                );
                 assert_eq!(response.attributes[3], attr("target_base", "base_1"));
                 assert_eq!(response.attributes[4], attr("base", "base_1"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
@@ -4450,7 +4462,19 @@ mod tests {
                     approve_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(approve_ask_response.attributes[2], attr("class", "Convertible { status: Ready { approver: Addr(\"approver_1\"), converted_base: Coin { denom: \"base_denom\", amount: Uint128(100) } } }"));
+                assert_eq!(
+                    approve_ask_response.attributes[2],
+                    attr(
+                        "class",
+                        serde_json::to_string(&AskOrderClass::Convertible {
+                            status: AskOrderStatus::Ready {
+                                approver: Addr::unchecked("approver_1"),
+                                converted_base: coin(100, "base_denom")
+                            },
+                        })
+                        .unwrap()
+                    )
+                );
                 assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(approve_ask_response.attributes[4], attr("price", "2"));
                 assert_eq!(approve_ask_response.attributes[5], attr("size", "100"));
