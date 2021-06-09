@@ -13,25 +13,23 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 [codecov-badge]: https://codecov.io/gh/provenance-io/ats-smart-contract/branch/main/graph/badge.svg
 [codecov-report]: https://codecov.io/gh/provenance-io/ats-smart-contract
 
-### Glossary
-
-The following terms are used to identify parts of a token swap. It is strongly influenced by Forex:
-- token pair - two different currencies that are traded for each other (ex: BTC/HASH)
-- base (token) - the token being sold, indicated by the first token in the pair representation BASE/QUOTE
-- quote (token) - the token used to buy the base token, identified by the second token in the pair representation BASE/QUOTE
-- ask - the sell order
-- bid - the buy order
-- match - an ask and bid order pairing
+### [Provenance Testnet](https://github.com/provenance-io/testnet) Deployments
+| Contract Version | Code ID |
+| ---------------- | ------- |
+| 0.14.1           | 14      |
+| 0.14.2           | 16      |
+| 0.14.3           | 20      |
+| 0.14.4           |         |
 
 ## Build
 
 _Make sure $PIO_HOME is set_
 
-Compile and install
+1. Compile and install
 
-```bash
-make
-```
+    ```bash
+    make
+    ```
 
 ## Example Usage
 _note: Address bech32 values and other params may vary._
@@ -46,7 +44,7 @@ _note: Address bech32 values and other params may vary._
         - usd (quote)
 
 
-0. Store the `ats-smart-contract` WASM:
+1. Store the `ats-smart-contract` WASM:
     ```shell
     build/provenanced tx wasm store ats_smart_contract.wasm \
         -t \
@@ -62,7 +60,7 @@ _note: Address bech32 values and other params may vary._
         --yes | jq;
     ```
 
-0. Instantiate the contract, binding the name `atsgmeusd.sc` to the contract address:
+1. Instantiate the contract, binding the name `atsgmeusd.sc` to the contract address:
     ```shell
     build/provenanced tx wasm instantiate 1 '{"name":"ats-ex", "bind_name":"ats-ex.sc", "base_denom":"gme", "convertible_base_denoms":[], "supported_quote_denoms":["usd"], "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"], "issuers":[], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
         -t \
@@ -79,7 +77,7 @@ _note: Address bech32 values and other params may vary._
         --yes | jq
     ```
 
-0. Create an `ask` order:
+1. Create an `ask` order:
 
     _note: The json data '{"create_ask":{}}' is the action and order data to pass into the smart contract. The actual
    marker token sent is the order base, identified by `--amount` below._
@@ -100,7 +98,7 @@ _note: Address bech32 values and other params may vary._
         --yes | jq
     ```
 
-0. Create a `bid` order:
+1. Create a `bid` order:
 
     _note: The json data '{"create_bid":{}}' is the action and order data to pass into the smart contract, he actual
    marker token sent is the order quote, identified by `--amount` below._
@@ -121,7 +119,7 @@ _note: Address bech32 values and other params may vary._
         --testnet | jq
     ```
 
-0. Match and execute the ask and bid orders.
+1. Match and execute the ask and bid orders.
 
     ```shell
     build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
@@ -202,7 +200,7 @@ build/provenanced query wasm contract-state smart \
 
 ## Migrate/Upgrade contract
 
-0. Store the new `ats-smart-contract` WASM:
+1. Store the new `ats-smart-contract` WASM:
     ```shell
     build/provenanced tx wasm store ats_smart_contract.wasm \
         -t \
@@ -218,21 +216,31 @@ build/provenanced query wasm contract-state smart \
         --yes | jq;
     ```
 
-0. Migrate/Upgrade to the new code id:
+1. Migrate/Upgrade to the new code id:
    
    _note: The `CODE_ID` is the `code_id` returned when storing the new wasm in the previous step._
 
-```shell
-build/provenanced tx wasm migrate tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz CODE_ID \
-'{"migrate":{}}' \
-    --from validator \
-    --keyring-backend test \
-    --home build/run/provenanced \
-    --chain-id testing \
-    --gas auto \
-    --gas-adjustment 1.4 \
-    --fees 6000nhash \
-    --broadcast-mode block \
-    --yes \
-    --testnet | jq
-```
+    ```shell
+    build/provenanced tx wasm migrate tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz CODE_ID \
+    '{"migrate":{}}' \
+        --from validator \
+        --keyring-backend test \
+        --home build/run/provenanced \
+        --chain-id testing \
+        --gas auto \
+        --gas-adjustment 1.4 \
+        --fees 6000nhash \
+        --broadcast-mode block \
+        --yes \
+        --testnet | jq
+    ```
+
+## Glossary
+
+The following terms are used to identify parts of a token swap. It is strongly influenced by Forex:
+- token pair - two different currencies that are traded for each other (ex: BTC/HASH)
+- base (token) - the token being sold, indicated by the first token in the pair representation BASE/QUOTE
+- quote (token) - the token used to buy the base token, identified by the second token in the pair representation BASE/QUOTE
+- ask - the sell order
+- bid - the buy order
+- match - an ask and bid order pairing
