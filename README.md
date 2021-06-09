@@ -2,6 +2,9 @@
 A ProvWasm smart contract that provides on-chain services for the Provenance ATS.
 
 ## Status
+
+---
+
 [![Latest Release][release-badge]][release-latest]
 [![Build Status][build-badge]][build-status]
 [![Code Coverage][codecov-badge]][codecov-report]
@@ -14,6 +17,8 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 [codecov-report]: https://codecov.io/gh/provenance-io/ats-smart-contract
 
 ### [Provenance Testnet](https://github.com/provenance-io/testnet) Deployments
+####pio-testnet-1
+
 | Contract Version | Code ID |
 | ---------------- | ------- |
 | 0.14.1           | 14      |
@@ -22,6 +27,8 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 | 0.14.4           | 21      |
 
 ## Build
+
+---
 
 _Make sure $PIO_HOME is set_
 
@@ -32,6 +39,8 @@ _Make sure $PIO_HOME is set_
     ```
 
 ## Example Usage
+
+---
 _note: Address bech32 values and other params may vary._
 
 0. Pre-configure the following:
@@ -138,6 +147,7 @@ _note: Address bech32 values and other params may vary._
 
 ## Other actions
 
+---
 Cancel an ask order:
 
 ```shell
@@ -200,6 +210,7 @@ build/provenanced query wasm contract-state smart \
 
 ## Migrate/Upgrade contract
 
+---
 1. Store the new `ats-smart-contract` WASM:
     ```shell
     build/provenanced tx wasm store ats_smart_contract.wasm \
@@ -237,6 +248,7 @@ build/provenanced query wasm contract-state smart \
 
 ## Glossary
 
+---
 The following terms are used to identify parts of a token swap. It is strongly influenced by Forex:
 - token pair - two different currencies that are traded for each other (ex: BTC/HASH)
 - base (token) - the token being sold, indicated by the first token in the pair representation BASE/QUOTE
