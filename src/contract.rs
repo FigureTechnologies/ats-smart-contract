@@ -699,16 +699,18 @@ fn execute_match(
             messages: vec![
                 BankMsg::Send {
                     to_address: approver.to_string(),
-                    amount: vec![
-                        Coin {
-                            denom: bid_order.quote.denom.clone(),
-                            amount: quote_total,
-                        },
-                        Coin {
-                            denom: ask_order.base.denom.clone(),
-                            amount: size,
-                        },
-                    ],
+                    amount: vec![Coin {
+                        denom: ask_order.base.denom.clone(),
+                        amount: size,
+                    }],
+                }
+                .into(),
+                BankMsg::Send {
+                    to_address: approver.to_string(),
+                    amount: vec![Coin {
+                        denom: bid_order.quote.denom.clone(),
+                        amount: quote_total,
+                    }],
                 }
                 .into(),
                 BankMsg::Send {
@@ -3345,16 +3347,23 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
-                        amount: vec![coin(200, "quote_1"), coin(100, "con_base_1")],
+                        amount: vec![coin(100, "con_base_1")],
                     })
                 );
                 assert_eq!(
                     execute_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "approver_2".into(),
+                        amount: vec![coin(200, "quote_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -3759,16 +3768,23 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
-                        amount: vec![coin(400, "quote_1"), coin(100, "con_base_1")]
+                        amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
                     execute_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "approver_1".into(),
+                        amount: vec![coin(400, "quote_1")]
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_denom"),
