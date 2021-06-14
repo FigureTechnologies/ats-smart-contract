@@ -17,7 +17,7 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 [codecov-report]: https://codecov.io/gh/provenance-io/ats-smart-contract
 
 ### [Provenance Testnet](https://github.com/provenance-io/testnet) Deployments
-####pio-testnet-1
+#### pio-testnet-1
 
 | Contract Version | Code ID |
 | ---------------- | ------- |
