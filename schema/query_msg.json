@@ -53,6 +53,18 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_version_info"
+      ],
+      "properties": {
+        "get_version_info": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
   ]
 }

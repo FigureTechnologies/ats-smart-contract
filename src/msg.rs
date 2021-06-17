@@ -13,7 +13,6 @@ pub struct InstantiateMsg {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<String>,
     pub executors: Vec<String>,
-    pub issuers: Vec<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -195,6 +194,7 @@ pub enum QueryMsg {
     GetAsk { id: String },
     GetBid { id: String },
     GetContractInfo {},
+    GetVersionInfo {},
 }
 
 impl Validate for QueryMsg {
@@ -224,6 +224,7 @@ impl Validate for QueryMsg {
                 }
             }
             QueryMsg::GetContractInfo {} => {}
+            QueryMsg::GetVersionInfo {} => {}
         }
 
         match invalid_fields.len() {
@@ -237,8 +238,8 @@ impl Validate for QueryMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum MigrateMsg {
-    Migrate { approvers: Vec<String> },
+pub struct MigrateMsg {
+    pub approvers: Vec<String>,
 }
 
 impl Validate for MigrateMsg {
