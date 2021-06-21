@@ -71,11 +71,16 @@
         "create_ask": {
           "type": "object",
           "required": [
+            "base",
             "id",
             "price",
-            "quote"
+            "quote",
+            "size"
           ],
           "properties": {
+            "base": {
+              "type": "string"
+            },
             "id": {
               "type": "string"
             },
@@ -84,6 +89,9 @@
             },
             "quote": {
               "type": "string"
+            },
+            "size": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }

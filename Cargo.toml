@@ -29,7 +29,7 @@ overflow-checks = true
 
 [dependencies]
 cosmwasm-std = { version = "0.14.1" }
-cosmwasm-storage = { version = "0.14.1" }
+cosmwasm-storage = { version = "0.14.1", features = ["iterator"] }
 cw-storage-plus = { version = "0.6.0" }
 provwasm-std = { version = "0.14.1" }
 rust_decimal = { version = "1.12.2" }

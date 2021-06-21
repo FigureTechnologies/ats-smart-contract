@@ -70,6 +70,8 @@ impl Validate for InstantiateMsg {
 pub enum ExecuteMsg {
     ApproveAsk {
         id: String,
+        base: String,
+        size: Uint128,
     },
     CancelAsk {
         id: String,
@@ -79,8 +81,10 @@ pub enum ExecuteMsg {
     },
     CreateAsk {
         id: String,
+        base: String,
         quote: String,
         price: String,
+        size: Uint128,
     },
     CreateBid {
         id: String,
@@ -113,20 +117,38 @@ impl Validate for ExecuteMsg {
         let mut invalid_fields: Vec<&str> = vec![];
 
         match self {
-            ExecuteMsg::ApproveAsk { id } => {
+            ExecuteMsg::ApproveAsk { id, base, size } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
+                if base.is_empty() {
+                    invalid_fields.push("base");
+                }
+                if size.lt(&Uint128(1)) {
+                    invalid_fields.push("size");
+                }
             }
-            ExecuteMsg::CreateAsk { id, quote, price } => {
+            ExecuteMsg::CreateAsk {
+                id,
+                base,
+                quote,
+                price,
+                size,
+            } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
+                }
+                if base.is_empty() {
+                    invalid_fields.push("base");
+                }
+                if quote.is_empty() {
+                    invalid_fields.push("quote");
                 }
                 if price.is_empty() {
                     invalid_fields.push("price");
                 }
-                if quote.is_empty() {
-                    invalid_fields.push("quote");
+                if size.lt(&Uint128(1)) {
+                    invalid_fields.push("size");
                 }
             }
             ExecuteMsg::CreateBid {

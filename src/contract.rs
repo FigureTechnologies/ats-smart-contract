@@ -1,8 +1,11 @@
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo,
-    Response, StdResult, Uint128,
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
+    DepsMut, Env, MessageInfo, Response, StdResult, Uint128,
 };
-use provwasm_std::{bind_name, NameBinding, ProvenanceMsg, ProvenanceQuerier};
+use provwasm_std::{
+    bind_name, Marker, MarkerMsgParams, MarkerType, NameBinding, ProvenanceMsg, ProvenanceQuerier,
+    ProvenanceRoute,
+};
 
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV1,
@@ -11,8 +14,8 @@ use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::state::{
-    get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrder,
-    AskOrderClass, AskOrderStatus, BidOrder,
+    get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrderClass,
+    AskOrderStatus, AskOrderV1, BidOrder,
 };
 use crate::version_info::{get_version_info, migrate_version_info};
 use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
@@ -100,22 +103,25 @@ pub fn execute(
     msg.validate()?;
 
     match msg {
-        ExecuteMsg::ApproveAsk { id } => approve_ask(deps, &info, id),
-        ExecuteMsg::CreateAsk { id, quote, price } => create_ask(
+        ExecuteMsg::ApproveAsk { id, base, size } => approve_ask(deps, env, info, id, base, size),
+        ExecuteMsg::CreateAsk {
+            id,
+            base,
+            quote,
+            price,
+            size,
+        } => create_ask(
             deps,
+            env,
             &info,
-            AskOrder {
-                base: info
-                    .funds
-                    .get(0)
-                    .ok_or(ContractError::BaseQuantity)?
-                    .to_owned(),
+            AskOrderV1 {
+                base,
                 class: AskOrderClass::Basic,
                 id,
                 owner: info.sender.to_owned(),
                 quote,
                 price,
-                size: info.funds.get(0).ok_or(ContractError::BaseQuantity)?.amount,
+                size,
             },
         ),
         ExecuteMsg::CreateBid {
@@ -152,8 +158,11 @@ pub fn execute(
 
 fn approve_ask(
     deps: DepsMut,
-    info: &MessageInfo,
+    env: Env,
+    info: MessageInfo,
     id: String,
+    base: String,
+    size: Uint128,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
@@ -161,33 +170,50 @@ fn approve_ask(
         return Err(ContractError::Unauthorized);
     }
 
-    let converted_base = info
-        .funds
-        .get(0)
-        .ok_or(ContractError::BaseQuantity)?
-        .to_owned();
+    // is ask base a marker
+    let is_base_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(base.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // determine sent funds requirements
+    match is_base_restricted_marker {
+        // no funds should be sent if base is a restricted marker
+        true => {
+            if !info.funds.is_empty() {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+        // sent funds must match order if not a restricted marker
+        false => {
+            if info.funds.ne(&coins(size.into(), base.to_owned())) {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+    }
 
     let mut ask_storage = get_ask_storage(deps.storage);
 
     // update ask order
     let updated_ask_order = ask_storage.update(
         id.as_bytes(),
-        |stored_ask_order| -> Result<AskOrder, ContractError> {
+        |stored_ask_order| -> Result<AskOrderV1, ContractError> {
             match stored_ask_order {
                 None => Err(ContractError::InvalidFields {
                     fields: vec![String::from("id")],
                 }),
                 Some(mut stored_ask_order) => {
-                    if converted_base.amount.ne(&stored_ask_order.base.amount)
-                        || converted_base.denom.ne(&contract_info.base_denom)
-                    {
+                    if size.ne(&stored_ask_order.size) || base.ne(&contract_info.base_denom) {
                         return Err(ContractError::SentFundsOrderMismatch);
                     }
 
                     stored_ask_order.class = AskOrderClass::Convertible {
                         status: AskOrderStatus::Ready {
                             approver: info.sender.clone(),
-                            converted_base: converted_base.clone(),
+                            converted_base: coin(size.into(), base.clone()),
                         },
                     };
 
@@ -200,7 +226,24 @@ fn approve_ask(
     // build response
     Ok(Response {
         submessages: vec![],
-        messages: vec![],
+        messages: match is_base_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(size.into(), base),
+                            to: env.contract.address,
+                            from: info.sender,
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![]
+            }
+        },
         attributes: vec![
             attr("action", "approve_ask"),
             attr("id", &updated_ask_order.id),
@@ -216,23 +259,52 @@ fn approve_ask(
 // create ask entrypoint
 fn create_ask(
     deps: DepsMut,
+    env: Env,
     info: &MessageInfo,
-    mut ask_order: AskOrder,
+    mut ask_order: AskOrderV1,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // error if order base is empty
-    if ask_order.base.denom.is_empty() || ask_order.base.amount.is_zero() {
+    if ask_order.base.is_empty() || ask_order.size.is_zero() {
         return Err(ContractError::BaseQuantity);
     }
 
     let contract_info = get_contract_info(deps.storage)?;
 
     // error if order base is not contract base nor contract convertible base
-    if ask_order.base.denom.ne(&contract_info.base_denom)
+    if ask_order.base.ne(&contract_info.base_denom)
         && !contract_info
             .convertible_base_denoms
-            .contains(&ask_order.base.denom)
+            .contains(&ask_order.base)
     {
         return Err(ContractError::InconvertibleBaseDenom);
+    }
+
+    // is ask base a marker
+    let is_base_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // determine sent funds requirements
+    match is_base_restricted_marker {
+        // no funds should be sent if base is a restricted marker
+        true => {
+            if !info.funds.is_empty() {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+        // sent funds must match order if not a restricted marker
+        false => {
+            if info
+                .funds
+                .ne(&coins(ask_order.size.into(), ask_order.base.to_owned()))
+            {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
     }
 
     // error if quote denom unsupported
@@ -289,7 +361,7 @@ fn create_ask(
 
     let mut ask_storage = get_ask_storage(deps.storage);
 
-    if ask_order.base.denom.ne(&contract_info.base_denom) {
+    if ask_order.base.ne(&contract_info.base_denom) {
         ask_order.class = AskOrderClass::Convertible {
             status: AskOrderStatus::PendingIssuerApproval,
         };
@@ -305,13 +377,30 @@ fn create_ask(
 
     Ok(Response {
         submessages: vec![],
-        messages: vec![],
+        messages: match is_base_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(ask_order.size.into(), ask_order.base.to_owned()),
+                            to: env.contract.address,
+                            from: ask_order.owner,
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![]
+            }
+        },
         attributes: vec![
             attr("action", "create_ask"),
             attr("id", &ask_order.id),
             attr("class", serde_json::to_string(&ask_order.class)?),
             attr("target_base", &contract_info.base_denom),
-            attr("base", &ask_order.base.denom),
+            attr("base", &ask_order.base),
             attr("quote", &ask_order.quote),
             attr("price", &ask_order.price),
             attr("size", &ask_order.size),
@@ -447,11 +536,12 @@ fn cancel_ask(
     }
 
     let ask_storage = get_ask_storage_read(deps.storage);
-    let AskOrder {
+    let AskOrderV1 {
         id,
         owner,
-        base,
         class,
+        base,
+        size,
         ..
     } = ask_storage
         .load(id.as_bytes())
@@ -470,7 +560,7 @@ fn cancel_ask(
         submessages: vec![],
         messages: vec![BankMsg::Send {
             to_address: owner.to_string(),
-            amount: vec![base],
+            amount: coins(u128::from(size), base),
         }
         .into()],
         attributes: vec![attr("action", "cancel_ask"), attr("id", id)],
@@ -544,12 +634,12 @@ fn cancel_bid(
 // match and execute an ask and bid order
 fn execute_match(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     ask_id: String,
     bid_id: String,
     price: String,
-    size: Uint128,
+    execute_size: Uint128,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // only executors may execute matches
     if !get_contract_info(deps.storage)?
@@ -607,13 +697,13 @@ fn execute_match(
 
     // at least one side of the order will always execute fully, both sides if order sizes equal
     // so the provided execute match size must be either the ask or bid size (or both if equal)
-    if size.gt(&ask_order.size) || size.gt(&bid_order.size) {
+    if execute_size.gt(&ask_order.size) || execute_size.gt(&bid_order.size) {
         return Err(ContractError::InvalidExecuteSize);
     }
 
     // calculate total (price * size), error if overflows
     let total = execute_price
-        .checked_mul(Decimal::from(size.u128()))
+        .checked_mul(Decimal::from(execute_size.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
     // error if total is not an integer
@@ -623,8 +713,7 @@ fn execute_match(
 
     let quote_total = Uint128(total.to_u128().ok_or(ContractError::TotalOverflow)?);
 
-    ask_order.size = Uint128(ask_order.size.u128() - size.u128());
-    ask_order.base.amount = Uint128(ask_order.base.amount.u128() - size.u128());
+    ask_order.size = Uint128(ask_order.size.u128() - execute_size.u128());
 
     let ask_order_class = &mut ask_order.class;
 
@@ -632,10 +721,10 @@ fn execute_match(
         status: AskOrderStatus::Ready { converted_base, .. },
     } = ask_order_class
     {
-        converted_base.amount = ask_order.base.amount;
+        converted_base.amount = ask_order.size;
     }
 
-    bid_order.size = Uint128(bid_order.size.u128() - size.u128());
+    bid_order.size = Uint128(bid_order.size.u128() - execute_size.u128());
     bid_order.quote.amount = Uint128(bid_order.quote.amount.u128() - quote_total.u128());
 
     // calculate refund to bidder if bid order is completed but quote funds remain
@@ -645,8 +734,17 @@ fn execute_match(
         bid_order.quote.amount = Uint128(bid_order.quote.amount.u128() - bidder_refund.u128());
     }
 
+    // is ask base a marker
+    let is_base_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
     // 'send quote to asker' and 'send base to bidder' messages
-    let mut response = match &ask_order.class {
+    let mut response = match &ask_order_class {
         AskOrderClass::Basic => Response {
             submessages: vec![],
             messages: vec![
@@ -658,14 +756,27 @@ fn execute_match(
                     }],
                 }
                 .into(),
-                BankMsg::Send {
-                    to_address: bid_order.owner.to_string(),
-                    amount: vec![Coin {
-                        denom: ask_order.base.denom.clone(),
-                        amount: size,
-                    }],
-                }
-                .into(),
+                match is_base_restricted_marker {
+                    true => CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(execute_size.into(), ask_order.base.to_owned()),
+                                to: bid_order.owner.to_owned(),
+                                from: env.contract.address,
+                            },
+                        ),
+                        version: "2_0_0".to_string(),
+                    }),
+                    false => BankMsg::Send {
+                        to_address: bid_order.owner.to_owned().to_string(),
+                        amount: vec![Coin {
+                            denom: ask_order.base.clone(),
+                            amount: execute_size,
+                        }],
+                    }
+                    .into(),
+                },
             ],
             attributes: vec![
                 attr("action", "execute"),
@@ -674,7 +785,7 @@ fn execute_match(
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price),
-                attr("size", &size),
+                attr("size", &execute_size),
             ],
             data: None,
         },
@@ -687,14 +798,27 @@ fn execute_match(
         } => Response {
             submessages: vec![],
             messages: vec![
-                BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![Coin {
-                        denom: ask_order.base.denom.clone(),
-                        amount: size,
-                    }],
-                }
-                .into(),
+                match is_base_restricted_marker {
+                    true => CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(execute_size.into(), ask_order.base.to_owned()),
+                                to: approver.to_owned(),
+                                from: env.contract.address.to_owned(),
+                            },
+                        ),
+                        version: "2_0_0".to_string(),
+                    }),
+                    false => BankMsg::Send {
+                        to_address: approver.to_string(),
+                        amount: vec![Coin {
+                            denom: ask_order.base.clone(),
+                            amount: execute_size,
+                        }],
+                    }
+                    .into(),
+                },
                 BankMsg::Send {
                     to_address: approver.to_string(),
                     amount: vec![Coin {
@@ -703,14 +827,34 @@ fn execute_match(
                     }],
                 }
                 .into(),
-                BankMsg::Send {
-                    to_address: bid_order.owner.to_string(),
-                    amount: vec![Coin {
-                        denom: converted_base.clone().denom,
-                        amount: size,
-                    }],
-                }
-                .into(),
+                match matches!(
+                    ProvenanceQuerier::new(&deps.querier)
+                        .get_marker_by_denom(ask_order.base.clone()),
+                    Ok(Marker {
+                        marker_type: MarkerType::Restricted,
+                        ..
+                    })
+                ) {
+                    true => CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(execute_size.into(), converted_base.clone().denom),
+                                to: bid_order.owner.to_owned(),
+                                from: env.contract.address,
+                            },
+                        ),
+                        version: "2_0_0".to_string(),
+                    }),
+                    false => BankMsg::Send {
+                        to_address: bid_order.owner.to_owned().into(),
+                        amount: vec![Coin {
+                            denom: converted_base.clone().denom,
+                            amount: execute_size,
+                        }],
+                    }
+                    .into(),
+                },
             ],
             attributes: vec![
                 attr("action", "execute"),
@@ -719,7 +863,7 @@ fn execute_match(
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price),
-                attr("size", &size),
+                attr("size", &execute_size),
             ],
             data: None,
         },
@@ -733,7 +877,7 @@ fn execute_match(
     if !bidder_refund.is_zero() {
         response.messages.push(
             BankMsg::Send {
-                    to_address: bid_order.owner.to_string(),
+                    to_address: bid_order.owner.to_owned().into(),
                     amount:
                     // bid order completed, refund any remaining quote funds to bidder
                     vec![
@@ -748,7 +892,7 @@ fn execute_match(
     }
 
     // finally update or remove the orders from storage
-    if ask_order.size.is_zero() && ask_order.base.amount.is_zero() {
+    if ask_order.size.is_zero() {
         get_ask_storage(deps.storage).remove(&ask_id.as_bytes());
     } else {
         get_ask_storage(deps.storage)
@@ -802,11 +946,13 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::CosmosMsg;
     use cosmwasm_std::{coin, coins, Addr, BankMsg, Storage, Uint128};
-    use provwasm_std::{NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute};
+    use cosmwasm_std::{from_binary, CosmosMsg};
+    use provwasm_std::{
+        Marker, MarkerMsgParams, NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute,
+    };
 
-    use crate::state::{get_bid_storage_read, AskOrderClass};
+    use crate::state::{get_bid_storage_read, AskOrderClass, AskOrderV1};
 
     use super::*;
     use provwasm_mocks::mock_dependencies;
@@ -977,6 +1123,8 @@ mod tests {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             price: "2.5".into(),
             quote: "quote_1".into(),
+            base: "base_1".to_string(),
+            size: Uint128(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1018,19 +1166,26 @@ mod tests {
 
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
-        if let ExecuteMsg::CreateAsk { id, price, quote } = create_ask_msg {
+        if let ExecuteMsg::CreateAsk {
+            id,
+            base,
+            quote,
+            price,
+            size,
+        } = create_ask_msg
+        {
             match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        AskOrder {
-                            base: coin(200, "base_1"),
+                        AskOrderV1 {
+                            base,
                             class: AskOrderClass::Basic,
                             id,
                             owner: Addr::unchecked("asker"),
                             price,
                             quote,
-                            size: Uint128(200)
+                            size
                         }
                     )
                 }
@@ -1074,8 +1229,10 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2".into(),
+            base: "base_1".to_string(),
             quote: "quote_1".into(),
+            price: "2".into(),
+            size: Uint128(500),
         };
 
         let asker_info = mock_info("asker", &coins(500, "base_1"));
@@ -1117,19 +1274,26 @@ mod tests {
 
         // verify ask order stored
         let ask_storage = get_ask_storage_read(&deps.storage);
-        if let ExecuteMsg::CreateAsk { id, quote, price } = create_ask_msg {
+        if let ExecuteMsg::CreateAsk {
+            id,
+            base,
+            quote,
+            price,
+            size,
+        } = create_ask_msg
+        {
             match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        AskOrder {
-                            base: coin(500, "base_1"),
+                        AskOrderV1 {
+                            base,
                             class: AskOrderClass::Basic,
                             id,
                             owner: asker_info.sender,
                             price,
                             quote,
-                            size: Uint128(500),
+                            size,
                         }
                     )
                 }
@@ -1139,6 +1303,242 @@ mod tests {
             }
         } else {
             panic!("ask_message is not a CreateAsk type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_ask_with_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create ask data
+        let create_ask_msg = ExecuteMsg::CreateAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            base: "base_1".to_string(),
+            quote: "quote_1".into(),
+            price: "2".into(),
+            size: Uint128(500),
+        };
+
+        let asker_info = mock_info("asker", &[]);
+
+        // execute create ask
+        let create_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg.clone(),
+        );
+
+        // verify create ask response
+        match create_ask_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_ask"));
+                assert_eq!(
+                    response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    response.attributes[2],
+                    attr(
+                        "class",
+                        serde_json::to_string(&AskOrderClass::Basic {}).unwrap()
+                    )
+                );
+                assert_eq!(response.attributes[3], attr("target_base", "base_1"));
+                assert_eq!(response.attributes[4], attr("base", "base_1"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("price", "2"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
+                assert_eq!(response.messages.len(), 1);
+
+                match &response.messages[0] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: provwasm_std::ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(500, "base_1"),
+                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                                        from: Addr::unchecked("asker"),
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    message => panic!("expected marker transfer message, but was: {:?}", message),
+                }
+            }
+            Err(error) => {
+                panic!("failed to create ask: {:?}", error)
+            }
+        }
+
+        // verify ask order stored
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateAsk {
+            id,
+            base,
+            quote,
+            price,
+            size,
+        } = create_ask_msg
+        {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        AskOrderV1 {
+                            base,
+                            class: AskOrderClass::Basic,
+                            id,
+                            owner: asker_info.sender,
+                            price,
+                            quote,
+                            size,
+                        }
+                    )
+                }
+                _ => {
+                    panic!("ask order was not found in storage")
+                }
+            }
+        } else {
+            panic!("ask_message is not a CreateAsk type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_ask_with_restricted_marker_with_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create ask data
+        let create_ask_msg = ExecuteMsg::CreateAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            base: "base_1".to_string(),
+            quote: "quote_1".into(),
+            price: "2".into(),
+            size: Uint128(500),
+        };
+
+        let asker_info = mock_info("asker", &[coin(10, "base_1")]);
+
+        // execute create ask
+        let create_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg.clone(),
+        );
+
+        // verify create ask response
+        match create_ask_response {
+            Err(ContractError::SentFundsOrderMismatch) => (),
+            _ => panic!(
+                "expected ContractError::SentFundsOrderMismatch, but received: {:?}",
+                create_ask_response
+            ),
         }
     }
 
@@ -1165,8 +1565,10 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2.5".into(),
+            base: "base_1".to_string(),
             quote: "quote_1".into(),
+            price: "2.5".into(),
+            size: Uint128(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1185,8 +1587,10 @@ mod tests {
         // create ask data with existing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "4.5".into(),
+            base: "base_1".to_string(),
             quote: "quote_2".into(),
+            price: "4.5".into(),
+            size: Uint128(400),
         };
 
         let asker_info = mock_info("asker", &coins(400, "base_1"));
@@ -1212,8 +1616,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(200, "base_1"),
+                    AskOrderV1 {
+                        base: "base_1".into(),
                         class: AskOrderClass::Basic,
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
@@ -1252,15 +1656,17 @@ mod tests {
         // create ask missing id
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "".into(),
-            price: "".into(),
+            base: "".to_string(),
             quote: "".into(),
+            price: "".into(),
+            size: Uint128(0),
         };
 
         // execute create ask
         let create_ask_response = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("asker", &coins(100, "base_1")),
+            mock_info("asker", &coins(0, "base_1")),
             create_ask_msg,
         );
 
@@ -1270,54 +1676,11 @@ mod tests {
             Err(error) => match error {
                 ContractError::InvalidFields { fields } => {
                     assert!(fields.contains(&"id".into()));
-                    assert!(fields.contains(&"price".into()));
+                    assert!(fields.contains(&"base".into()));
                     assert!(fields.contains(&"quote".into()));
+                    assert!(fields.contains(&"price".into()));
+                    assert!(fields.contains(&"size".into()));
                 }
-                error => panic!("unexpected error: {:?}", error),
-            },
-        }
-    }
-
-    #[test]
-    fn create_ask_missing_base() {
-        let mut deps = mock_dependencies(&[]);
-        setup_test_base(
-            &mut deps.storage,
-            &ContractInfoV1 {
-                name: "contract_name".into(),
-                bind_name: "contract_bind_name".into(),
-                base_denom: "base_denom".into(),
-                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
-            },
-        );
-
-        // create ask missing id
-        let create_ask_msg = ExecuteMsg::CreateAsk {
-            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2".into(),
-            quote: "quote_1".into(),
-        };
-
-        // execute create ask
-        let create_ask_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            mock_info("asker", &coins(0, "")),
-            create_ask_msg,
-        );
-
-        // verify execute create ask response
-        match create_ask_response {
-            Ok(_) => panic!("expected error, but ok"),
-            Err(error) => match error {
-                ContractError::BaseQuantity => {}
                 error => panic!("unexpected error: {:?}", error),
             },
         }
@@ -1346,8 +1709,10 @@ mod tests {
         // create ask with inconvertible base
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2".into(),
+            base: "inconvertible".to_string(),
             quote: "quote_1".into(),
+            price: "2".into(),
+            size: Uint128(100),
         };
 
         // execute create ask
@@ -1391,8 +1756,10 @@ mod tests {
         // create ask with unsupported quote
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2".into(),
+            base: "base_denom".to_string(),
             quote: "unsupported".into(),
+            price: "2".into(),
+            size: Uint128(100),
         };
 
         // execute create ask
@@ -1436,8 +1803,10 @@ mod tests {
         // create ask
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2.123".into(),
+            base: "base_denom".to_string(),
             quote: "quote_1".into(),
+            price: "2.123".into(),
+            size: Uint128(500),
         };
 
         // execute create ask
@@ -1483,8 +1852,10 @@ mod tests {
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            price: "2".into(),
+            base: "base_denom".to_string(),
             quote: "quote_1".into(),
+            price: "2".into(),
+            size: Uint128(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_denom"));
@@ -2047,8 +2418,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -2122,8 +2493,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::Ready {
                         approver: Addr::unchecked("approver_1"),
@@ -2289,8 +2660,8 @@ mod tests {
 
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(200, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("not_asker"),
@@ -2627,8 +2998,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -2746,8 +3117,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(30, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -2827,8 +3198,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(20, "base_1"),
+                    AskOrderV1 {
+                        base: "base_1".into(),
                         class: AskOrderClass::Basic,
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
@@ -2877,8 +3248,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(50, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3002,8 +3373,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(200, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3083,8 +3454,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "base_1"),
+                    AskOrderV1 {
+                        base: "base_1".into(),
                         class: AskOrderClass::Basic,
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                         owner: Addr::unchecked("asker"),
@@ -3145,8 +3516,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(200, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::Ready {
                         approver: Addr::unchecked("approver_2"),
@@ -3238,8 +3609,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::Ready {
                                 approver: Addr::unchecked("approver_2"),
@@ -3309,8 +3680,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(777, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3438,8 +3809,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -3557,8 +3928,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::Ready {
                         approver: Addr::unchecked("approver_1"),
@@ -3641,6 +4012,400 @@ mod tests {
                         amount: coins(100, "base_denom"),
                     })
                 );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
+    }
+
+    #[test]
+    fn execute_restricted_marker_ask() {
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: "base_1".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "4".into(),
+                quote: coin(400, "quote_1"),
+                size: Uint128(100),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "4".into(),
+            size: Uint128(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "4"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(
+                    execute_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: vec![coin(400, "quote_1")]
+                    })
+                );
+                match &execute_response.messages[1] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(100, "base_1"),
+                                        to: Addr::unchecked("bidder"),
+                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    _ => panic!(
+                        "expected marker transfer, but received: {:?}",
+                        execute_response.messages[1]
+                    ),
+                }
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
+    }
+
+    #[test]
+    fn execute_convertible_restricted_marker() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+
+        let restricted_base_1 = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let restricted_con_base_1 = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"con_base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"con_base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let marker_base_1: Marker = from_binary(&Binary::from(restricted_base_1)).unwrap();
+        let marker_con_base_1: Marker = from_binary(&Binary::from(restricted_con_base_1)).unwrap();
+        deps.querier
+            .with_markers(vec![marker_base_1, marker_con_base_1]);
+
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_1"),
+                        converted_base: coin(100, "base_1"),
+                    },
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrder {
+                base: "base_1".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "4".into(),
+                quote: coin(400, "quote_1"),
+                size: Uint128(100),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "4".into(),
+            size: Uint128(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "4"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.messages.len(), 3);
+                match &execute_response.messages[0] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(100, "con_base_1"),
+                                        to: Addr::unchecked("approver_1"),
+                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    _ => panic!(
+                        "expected marker transfer, but received: {:?}",
+                        execute_response.messages[1]
+                    ),
+                }
+                assert_eq!(
+                    execute_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "approver_1".into(),
+                        amount: vec![coin(400, "quote_1")]
+                    })
+                );
+                match &execute_response.messages[2] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(100, "base_1"),
+                                        to: Addr::unchecked("bidder"),
+                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    _ => panic!(
+                        "expected marker transfer, but received: {:?}",
+                        execute_response.messages[1]
+                    ),
+                }
             }
         }
 
@@ -3780,8 +4545,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(200, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -3912,8 +4677,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(200, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -4012,8 +4777,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -4084,8 +4849,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -4174,8 +4939,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "base_1"),
+            &AskOrderV1 {
+                base: "base_1".into(),
                 class: AskOrderClass::Basic,
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 owner: Addr::unchecked("asker"),
@@ -4264,8 +5029,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -4283,6 +5048,8 @@ mod tests {
             mock_info("approver_1", &[coin(100, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_denom".to_string(),
+                size: Uint128(100),
             },
         );
 
@@ -4325,12 +5092,177 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::Ready {
                                 approver: Addr::unchecked("approver_1"),
                                 converted_base: coin(100, "base_denom"),
+                            },
+                        },
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128(100),
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn approve_ask_restricted_marker() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::PendingIssuerApproval,
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("approver_1", &[]),
+            ExecuteMsg::ApproveAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // validate ask response
+        match approve_ask_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(approve_ask_response) => {
+                assert_eq!(approve_ask_response.attributes.len(), 6);
+                assert_eq!(
+                    approve_ask_response.attributes[0],
+                    attr("action", "approve_ask")
+                );
+                assert_eq!(
+                    approve_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    approve_ask_response.attributes[2],
+                    attr(
+                        "class",
+                        serde_json::to_string(&AskOrderClass::Convertible {
+                            status: AskOrderStatus::Ready {
+                                approver: Addr::unchecked("approver_1"),
+                                converted_base: coin(100, "base_1")
+                            },
+                        })
+                        .unwrap()
+                    )
+                );
+                assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(approve_ask_response.attributes[4], attr("price", "2"));
+                assert_eq!(approve_ask_response.attributes[5], attr("size", "100"));
+                assert_eq!(approve_ask_response.messages.len(), 1);
+                match &approve_ask_response.messages[0] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: provwasm_std::ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(100, "base_1"),
+                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                                        from: Addr::unchecked("approver_1"),
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    _ => panic!(
+                        "expected marker transfer message, but received: {:?}",
+                        approve_ask_response.messages[0]
+                    ),
+                }
+            }
+        }
+
+        // verify ask order update
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
+                        class: AskOrderClass::Convertible {
+                            status: AskOrderStatus::Ready {
+                                approver: Addr::unchecked("approver_1"),
+                                converted_base: coin(100, "base_1"),
                             },
                         },
                         id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -4372,8 +5304,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -4391,6 +5323,8 @@ mod tests {
             mock_info("approver_1", &[coin(100, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "59e82f8f-268e-433f-9711-e9f2d2cc19a5".into(),
+                base: "base_denom".to_string(),
+                size: Uint128(100),
             },
         );
 
@@ -4411,89 +5345,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
-                        class: AskOrderClass::Convertible {
-                            status: AskOrderStatus::PendingIssuerApproval,
-                        },
-                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-                        owner: Addr::unchecked("asker"),
-                        price: "2".into(),
-                        quote: "quote_1".into(),
-                        size: Uint128(100),
-                    }
-                )
-            }
-            _ => {
-                panic!("ask order was not found in storage")
-            }
-        }
-    }
-
-    #[test]
-    fn approve_ask_missing_converted_base() {
-        // setup
-        let mut deps = mock_dependencies(&[]);
-        let mock_env = mock_env();
-        setup_test_base(
-            &mut deps.storage,
-            &ContractInfoV1 {
-                name: "contract_name".into(),
-                bind_name: "contract_bind_name".into(),
-                base_denom: "base_denom".into(),
-                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
-            },
-        );
-
-        // store valid ask order
-        store_test_ask(
-            &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
-                class: AskOrderClass::Convertible {
-                    status: AskOrderStatus::PendingIssuerApproval,
-                },
-                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-                owner: Addr::unchecked("asker"),
-                price: "2".into(),
-                quote: "quote_1".into(),
-                size: Uint128(100),
-            },
-        );
-
-        let approve_ask_response = execute(
-            deps.as_mut(),
-            mock_env,
-            mock_info("approver_1", &[]),
-            ExecuteMsg::ApproveAsk {
-                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            },
-        );
-
-        // validate ask response
-        match approve_ask_response {
-            Err(error) => match error {
-                ContractError::BaseQuantity => {}
-                error => panic!("unexpected error: {:?}", error),
-            },
-            Ok(_) => panic!("expected error, but ok"),
-        }
-
-        // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
-            Ok(stored_order) => {
-                assert_eq!(
-                    stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
@@ -4536,8 +5389,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -4555,6 +5408,8 @@ mod tests {
             mock_info("approver_1", &[coin(100, "wrong_base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "wrong_base_denom".to_string(),
+                size: Uint128(100),
             },
         );
 
@@ -4573,8 +5428,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
@@ -4617,8 +5472,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -4636,6 +5491,8 @@ mod tests {
             mock_info("approver_1", &[coin(101, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_denom".to_string(),
+                size: Uint128(100),
             },
         );
 
@@ -4654,8 +5511,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
@@ -4674,7 +5531,7 @@ mod tests {
     }
 
     #[test]
-    fn approve_ask_not_issuer() {
+    fn approve_ask_converted_base_amount_sent_funds_mismatch() {
         // setup
         let mut deps = mock_dependencies(&[]);
         let mock_env = mock_env();
@@ -4686,10 +5543,10 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
                 price_precision: Uint128(2),
                 size_increment: Uint128(100),
             },
@@ -4698,8 +5555,8 @@ mod tests {
         // store valid ask order
         store_test_ask(
             &mut deps.storage,
-            &AskOrder {
-                base: coin(100, "con_base_1"),
+            &AskOrderV1 {
+                base: "con_base_1".into(),
                 class: AskOrderClass::Convertible {
                     status: AskOrderStatus::PendingIssuerApproval,
                 },
@@ -4714,9 +5571,302 @@ mod tests {
         let approve_ask_response = execute(
             deps.as_mut(),
             mock_env,
-            mock_info("not_issuer", &[coin(100, "base_denom")]),
+            mock_info("approver_1", &[coin(100, "base_denom")]),
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_denom".to_string(),
+                size: Uint128(99),
+            },
+        );
+
+        // validate ask response
+        match approve_ask_response {
+            Err(error) => match error {
+                ContractError::SentFundsOrderMismatch => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+
+        // verify ask order unchanged
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
+                        class: AskOrderClass::Convertible {
+                            status: AskOrderStatus::PendingIssuerApproval,
+                        },
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128(100),
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn approve_ask_restricted_marker_with_funds() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::PendingIssuerApproval,
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("approver_1", &[coin(10, "gme")]),
+            ExecuteMsg::ApproveAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // validate ask response
+        match approve_ask_response {
+            Err(ContractError::SentFundsOrderMismatch) => (),
+            _ => panic!(
+                "expected ContractError::SentFundsOrderMismatch, but received: {:?}",
+                approve_ask_response
+            ),
+        }
+    }
+
+    #[test]
+    fn approve_ask_restricted_marker_order_size_mismatch() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::PendingIssuerApproval,
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("approver_1", &[]),
+            ExecuteMsg::ApproveAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_1".into(),
+                size: Uint128(101),
+            },
+        );
+
+        // validate ask response
+        match approve_ask_response {
+            Err(ContractError::SentFundsOrderMismatch) => (),
+            _ => panic!(
+                "expected ContractError::SentFundsOrderMismatch, but received: {:?}",
+                approve_ask_response
+            ),
+        }
+
+        // verify ask order update
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
+                        class: AskOrderClass::Convertible {
+                            status: AskOrderStatus::PendingIssuerApproval,
+                        },
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128(100),
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn approve_ask_not_approver() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::PendingIssuerApproval,
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("not_approver", &[coin(100, "base_denom")]),
+            ExecuteMsg::ApproveAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_denom".to_string(),
+                size: Uint128(100),
             },
         );
 
@@ -4735,8 +5885,8 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    AskOrder {
-                        base: coin(100, "con_base_1"),
+                    AskOrderV1 {
+                        base: "con_base_1".into(),
                         class: AskOrderClass::Convertible {
                             status: AskOrderStatus::PendingIssuerApproval,
                         },
@@ -4812,8 +5962,8 @@ mod tests {
         );
 
         // store valid ask order
-        let ask_order = AskOrder {
-            base: coin(200, "base_1"),
+        let ask_order = AskOrderV1 {
+            base: "base_1".into(),
             class: AskOrderClass::Basic,
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             owner: Addr::unchecked("asker"),
@@ -4905,7 +6055,7 @@ mod tests {
         }
     }
 
-    fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrder) {
+    fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrderV1) {
         let mut ask_storage = get_ask_storage(storage);
         if let Err(error) = ask_storage.save(&ask_order.id.as_bytes(), &ask_order) {
             panic!("unexpected error: {:?}", error)

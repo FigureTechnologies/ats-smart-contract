@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
-use crate::version_info::{get_version_info, PACKAGE_VERSION};
+use crate::version_info::get_version_info;
 use semver::{Version, VersionReq};
 
 const CONTRACT_INFO_NAMESPACE: &str = "contract_info";
@@ -80,27 +80,29 @@ pub fn get_contract_info(store: &dyn Storage) -> Result<ContractInfoV1, Contract
     CONTRACT_INFO_V1.load(store).map_err(ContractError::Std)
 }
 
+#[allow(deprecated)]
+pub fn get_legacy_contract_info(store: &dyn Storage) -> Result<ContractInfo, ContractError> {
+    CONTRACT_INFO.load(store).map_err(ContractError::Std)
+}
+
+#[cfg(test)]
+#[allow(deprecated)]
+pub fn set_legacy_contract_info(
+    store: &mut dyn Storage,
+    contract_info: &ContractInfo,
+) -> Result<(), ContractError> {
+    CONTRACT_INFO
+        .save(store, &contract_info)
+        .map_err(ContractError::Std)
+}
+
 pub fn migrate_contract_info(
     store: &mut dyn Storage,
     api: &dyn Api,
     msg: MigrateMsg,
 ) -> Result<ContractInfoV1, ContractError> {
-    let version_info_result = get_version_info(store);
-    let current_version = match version_info_result {
-        Ok(version_info) => Version::parse(&version_info.version)?,
-        // version support added in 0.15.0, all previous versions used ContractInfo for version tracking
-        // if VersionInfo doesn't exist, try ContractInfo
-        _ => match CONTRACT_INFO.load(store) {
-            #[allow(deprecated)]
-            Ok(contract_info) => Version::parse(&contract_info.version)?,
-            Err(_) => {
-                return Err(ContractError::UnsupportedUpgrade {
-                    source_version: "UNKNOWN".to_string(),
-                    target_version: PACKAGE_VERSION.into(),
-                })
-            }
-        },
-    };
+    let version_info = get_version_info(store)?;
+    let current_version = Version::parse(&version_info.version)?;
 
     // version support added in 0.15.0, all previous versions migrate to v1 of state data
     let upgrade_req = VersionReq::parse("<0.15.0")?;
