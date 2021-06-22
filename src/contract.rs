@@ -8,7 +8,8 @@ use provwasm_std::{
 };
 
 use crate::ask_order::{
-    get_ask_storage, get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1,
+    get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
+    AskOrderV1,
 };
 use crate::bid_order::{get_bid_storage, get_bid_storage_read, BidOrder};
 use crate::contract_info::{
@@ -915,7 +916,10 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
     msg.validate()?;
 
     // migrate contract_info
-    migrate_contract_info(deps.storage, deps.api, msg)?;
+    migrate_contract_info(deps.storage, deps.api, &msg)?;
+
+    // migrate ask orders
+    migrate_ask_orders(deps.storage, deps.api, &msg)?;
 
     // lastly, migrate version_info
     migrate_version_info(deps.storage)?;

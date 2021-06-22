@@ -66,7 +66,7 @@ impl From<AskOrder> for AskOrderV1 {
 pub fn migrate_ask_orders(
     store: &mut dyn Storage,
     _api: &dyn Api,
-    _msg: MigrateMsg,
+    _msg: &MigrateMsg,
 ) -> Result<(), ContractError> {
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
@@ -167,7 +167,7 @@ mod tests {
         migrate_ask_orders(
             &mut deps.storage,
             &deps.api,
-            MigrateMsg { approvers: vec![] },
+            &MigrateMsg { approvers: vec![] },
         )?;
 
         let ask_storage = get_ask_storage_read(&deps.storage);

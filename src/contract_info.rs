@@ -99,7 +99,7 @@ pub fn set_legacy_contract_info(
 pub fn migrate_contract_info(
     store: &mut dyn Storage,
     api: &dyn Api,
-    msg: MigrateMsg,
+    msg: &MigrateMsg,
 ) -> Result<ContractInfoV1, ContractError> {
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
@@ -110,7 +110,7 @@ pub fn migrate_contract_info(
     if upgrade_req.matches(&current_version) {
         let mut contract_info_v1: ContractInfoV1 = CONTRACT_INFO.load(store)?.into();
 
-        for approver in msg.approvers {
+        for approver in &msg.approvers {
             contract_info_v1
                 .approvers
                 .push(api.addr_validate(&approver)?)
@@ -225,7 +225,7 @@ mod tests {
         let migrate_response = migrate_contract_info(
             &mut deps.storage,
             &deps.api,
-            MigrateMsg { approvers: vec![] },
+            &MigrateMsg { approvers: vec![] },
         );
 
         match migrate_response {
@@ -282,7 +282,7 @@ mod tests {
         let migrate_response = migrate_contract_info(
             &mut deps.storage,
             &deps.api,
-            MigrateMsg {
+            &MigrateMsg {
                 approvers: vec!["approver_1".into(), "approver_2".into()],
             },
         );
