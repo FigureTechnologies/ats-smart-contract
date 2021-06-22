@@ -118,6 +118,8 @@
             "base",
             "id",
             "price",
+            "quote",
+            "quote_size",
             "size"
           ],
           "properties": {
@@ -129,6 +131,12 @@
             },
             "price": {
               "type": "string"
+            },
+            "quote": {
+              "type": "string"
+            },
+            "quote_size": {
+              "$ref": "#/definitions/Uint128"
             },
             "size": {
               "$ref": "#/definitions/Uint128"

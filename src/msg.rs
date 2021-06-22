@@ -90,6 +90,8 @@ pub enum ExecuteMsg {
         id: String,
         base: String,
         price: String,
+        quote: String,
+        quote_size: Uint128,
         size: Uint128,
     },
     ExecuteMatch {
@@ -155,6 +157,8 @@ impl Validate for ExecuteMsg {
                 id,
                 base,
                 price,
+                quote,
+                quote_size,
                 size,
             } => {
                 if Uuid::parse_str(id).is_err() {
@@ -165,6 +169,12 @@ impl Validate for ExecuteMsg {
                 }
                 if price.is_empty() {
                     invalid_fields.push("price");
+                }
+                if quote.is_empty() {
+                    invalid_fields.push("quote");
+                }
+                if quote_size.lt(&Uint128(1)) {
+                    invalid_fields.push("quote_size");
                 }
                 if size.lt(&Uint128(1)) {
                     invalid_fields.push("size");

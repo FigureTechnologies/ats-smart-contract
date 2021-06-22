@@ -111,6 +111,7 @@ pub fn get_ask_storage_read(storage: &dyn Storage) -> ReadonlyBucket<AskOrderV1>
 
 #[cfg(test)]
 mod tests {
+    #[allow(deprecated)]
     use crate::ask_order::{
         get_ask_storage_read, migrate_ask_orders, AskOrder, AskOrderClass, AskOrderV1,
         NAMESPACE_ORDER_ASK,
