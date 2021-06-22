@@ -11,7 +11,7 @@ use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
 };
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, BidOrderV1};
+use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV1};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV1,
 };
@@ -134,6 +134,7 @@ pub fn execute(
             size,
         } => create_bid(
             deps,
+            env,
             &info,
             BidOrderV1 {
                 base,
@@ -146,7 +147,7 @@ pub fn execute(
             },
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, info, id),
-        ExecuteMsg::CancelBid { id } => cancel_bid(deps, info, id),
+        ExecuteMsg::CancelBid { id } => cancel_bid(deps, env, info, id),
         ExecuteMsg::ExecuteMatch {
             ask_id,
             bid_id,
@@ -407,6 +408,7 @@ fn create_ask(
 // create bid entrypoint
 fn create_bid(
     deps: DepsMut,
+    env: Env,
     info: &MessageInfo,
     bid_order: BidOrderV1,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
@@ -484,6 +486,34 @@ fn create_bid(
         }
     }
 
+    // is ask base a marker
+    let is_quote_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // determine sent funds requirements
+    match is_quote_restricted_marker {
+        // no funds should be sent if base is a restricted marker
+        true => {
+            if !info.funds.is_empty() {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+        // sent funds must match order if not a restricted marker
+        false => {
+            if info.funds.ne(&coins(
+                bid_order.quote_size.u128(),
+                bid_order.quote.to_owned(),
+            )) {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+    }
+
     let mut bid_storage = get_bid_storage(deps.storage);
 
     if bid_storage.may_load(bid_order.id.as_bytes())?.is_some() {
@@ -496,7 +526,24 @@ fn create_bid(
 
     Ok(Response {
         submessages: vec![],
-        messages: vec![],
+        messages: match is_quote_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(bid_order.quote_size.into(), bid_order.quote.to_owned()),
+                            to: env.contract.address,
+                            from: bid_order.owner,
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![]
+            }
+        },
         attributes: vec![
             attr("action", "create_bid"),
             attr("id", &bid_order.id),
@@ -580,6 +627,7 @@ fn cancel_ask(
 // cancel bid entrypoint
 fn cancel_bid(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     id: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
@@ -611,14 +659,41 @@ fn cancel_bid(
     let mut bid_storage = get_bid_storage(deps.storage);
     bid_storage.remove(id.as_bytes());
 
+    // is bid quote a marker
+    let is_quote_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
     // 'send quote back to owner' message
     let response = Response {
         submessages: vec![],
-        messages: vec![BankMsg::Send {
-            to_address: owner.to_string(),
-            amount: vec![coin(quote_size.u128(), quote)],
-        }
-        .into()],
+        messages: match is_quote_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(quote_size.into(), quote.to_owned()),
+                            to: owner,
+                            from: env.contract.address,
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![BankMsg::Send {
+                    to_address: owner.to_string(),
+                    amount: vec![coin(quote_size.u128(), quote)],
+                }
+                .into()]
+            }
+        },
+
         attributes: vec![attr("action", "cancel_bid"), attr("id", id)],
         data: None,
     };
@@ -729,9 +804,18 @@ fn execute_match(
         bid_order.quote_size = Uint128(bid_order.quote_size.u128() - bidder_refund.u128());
     }
 
-    // is ask base a marker
+    // is ask base a restricted marker
     let is_base_restricted_marker = matches!(
         ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // is bid quote a restricted marker
+    let is_quote_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -743,14 +827,27 @@ fn execute_match(
         AskOrderClass::Basic => Response {
             submessages: vec![],
             messages: vec![
-                BankMsg::Send {
-                    to_address: ask_order.owner.to_string(),
-                    amount: vec![Coin {
-                        denom: bid_order.quote.clone(),
-                        amount: quote_total,
-                    }],
-                }
-                .into(),
+                match is_quote_restricted_marker {
+                    true => CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(quote_total.u128(), bid_order.quote.to_owned()),
+                                to: ask_order.owner.to_owned(),
+                                from: env.contract.address.to_owned(),
+                            },
+                        ),
+                        version: "2_0_0".to_string(),
+                    }),
+                    false => BankMsg::Send {
+                        to_address: ask_order.owner.to_string(),
+                        amount: vec![Coin {
+                            denom: bid_order.quote.to_owned(),
+                            amount: quote_total,
+                        }],
+                    }
+                    .into(),
+                },
                 match is_base_restricted_marker {
                     true => CosmosMsg::Custom(ProvenanceMsg {
                         route: ProvenanceRoute::Marker,
@@ -914,6 +1011,9 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
 
     // migrate ask orders
     migrate_ask_orders(deps.storage, deps.api, &msg)?;
+
+    // migrate bid orders
+    migrate_bid_orders(deps.storage, deps.api, &msg)?;
 
     // lastly, migrate version_info
     migrate_version_info(deps.storage)?;
@@ -1971,6 +2071,233 @@ mod tests {
     }
 
     #[test]
+    fn create_bid_with_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            base: "base_1".to_string(),
+            quote: "quote_1".into(),
+            quote_size: Uint128(1000),
+            price: "2".into(),
+            size: Uint128(500),
+        };
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(
+                    response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(response.attributes[2], attr("base", "base_1"));
+                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[4], attr("quote_size", "1000"));
+                assert_eq!(response.attributes[5], attr("price", "2"));
+                assert_eq!(response.attributes[6], attr("size", "500"));
+                assert_eq!(response.messages.len(), 1);
+
+                match &response.messages[0] {
+                    CosmosMsg::Custom(message) => {
+                        assert_eq!(
+                            message,
+                            &ProvenanceMsg {
+                                route: ProvenanceRoute::Marker,
+                                params: provwasm_std::ProvenanceMsgParams::Marker(
+                                    MarkerMsgParams::TransferMarkerCoins {
+                                        coin: coin(1000, "quote_1"),
+                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                                        from: Addr::unchecked("bidder"),
+                                    }
+                                ),
+                                version: "2_0_0".to_string()
+                            }
+                        )
+                    }
+                    message => panic!("expected marker transfer message, but was: {:?}", message),
+                }
+            }
+            Err(error) => {
+                panic!("failed to create ask: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let ask_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            id,
+            base,
+            quote,
+            quote_size,
+            price,
+            size,
+        } = create_bid_msg
+        {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV1 {
+                            id,
+                            owner: bidder_info.sender,
+                            base,
+                            quote,
+                            quote_size,
+                            price,
+                            size,
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_restricted_marker_with_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            base: "base_1".to_string(),
+            quote: "quote_1".into(),
+            quote_size: Uint128(10),
+            price: "2".into(),
+            size: Uint128(500),
+        };
+
+        let bidder_info = mock_info("bidder", &[coin(10, "quote_2")]);
+
+        // execute create bid
+        let create_bid_response = execute(deps.as_mut(), mock_env(), bidder_info, create_bid_msg);
+
+        // verify create bid response
+        match create_bid_response {
+            Err(ContractError::SentFundsOrderMismatch) => (),
+            _ => panic!(
+                "expected ContractError::SentFundsOrderMismatch, but received: {:?}",
+                create_bid_response
+            ),
+        }
+    }
+
+    #[test]
     fn create_bid_existing_id() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -2764,6 +3091,122 @@ mod tests {
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: bidder_info.sender.to_string(),
                         amount: coins(200, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn cancel_bid_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(200),
+                price: "2".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // cancel bid order
+        let bidder_info = mock_info("bidder", &[]);
+
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let cancel_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            cancel_bid_msg,
+        );
+
+        match cancel_bid_response {
+            Ok(cancel_bid_response) => {
+                assert_eq!(cancel_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    cancel_bid_response.attributes[0],
+                    attr("action", "cancel_bid")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(cancel_bid_response.messages.len(), 1);
+                assert_eq!(
+                    cancel_bid_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(200, "quote_1"),
+                                to: Addr::unchecked("bidder"),
+                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                            }
+                        ),
+                        version: "2_0_0".to_string()
                     })
                 );
             }
@@ -4164,6 +4607,358 @@ mod tests {
                         execute_response.messages[1]
                     ),
                 }
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
+    }
+
+    #[test]
+    fn execute_restricted_marker_bid() {
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let quote_marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let quote_marker: Marker = from_binary(&Binary::from(quote_marker_json)).unwrap();
+        deps.querier.with_markers(vec![quote_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                base: "base_1".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "4".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(400),
+                size: Uint128(100),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "4".into(),
+            size: Uint128(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "4"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(
+                    execute_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(400, "quote_1"),
+                            to: Addr::unchecked("asker"),
+                            from: Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        }),
+                        version: "2_0_0".to_string()
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(100, "base_1")]
+                    })
+                );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(
+            ask_storage
+                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+                .is_err(),
+            true
+        );
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(
+            bid_storage
+                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+                .is_err(),
+            true
+        );
+    }
+
+    #[test]
+    fn execute_restricted_marker_ask_and_bid() {
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let base_marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let quote_marker_json = b"{
+              \"address\": \"tp1sfn6qfhpf9rw3ns8zrvate8qfya52tvgg5sc2w\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 11,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp1sfn6qfhpf9rw3ns8zrvate8qfya52tvgg5sc2w\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let base_marker: Marker = from_binary(&Binary::from(base_marker_json)).unwrap();
+        let quote_marker: Marker = from_binary(&Binary::from(quote_marker_json)).unwrap();
+        deps.querier.with_markers(vec![base_marker, quote_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                base: "base_1".into(),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "4".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(400),
+                size: Uint128(100),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "4".into(),
+            size: Uint128(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "4"));
+                assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(
+                    execute_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(400, "quote_1"),
+                            to: Addr::unchecked("asker"),
+                            from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        }),
+                        version: "2_0_0".to_string(),
+                    }),
+                );
+                assert_eq!(
+                    execute_response.messages[1],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(100, "base_1"),
+                            to: Addr::unchecked("bidder"),
+                            from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        }),
+                        version: "2_0_0".to_string(),
+                    }),
+                );
             }
         }
 
