@@ -8,7 +8,6 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
 pub static NAMESPACE_ORDER_ASK: &[u8] = b"ask";
-pub static NAMESPACE_ORDER_BID: &[u8] = b"bid";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub enum AskOrderStatus {
@@ -63,16 +62,6 @@ impl From<AskOrder> for AskOrderV1 {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BidOrder {
-    pub base: String,
-    pub id: String,
-    pub owner: Addr,
-    pub price: String,
-    pub quote: Coin,
-    pub size: Uint128,
-}
-
 #[allow(deprecated)]
 pub fn migrate_ask_orders(
     store: &mut dyn Storage,
@@ -120,23 +109,16 @@ pub fn get_ask_storage_read(storage: &dyn Storage) -> ReadonlyBucket<AskOrderV1>
     bucket_read(storage, NAMESPACE_ORDER_ASK)
 }
 
-pub fn get_bid_storage(storage: &mut dyn Storage) -> Bucket<BidOrder> {
-    bucket(storage, NAMESPACE_ORDER_BID)
-}
-
-pub fn get_bid_storage_read(storage: &dyn Storage) -> ReadonlyBucket<BidOrder> {
-    bucket_read(storage, NAMESPACE_ORDER_BID)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::ask_order::{
+        get_ask_storage_read, migrate_ask_orders, AskOrder, AskOrderClass, AskOrderV1,
+        NAMESPACE_ORDER_ASK,
+    };
+    use crate::contract_info;
     use crate::contract_info::set_legacy_contract_info;
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
-    use crate::state::{
-        get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderV1, NAMESPACE_ORDER_ASK,
-    };
-    use crate::{contract_info, state};
     use cosmwasm_std::{coin, Addr, Uint128};
     use cosmwasm_storage::{bucket, Bucket};
     use provwasm_mocks::mock_dependencies;
@@ -166,12 +148,12 @@ mod tests {
             },
         )?;
 
-        let mut legacy_ask_storage: Bucket<state::AskOrder> =
+        let mut legacy_ask_storage: Bucket<AskOrder> =
             bucket(&mut deps.storage, NAMESPACE_ORDER_ASK);
 
         legacy_ask_storage.save(
             b"id",
-            &state::AskOrder {
+            &AskOrder {
                 base: coin(100, "base_1"),
                 class: AskOrderClass::Basic,
                 id: "id".to_string(),

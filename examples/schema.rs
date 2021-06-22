@@ -3,9 +3,10 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
+use ats_smart_contract::ask_order::{AskOrder, AskOrderClass, AskOrderStatus};
+use ats_smart_contract::bid_order::BidOrder;
 use ats_smart_contract::contract_info::ContractInfoV1;
 use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use ats_smart_contract::state::{AskOrder, AskOrderClass, AskOrderStatus, BidOrder};
 use ats_smart_contract::version_info::VersionInfoV1;
 
 fn main() {

@@ -7,16 +7,16 @@ use provwasm_std::{
     ProvenanceRoute,
 };
 
+use crate::ask_order::{
+    get_ask_storage, get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1,
+};
+use crate::bid_order::{get_bid_storage, get_bid_storage_read, BidOrder};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV1,
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
-use crate::state::{
-    get_ask_storage, get_ask_storage_read, get_bid_storage, get_bid_storage_read, AskOrderClass,
-    AskOrderStatus, AskOrderV1, BidOrder,
-};
 use crate::version_info::{get_version_info, migrate_version_info};
 use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
 use rust_decimal::Decimal;
@@ -952,7 +952,8 @@ mod tests {
         Marker, MarkerMsgParams, NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute,
     };
 
-    use crate::state::{get_bid_storage_read, AskOrderClass, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderV1};
+    use crate::bid_order::get_bid_storage_read;
 
     use super::*;
     use provwasm_mocks::mock_dependencies;
