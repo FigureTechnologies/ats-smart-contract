@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use semver::Error as SemverError;
 use serde_json::Error;
 use thiserror::Error;
 
@@ -54,6 +55,9 @@ pub enum ContractError {
 
     #[error("{0}")]
     JsonSerde(#[from] Error),
+
+    #[error("{0}")]
+    SemverError(#[from] SemverError),
 
     #[error("Total (price * size) exceeds max allowed")]
     TotalOverflow,

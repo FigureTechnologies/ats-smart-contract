@@ -10,7 +10,6 @@
     "bind_name",
     "convertible_base_denoms",
     "executors",
-    "issuers",
     "name",
     "price_precision",
     "size_increment",
@@ -48,12 +47,6 @@
       }
     },
     "executors": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "issuers": {
       "type": "array",
       "items": {
         "type": "string"

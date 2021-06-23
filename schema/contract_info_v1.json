@@ -1,25 +1,22 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ContractInfo",
+  "title": "ContractInfoV1",
   "type": "object",
   "required": [
+    "approvers",
     "ask_required_attributes",
     "base_denom",
     "bid_required_attributes",
     "bind_name",
     "convertible_base_denoms",
-    "definition",
     "executors",
-    "issuers",
     "name",
     "price_precision",
     "size_increment",
-    "supported_quote_denoms",
-    "version"
+    "supported_quote_denoms"
   ],
   "properties": {
     "approvers": {
-      "default": [],
       "type": "array",
       "items": {
         "$ref": "#/definitions/Addr"
@@ -49,17 +46,7 @@
         "type": "string"
       }
     },
-    "definition": {
-      "type": "string"
-    },
     "executors": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/Addr"
-      }
-    },
-    "issuers": {
-      "deprecated": true,
       "type": "array",
       "items": {
         "$ref": "#/definitions/Addr"
@@ -79,9 +66,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "version": {
-      "type": "string"
     }
   },
   "definitions": {

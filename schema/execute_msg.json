@@ -11,11 +11,19 @@
         "approve_ask": {
           "type": "object",
           "required": [
-            "id"
+            "base",
+            "id",
+            "size"
           ],
           "properties": {
+            "base": {
+              "type": "string"
+            },
             "id": {
               "type": "string"
+            },
+            "size": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }
@@ -71,11 +79,16 @@
         "create_ask": {
           "type": "object",
           "required": [
+            "base",
             "id",
             "price",
-            "quote"
+            "quote",
+            "size"
           ],
           "properties": {
+            "base": {
+              "type": "string"
+            },
             "id": {
               "type": "string"
             },
@@ -84,6 +97,9 @@
             },
             "quote": {
               "type": "string"
+            },
+            "size": {
+              "$ref": "#/definitions/Uint128"
             }
           }
         }
@@ -102,6 +118,8 @@
             "base",
             "id",
             "price",
+            "quote",
+            "quote_size",
             "size"
           ],
           "properties": {
@@ -113,6 +131,12 @@
             },
             "price": {
               "type": "string"
+            },
+            "quote": {
+              "type": "string"
+            },
+            "quote_size": {
+              "$ref": "#/definitions/Uint128"
             },
             "size": {
               "$ref": "#/definitions/Uint128"
