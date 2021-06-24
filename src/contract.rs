@@ -18,7 +18,10 @@ use crate::contract_info::{
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
-use crate::version_info::{get_version_info, migrate_version_info};
+use crate::version_info::{
+    get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
+    PACKAGE_VERSION,
+};
 use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
@@ -75,6 +78,14 @@ pub fn instantiate(
         contract_info.bind_name,
         env.contract.address,
         NameBinding::Restricted,
+    )?;
+
+    set_version_info(
+        deps.storage,
+        &VersionInfoV1 {
+            version: PACKAGE_VERSION.to_string(),
+            definition: CRATE_NAME.to_string(),
+        },
     )?;
 
     // build response
@@ -1156,12 +1167,25 @@ mod tests {
                     size_increment: Uint128(100),
                 };
 
+                let expected_version_info = VersionInfoV1 {
+                    definition: CRATE_NAME.to_string(),
+                    version: PACKAGE_VERSION.to_string(),
+                };
+
                 assert_eq!(init_response.attributes.len(), 2);
                 assert_eq!(
                     init_response.attributes[0],
                     attr("contract_info", format!("{:?}", expected_contract_info))
                 );
                 assert_eq!(init_response.attributes[1], attr("action", "init"));
+                assert_eq!(
+                    get_contract_info(&deps.storage).unwrap(),
+                    expected_contract_info
+                );
+                assert_eq!(
+                    get_version_info(&deps.storage).unwrap(),
+                    expected_version_info
+                );
             }
             error => panic!("failed to initialize: {:?}", error),
         }
