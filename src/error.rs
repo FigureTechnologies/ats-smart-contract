@@ -23,6 +23,9 @@ pub enum ContractError {
     #[error("Cannot send funds when executing match")]
     ExecuteWithFunds,
 
+    #[error("Cannot send funds when expiring order")]
+    ExpireWithFunds,
+
     #[error("Inconvertible base denomination")]
     InconvertibleBaseDenom,
 

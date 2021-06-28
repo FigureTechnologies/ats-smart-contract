@@ -165,6 +165,8 @@ pub fn execute(
             price,
             size,
         } => execute_match(deps, env, info, ask_id, bid_id, price, size),
+        ExecuteMsg::ExpireAsk { id } => expire_ask(deps, env, info, id),
+        ExecuteMsg::ExpireBid { id } => expire_bid(deps, env, info, id),
     }
 }
 
@@ -754,6 +756,204 @@ fn cancel_bid(
         },
 
         attributes: vec![attr("action", "cancel_bid"), attr("id", id)],
+        data: None,
+    };
+
+    Ok(response)
+}
+
+// expire ask entrypoint
+fn expire_ask(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    id: String,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // return error if id is empty
+    if id.is_empty() {
+        return Err(ContractError::Unauthorized);
+    }
+
+    // return error if funds sent
+    if !info.funds.is_empty() {
+        return Err(ContractError::ExpireWithFunds);
+    }
+
+    let ask_storage = get_ask_storage_read(deps.storage);
+    let AskOrderV1 {
+        id,
+        owner,
+        class,
+        base,
+        size,
+        ..
+    } = ask_storage
+        .load(id.as_bytes())
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
+
+    let contract_info = get_contract_info(deps.storage)?;
+
+    if !contract_info.executors.contains(&info.sender) {
+        return Err(ContractError::Unauthorized);
+    }
+
+    // remove the ask order from storage
+    let mut ask_storage = get_ask_storage(deps.storage);
+    ask_storage.remove(id.as_bytes());
+
+    // is ask base a marker
+    let is_quote_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(base.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // return 'base' to owner, return converted_base to issuer if applicable
+    let mut response = Response {
+        submessages: vec![],
+        messages: match is_quote_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(size.into(), base),
+                            to: owner,
+                            from: env.contract.address.to_owned(),
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![BankMsg::Send {
+                    to_address: owner.to_string(),
+                    amount: coins(u128::from(size), base),
+                }
+                .into()]
+            }
+        },
+        attributes: vec![attr("action", "expire_ask"), attr("id", id)],
+        data: None,
+    };
+
+    if let AskOrderClass::Convertible {
+        status: AskOrderStatus::Ready {
+            approver,
+            converted_base,
+        },
+    } = class
+    {
+        // is convertible a marker
+        let is_convertible_restricted_marker = matches!(
+            ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(&converted_base.denom),
+            Ok(Marker {
+                marker_type: MarkerType::Restricted,
+                ..
+            })
+        );
+
+        response
+            .messages
+            .push(match is_convertible_restricted_marker {
+                true => CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: converted_base,
+                            to: approver,
+                            from: env.contract.address.to_owned(),
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                }),
+                false => BankMsg::Send {
+                    to_address: approver.to_string(),
+                    amount: vec![converted_base],
+                }
+                .into(),
+            });
+    }
+
+    Ok(response)
+}
+
+// expire bid entrypoint
+fn expire_bid(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    id: String,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // return error if id is empty
+    if id.is_empty() {
+        return Err(ContractError::Unauthorized);
+    }
+
+    // return error if funds sent
+    if !info.funds.is_empty() {
+        return Err(ContractError::ExpireWithFunds);
+    }
+
+    let bid_storage = get_bid_storage_read(deps.storage);
+    let BidOrderV1 {
+        id,
+        owner,
+        quote,
+        quote_size,
+        ..
+    } = bid_storage
+        .load(id.as_bytes())
+        .map_err(|error| ContractError::LoadOrderFailed { error })?;
+
+    let contract_info = get_contract_info(deps.storage)?;
+
+    if !contract_info.executors.contains(&info.sender) {
+        return Err(ContractError::Unauthorized);
+    }
+
+    // remove the ask order from storage
+    let mut bid_storage = get_bid_storage(deps.storage);
+    bid_storage.remove(id.as_bytes());
+
+    // is bid quote a marker
+    let is_quote_restricted_marker = matches!(
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.clone()),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    );
+
+    // 'send quote back to owner' message
+    let response = Response {
+        submessages: vec![],
+        messages: match is_quote_restricted_marker {
+            true => {
+                vec![CosmosMsg::Custom(ProvenanceMsg {
+                    route: ProvenanceRoute::Marker,
+                    params: provwasm_std::ProvenanceMsgParams::Marker(
+                        MarkerMsgParams::TransferMarkerCoins {
+                            coin: coin(quote_size.into(), quote.to_owned()),
+                            to: owner,
+                            from: env.contract.address,
+                        },
+                    ),
+                    version: "2_0_0".to_string(),
+                })]
+            }
+            false => {
+                vec![BankMsg::Send {
+                    to_address: owner.to_string(),
+                    amount: vec![coin(quote_size.u128(), quote)],
+                }
+                .into()]
+            }
+        },
+
+        attributes: vec![attr("action", "expire_bid"), attr("id", id)],
         data: None,
     };
 
@@ -3736,6 +3936,961 @@ mod tests {
         match cancel_response {
             Err(error) => match error {
                 ContractError::CancelWithFunds => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_ask_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+        let expire_ask_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+
+        match expire_ask_response {
+            Ok(expire_ask_response) => {
+                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_ask_response.attributes[0],
+                    attr("action", "expire_ask")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(expire_ask_response.messages.len(), 1);
+                assert_eq!(
+                    expire_ask_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".to_string(),
+                        amount: coins(100, "base_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_ask_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("asker"),
+                class: AskOrderClass::Basic,
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                price: "2".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_ask_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+
+        match expire_ask_response {
+            Ok(expire_ask_response) => {
+                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_ask_response.attributes[0],
+                    attr("action", "expire_ask")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(expire_ask_response.messages.len(), 1);
+                assert_eq!(
+                    expire_ask_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(100, "base_1"),
+                                to: Addr::unchecked("asker"),
+                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                            }
+                        ),
+                        version: "2_0_0".to_string()
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_ask_convertible_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_1"),
+                        converted_base: coin(100, "base_denom"),
+                    },
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+        let expire_ask_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+
+        match expire_ask_response {
+            Ok(expire_ask_response) => {
+                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_ask_response.attributes[0],
+                    attr("action", "expire_ask")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(expire_ask_response.messages.len(), 2);
+                assert_eq!(
+                    expire_ask_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".to_string(),
+                        amount: coins(100, "con_base_1"),
+                    })
+                );
+                assert_eq!(
+                    expire_ask_response.messages[1],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "approver_1".to_string(),
+                        amount: coins(100, "base_denom"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_ask_convertible_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let convertible_marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"con_base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"con_base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let base_marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"base_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"base_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let base_marker: Marker = from_binary(&Binary::from(base_marker_json)).unwrap();
+        let convertible_marker: Marker =
+            from_binary(&Binary::from(convertible_marker_json)).unwrap();
+        deps.querier
+            .with_markers(vec![base_marker, convertible_marker]);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "con_base_1".into(),
+                class: AskOrderClass::Convertible {
+                    status: AskOrderStatus::Ready {
+                        approver: Addr::unchecked("approver_1"),
+                        converted_base: coin(100, "base_1"),
+                    },
+                },
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+        let expire_ask_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+
+        match expire_ask_response {
+            Ok(expire_ask_response) => {
+                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_ask_response.attributes[0],
+                    attr("action", "expire_ask")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(expire_ask_response.messages.len(), 2);
+                assert_eq!(
+                    expire_ask_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(100, "con_base_1"),
+                                to: Addr::unchecked("asker"),
+                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                            }
+                        ),
+                        version: "2_0_0".to_string()
+                    })
+                );
+                assert_eq!(
+                    expire_ask_response.messages[1],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(100, "base_1"),
+                                to: Addr::unchecked("approver_1"),
+                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                            }
+                        ),
+                        version: "2_0_0".to_string()
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_ask_invalid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("exec_1", &[]);
+
+        // expire ask order with missing id returns ContractError::Unauthorized
+        let expire_ask_msg = ExecuteMsg::ExpireAsk { id: "".to_string() };
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"id".into()))
+                }
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_ask_non_exist() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("exec_1", &[]);
+
+        // expire non-existent ask order returns ContractError::Unauthorized
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::LoadOrderFailed { .. } => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_ask_sender_notequal() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("not_exec", &[]);
+
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(200),
+            },
+        );
+
+        // expire ask order with sender not equal to owner returns ContractError::Unauthorized
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::Unauthorized => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_ask_with_sent_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // expire ask order with sent_funds returns ContractError::ExpireWithFunds
+        let exec_info = mock_info("exec_1", &coins(1, "sent_coin"));
+        let expire_ask_msg = ExecuteMsg::ExpireAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::ExpireWithFunds => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_bid_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(200),
+                price: "2".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_bid_msg = ExecuteMsg::ExpireBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_bid_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+
+        match expire_bid_response {
+            Ok(expire_bid_response) => {
+                assert_eq!(expire_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_bid_response.attributes[0],
+                    attr("action", "expire_bid")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(expire_bid_response.messages.len(), 1);
+                assert_eq!(
+                    expire_bid_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(200, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_bid_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(200),
+                price: "2".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_bid_msg = ExecuteMsg::ExpireBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_bid_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+
+        match expire_bid_response {
+            Ok(expire_bid_response) => {
+                assert_eq!(expire_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    expire_bid_response.attributes[0],
+                    attr("action", "expire_bid")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(expire_bid_response.messages.len(), 1);
+                assert_eq!(
+                    expire_bid_response.messages[0],
+                    CosmosMsg::Custom(ProvenanceMsg {
+                        route: ProvenanceRoute::Marker,
+                        params: provwasm_std::ProvenanceMsgParams::Marker(
+                            MarkerMsgParams::TransferMarkerCoins {
+                                coin: coin(200, "quote_1"),
+                                to: Addr::unchecked("bidder"),
+                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
+                            }
+                        ),
+                        version: "2_0_0".to_string()
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn expire_bid_invalid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("exec_1", &[]);
+
+        // expire bid order with missing id returns ContractError::Unauthorized
+        let expire_bid_msg = ExecuteMsg::ExpireAsk { id: "".to_string() };
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"id".into()))
+                }
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_bid_non_exist() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("exec_1", &[]);
+
+        // expire non-existent bid order returns ContractError::Unauthorized
+        let expire_bid_msg = ExecuteMsg::ExpireAsk {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::LoadOrderFailed { .. } => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_bid_sender_notequal() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        let exec_info = mock_info("not_exec", &[]);
+
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(100),
+                price: "2".into(),
+                size: Uint128(200),
+            },
+        );
+
+        // expire bid order with sender not equal to owner returns ContractError::Unauthorized
+        let expire_bid_msg = ExecuteMsg::ExpireBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::Unauthorized => {}
+                _ => {
+                    panic!("unexpected error: {:?}", error)
+                }
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+    }
+
+    #[test]
+    fn expire_bid_with_sent_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // expire bid order with sent_funds returns ContractError::ExpireWithFunds
+        let exec_info = mock_info("exec_1", &coins(1, "sent_coin"));
+        let expire_bid_msg = ExecuteMsg::ExpireAsk {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let expire_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
+
+        match expire_response {
+            Err(error) => match error {
+                ContractError::ExpireWithFunds => {}
                 _ => {
                     panic!("unexpected error: {:?}", error)
                 }

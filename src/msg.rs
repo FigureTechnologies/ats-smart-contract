@@ -100,6 +100,12 @@ pub enum ExecuteMsg {
         price: String,
         size: Uint128,
     },
+    ExpireAsk {
+        id: String,
+    },
+    ExpireBid {
+        id: String,
+    },
 }
 
 impl Validate for ExecuteMsg {
@@ -207,6 +213,16 @@ impl Validate for ExecuteMsg {
                 }
                 if size.lt(&Uint128(1)) {
                     invalid_fields.push("price");
+                }
+            }
+            ExecuteMsg::ExpireAsk { id } => {
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
+            ExecuteMsg::ExpireBid { id } => {
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
                 }
             }
         }
