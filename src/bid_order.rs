@@ -120,7 +120,6 @@ mod tests {
                 base_denom: "base_1".to_string(),
                 convertible_base_denoms: vec![],
                 supported_quote_denoms: vec![],
-                approvers: vec![],
                 executors: vec![],
                 issuers: vec![],
                 ask_required_attributes: vec![],

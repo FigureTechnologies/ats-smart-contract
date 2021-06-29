@@ -1265,14 +1265,14 @@ fn execute_match(
 pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     msg.validate()?;
 
-    // migrate contract_info
-    migrate_contract_info(deps.storage, deps.api, &msg)?;
-
     // migrate ask orders
     migrate_ask_orders(deps.storage, deps.api, &msg)?;
 
     // migrate bid orders
     migrate_bid_orders(deps.storage, deps.api, &msg)?;
+
+    // migrate contract_info
+    migrate_contract_info(deps.storage, deps.api, &msg)?;
 
     // lastly, migrate version_info
     migrate_version_info(deps.storage)?;
