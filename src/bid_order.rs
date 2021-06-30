@@ -147,7 +147,11 @@ mod tests {
         migrate_bid_orders(
             &mut deps.storage,
             &deps.api,
-            &MigrateMsg { approvers: vec![] },
+            &MigrateMsg {
+                approvers: None,
+                fee_rate: None,
+                fee_account: None,
+            },
         )?;
 
         let bid_storage = get_bid_storage_read(&deps.storage);

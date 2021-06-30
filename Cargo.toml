@@ -1,6 +1,6 @@
 [package]
 name = "ats-smart-contract"
-version = "0.15.0"
+version = "0.15.2"
 authors = ["Ken Talley <ktalley@figure.com>"]
 edition = "2018"
 
@@ -32,7 +32,7 @@ cosmwasm-std = { version = "0.14.1" }
 cosmwasm-storage = { version = "0.14.1", features = ["iterator"] }
 cw-storage-plus = { version = "0.6.0" }
 provwasm-std = { version = "0.14.1" }
-rust_decimal = { version = "1.12.2" }
+rust_decimal = { version = "1.14" }
 schemars = "0.8.1"
 semver = "1.0.3"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }

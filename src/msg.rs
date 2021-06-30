@@ -13,6 +13,8 @@ pub struct InstantiateMsg {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<String>,
     pub executors: Vec<String>,
+    pub fee_rate: Option<String>,
+    pub fee_account: Option<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -48,6 +50,16 @@ impl Validate for InstantiateMsg {
         }
         if self.executors.is_empty() {
             invalid_fields.push("executors");
+        }
+        match (&self.fee_rate, &self.fee_account) {
+            (Some(_), None) => {
+                invalid_fields.push("fee_account");
+            }
+            (None, Some(_)) => {
+                invalid_fields.push("fee");
+            }
+            (Some(_), Some(_)) => (),
+            (None, None) => (),
         }
         if self.price_precision.lt(&Uint128(0)) || self.price_precision.gt(&Uint128(18)) {
             invalid_fields.push("price_precision");
@@ -287,7 +299,9 @@ impl Validate for QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct MigrateMsg {
-    pub approvers: Vec<String>,
+    pub approvers: Option<Vec<String>>,
+    pub fee_rate: Option<String>,
+    pub fee_account: Option<String>,
 }
 
 impl Validate for MigrateMsg {
@@ -303,7 +317,25 @@ impl Validate for MigrateMsg {
     /// }
     /// ```
     fn validate(&self) -> Result<(), ContractError> {
-        Ok(())
+        let mut invalid_fields: Vec<&str> = vec![];
+
+        match (&self.fee_rate, &self.fee_account) {
+            (Some(_), None) => {
+                invalid_fields.push("fee_account");
+            }
+            (None, Some(_)) => {
+                invalid_fields.push("fee");
+            }
+            (Some(_), Some(_)) => (),
+            (None, None) => (),
+        }
+
+        match invalid_fields.len() {
+            0 => Ok(()),
+            _ => Err(ContractError::InvalidFields {
+                fields: invalid_fields.into_iter().map(|item| item.into()).collect(),
+            }),
+        }
     }
 }
 
