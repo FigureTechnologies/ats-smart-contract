@@ -12,7 +12,9 @@ const CONTRACT_INFO_NAMESPACE: &str = "contract_info";
 
 #[allow(deprecated)]
 const CONTRACT_INFO: Item<ContractInfo> = Item::new(CONTRACT_INFO_NAMESPACE);
+#[allow(deprecated)]
 const CONTRACT_INFO_V1: Item<ContractInfoV1> = Item::new(CONTRACT_INFO_NAMESPACE);
+const CONTRACT_INFO_V2: Item<ContractInfoV2> = Item::new(CONTRACT_INFO_NAMESPACE);
 
 #[derive(Serialize, Deserialize)]
 #[deprecated(since = "0.15.0")]
@@ -33,6 +35,7 @@ pub struct ContractInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[deprecated(since = "0.15.1")]
 pub struct ContractInfoV1 {
     pub name: String,
     pub bind_name: String,
@@ -47,10 +50,27 @@ pub struct ContractInfoV1 {
     pub size_increment: Uint128,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ContractInfoV2 {
+    pub name: String,
+    pub bind_name: String,
+    pub base_denom: String,
+    pub convertible_base_denoms: Vec<String>,
+    pub supported_quote_denoms: Vec<String>,
+    pub approvers: Vec<Addr>,
+    pub executors: Vec<Addr>,
+    pub fee_rate: Option<String>,
+    pub fee_account: Option<Addr>,
+    pub ask_required_attributes: Vec<String>,
+    pub bid_required_attributes: Vec<String>,
+    pub price_precision: Uint128,
+    pub size_increment: Uint128,
+}
+
 #[allow(deprecated)]
-impl From<ContractInfo> for ContractInfoV1 {
+impl From<ContractInfo> for ContractInfoV2 {
     fn from(contract_info: ContractInfo) -> Self {
-        ContractInfoV1 {
+        ContractInfoV2 {
             name: contract_info.name,
             bind_name: contract_info.bind_name,
             base_denom: contract_info.base_denom,
@@ -58,6 +78,29 @@ impl From<ContractInfo> for ContractInfoV1 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: vec![],
             executors: contract_info.executors,
+            fee_rate: None,
+            fee_account: None,
+            ask_required_attributes: contract_info.ask_required_attributes,
+            bid_required_attributes: contract_info.bid_required_attributes,
+            price_precision: contract_info.price_precision,
+            size_increment: contract_info.size_increment,
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<ContractInfoV1> for ContractInfoV2 {
+    fn from(contract_info: ContractInfoV1) -> Self {
+        ContractInfoV2 {
+            name: contract_info.name,
+            bind_name: contract_info.bind_name,
+            base_denom: contract_info.base_denom,
+            convertible_base_denoms: contract_info.convertible_base_denoms,
+            supported_quote_denoms: contract_info.supported_quote_denoms,
+            approvers: contract_info.approvers,
+            executors: contract_info.executors,
+            fee_rate: None,
+            fee_account: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -68,15 +111,15 @@ impl From<ContractInfo> for ContractInfoV1 {
 
 pub fn set_contract_info(
     store: &mut dyn Storage,
-    contract_info: &ContractInfoV1,
+    contract_info: &ContractInfoV2,
 ) -> Result<(), ContractError> {
-    CONTRACT_INFO_V1
+    CONTRACT_INFO_V2
         .save(store, &contract_info)
         .map_err(ContractError::Std)
 }
 
-pub fn get_contract_info(store: &dyn Storage) -> Result<ContractInfoV1, ContractError> {
-    CONTRACT_INFO_V1.load(store).map_err(ContractError::Std)
+pub fn get_contract_info(store: &dyn Storage) -> Result<ContractInfoV2, ContractError> {
+    CONTRACT_INFO_V2.load(store).map_err(ContractError::Std)
 }
 
 #[allow(deprecated)]
@@ -99,23 +142,40 @@ pub fn migrate_contract_info(
     store: &mut dyn Storage,
     api: &dyn Api,
     msg: &MigrateMsg,
-) -> Result<ContractInfoV1, ContractError> {
+) -> Result<ContractInfoV2, ContractError> {
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
 
-    // version support added in 0.15.0, all previous versions migrate to v1 of state data
-    let upgrade_req = VersionReq::parse("<0.15.0")?;
+    // migration from pre 0.15.0
+    if VersionReq::parse("<0.15.0")?.matches(&current_version) {
+        let mut contract_info_v2: ContractInfoV2 = CONTRACT_INFO.load(store)?.into();
 
-    if upgrade_req.matches(&current_version) {
-        let mut contract_info_v1: ContractInfoV1 = CONTRACT_INFO.load(store)?.into();
-
-        for approver in &msg.approvers {
-            contract_info_v1
+        for approver in &msg.approvers.clone().unwrap_or_default() {
+            contract_info_v2
                 .approvers
                 .push(api.addr_validate(&approver)?)
         }
 
-        set_contract_info(store, &contract_info_v1)?;
+        contract_info_v2.fee_rate = msg.fee_rate.clone();
+        contract_info_v2.fee_account = match &msg.fee_account {
+            Some(fee_account) => Some(api.addr_validate(fee_account)?),
+            None => None,
+        };
+
+        set_contract_info(store, &contract_info_v2)?;
+    }
+
+    // migration from 0.15.0 - 0.15.1 => 0.15.2
+    if VersionReq::parse(">=0.15.0, <0.15.2")?.matches(&current_version) {
+        let mut contract_info_v2: ContractInfoV2 = CONTRACT_INFO_V1.load(store)?.into();
+
+        contract_info_v2.fee_rate = msg.fee_rate.clone();
+        contract_info_v2.fee_account = match &msg.fee_account {
+            Some(fee_account) => Some(api.addr_validate(fee_account)?),
+            None => None,
+        };
+
+        set_contract_info(store, &contract_info_v2)?;
     }
 
     get_contract_info(store)
@@ -130,15 +190,19 @@ mod tests {
         get_contract_info, migrate_contract_info, set_contract_info, ContractInfo, ContractInfoV1,
         CONTRACT_INFO,
     };
+    use crate::contract_info::{ContractInfoV2, CONTRACT_INFO_V1};
+    use crate::error::ContractError;
     use crate::msg::MigrateMsg;
+    use crate::version_info::{set_version_info, VersionInfoV1};
     use cosmwasm_std::{Addr, Uint128};
 
     #[test]
-    pub fn set_contract_info_with_valid_data() {
+    pub fn set_contract_info_with_valid_data() -> Result<(), ContractError> {
         let mut deps = mock_dependencies(&[]);
-        let result = set_contract_info(
+
+        set_contract_info(
             &mut deps.storage,
-            &ContractInfoV1 {
+            &ContractInfoV2 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -146,61 +210,57 @@ mod tests {
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                fee_rate: None,
+                fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 price_precision: Uint128(3),
                 size_increment: Uint128(1000),
             },
-        );
-        match result {
-            Ok(()) => {}
-            result => panic!("unexpected error: {:?}", result),
-        }
+        )?;
 
-        let contract_info = get_contract_info(&deps.storage);
-        match contract_info {
-            Ok(contract_info) => {
-                assert_eq!(contract_info.name, "contract_name");
-                assert_eq!(contract_info.bind_name, "contract_bind_name");
-                assert_eq!(contract_info.base_denom, "base_denom");
-                assert_eq!(
-                    contract_info.convertible_base_denoms,
-                    vec!["con_base_1", "con_base_2"]
-                );
-                assert_eq!(
-                    contract_info.supported_quote_denoms,
-                    vec!["quo_base_1", "quo_base_2"]
-                );
-                assert_eq!(
-                    contract_info.approvers,
-                    vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")]
-                );
-                assert_eq!(
-                    contract_info.executors,
-                    vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")]
-                );
-                assert_eq!(
-                    contract_info.ask_required_attributes,
-                    vec!["ask_tag_1", "ask_tag_2"]
-                );
-                assert_eq!(
-                    contract_info.bid_required_attributes,
-                    vec!["ask_tag_1", "ask_tag_2"]
-                );
-                assert_eq!(contract_info.price_precision, Uint128(3));
-                assert_eq!(contract_info.size_increment, Uint128(1000));
-            }
-            result => panic!("unexpected error: {:?}", result),
-        }
+        let contract_info = get_contract_info(&deps.storage)?;
+
+        assert_eq!(contract_info.name, "contract_name");
+        assert_eq!(contract_info.bind_name, "contract_bind_name");
+        assert_eq!(contract_info.base_denom, "base_denom");
+        assert_eq!(
+            contract_info.convertible_base_denoms,
+            vec!["con_base_1", "con_base_2"]
+        );
+        assert_eq!(
+            contract_info.supported_quote_denoms,
+            vec!["quo_base_1", "quo_base_2"]
+        );
+        assert_eq!(
+            contract_info.approvers,
+            vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")]
+        );
+        assert_eq!(
+            contract_info.executors,
+            vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")]
+        );
+        assert_eq!(
+            contract_info.ask_required_attributes,
+            vec!["ask_tag_1", "ask_tag_2"]
+        );
+        assert_eq!(
+            contract_info.bid_required_attributes,
+            vec!["ask_tag_1", "ask_tag_2"]
+        );
+        assert_eq!(contract_info.price_precision, Uint128(3));
+        assert_eq!(contract_info.size_increment, Uint128(1000));
+
+        Ok(())
     }
 
     #[test]
     #[allow(deprecated)]
-    fn pre_0_15_0_migrate_with_existing_issuers() {
+    fn pre_0_15_0_migrate_with_existing_issuers() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
-        let _ = CONTRACT_INFO.save(
+        CONTRACT_INFO.save(
             &mut deps.storage,
             &ContractInfo {
                 name: "contract_name".into(),
@@ -217,46 +277,50 @@ mod tests {
                 price_precision: Uint128(2),
                 size_increment: Uint128(100),
             },
-        );
+        )?;
 
         // migrate without approvers
-        let migrate_response = migrate_contract_info(
+        migrate_contract_info(
             &mut deps.storage,
             &deps.api,
-            &MigrateMsg { approvers: vec![] },
-        );
+            &MigrateMsg {
+                approvers: None,
+                fee_rate: None,
+                fee_account: None,
+            },
+        )?;
 
-        match migrate_response {
-            Ok(_) => {
-                // verify contract_info updated
-                let contract_info = get_contract_info(&deps.storage).unwrap();
-                let expected_contract_info = ContractInfoV1 {
-                    name: "contract_name".into(),
-                    bind_name: "contract_bind_name".into(),
-                    base_denom: "base_denom".into(),
-                    convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                    supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                    approvers: vec![],
-                    executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                    bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                    price_precision: Uint128(2),
-                    size_increment: Uint128(100),
-                };
+        // verify contract_info updated
+        let contract_info = get_contract_info(&deps.storage)?;
 
-                assert_eq!(contract_info, expected_contract_info)
-            }
-            Err(error) => panic!("unexpected error: {:?}", error),
-        }
+        let expected_contract_info = ContractInfoV2 {
+            name: "contract_name".into(),
+            bind_name: "contract_bind_name".into(),
+            base_denom: "base_denom".into(),
+            convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+            supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec![],
+            executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            fee_rate: None,
+            fee_account: None,
+            ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+            bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
+        };
+
+        assert_eq!(contract_info, expected_contract_info);
+
+        Ok(())
     }
 
     #[test]
     #[allow(deprecated)]
-    fn pre_0_15_0_migrate_with_approvers() {
+    fn pre_0_15_0_migrate_with_approvers_and_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
-        let _ = CONTRACT_INFO.save(
+        CONTRACT_INFO.save(
             &mut deps.storage,
             &ContractInfo {
                 name: "contract_name".into(),
@@ -273,38 +337,170 @@ mod tests {
                 price_precision: Uint128(2),
                 size_increment: Uint128(100),
             },
-        );
+        )?;
 
-        // migrate with approvers
-        let migrate_response = migrate_contract_info(
+        // migrate with approvers, fee, fee_account
+        migrate_contract_info(
             &mut deps.storage,
             &deps.api,
             &MigrateMsg {
-                approvers: vec!["approver_1".into(), "approver_2".into()],
+                approvers: Some(vec!["approver_1".into(), "approver_2".into()]),
+                fee_rate: Some("0.01".into()),
+                fee_account: Some("fee_account".into()),
             },
-        );
+        )?;
 
-        match migrate_response {
-            Ok(_) => {
-                // verify contract_info updated
-                let contract_info = get_contract_info(&deps.storage).unwrap();
-                let expected_contract_info = ContractInfoV1 {
-                    name: "contract_name".into(),
-                    bind_name: "contract_bind_name".into(),
-                    base_denom: "base_denom".into(),
-                    convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                    supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                    approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
-                    executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                    bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                    price_precision: Uint128(2),
-                    size_increment: Uint128(100),
-                };
+        // verify contract_info updated
+        let contract_info = get_contract_info(&deps.storage)?;
 
-                assert_eq!(contract_info, expected_contract_info)
-            }
-            Err(error) => panic!("unexpected error: {:?}", error),
-        }
+        let expected_contract_info = ContractInfoV2 {
+            name: "contract_name".into(),
+            bind_name: "contract_bind_name".into(),
+            base_denom: "base_denom".into(),
+            convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+            supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+            executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            fee_rate: Some("0.01".into()),
+            fee_account: Some(Addr::unchecked("fee_account")),
+            ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+            bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
+        };
+
+        assert_eq!(contract_info, expected_contract_info);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn migrate_0_15_0_with_fees() -> Result<(), ContractError> {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: "def".to_string(),
+                version: "0.15.0".to_string(),
+            },
+        )?;
+
+        CONTRACT_INFO_V1.save(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        )?;
+
+        // migrate with fees
+        migrate_contract_info(
+            &mut deps.storage,
+            &deps.api,
+            &MigrateMsg {
+                approvers: None,
+                fee_rate: Some("0.01".into()),
+                fee_account: Some("fee_account".into()),
+            },
+        )?;
+
+        // verify contract_info updated
+        let contract_info = get_contract_info(&deps.storage)?;
+        let expected_contract_info = ContractInfoV2 {
+            name: "contract_name".into(),
+            bind_name: "contract_bind_name".into(),
+            base_denom: "base_denom".into(),
+            convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+            supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+            executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            fee_rate: Some("0.01".into()),
+            fee_account: Some(Addr::unchecked("fee_account")),
+            ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+            bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
+        };
+
+        assert_eq!(contract_info, expected_contract_info);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn migrate_0_15_0_without_fees() -> Result<(), ContractError> {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: "def".to_string(),
+                version: "0.15.0".to_string(),
+            },
+        )?;
+
+        CONTRACT_INFO_V1.save(
+            &mut deps.storage,
+            &ContractInfoV1 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        )?;
+
+        // migrate without fees
+        migrate_contract_info(
+            &mut deps.storage,
+            &deps.api,
+            &MigrateMsg {
+                approvers: None,
+                fee_rate: None,
+                fee_account: None,
+            },
+        )?;
+
+        // verify contract_info updated
+        let contract_info = get_contract_info(&deps.storage).unwrap();
+        let expected_contract_info = ContractInfoV2 {
+            name: "contract_name".into(),
+            bind_name: "contract_bind_name".into(),
+            base_denom: "base_denom".into(),
+            convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+            supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+            approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+            executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            fee_rate: None,
+            fee_account: None,
+            ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+            bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+            price_precision: Uint128(2),
+            size_increment: Uint128(100),
+        };
+
+        assert_eq!(contract_info, expected_contract_info);
+
+        Ok(())
     }
 }

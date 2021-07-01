@@ -167,7 +167,11 @@ mod tests {
         migrate_ask_orders(
             &mut deps.storage,
             &deps.api,
-            &MigrateMsg { approvers: vec![] },
+            &MigrateMsg {
+                approvers: None,
+                fee_rate: None,
+                fee_account: None,
+            },
         )?;
 
         let ask_storage = get_ask_storage_read(&deps.storage);

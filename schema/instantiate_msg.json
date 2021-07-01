@@ -52,6 +52,18 @@
         "type": "string"
       }
     },
+    "fee_account": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fee_rate": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "name": {
       "type": "string"
     },
