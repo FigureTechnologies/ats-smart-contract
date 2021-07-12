@@ -165,8 +165,8 @@ pub fn migrate_contract_info(
         set_contract_info(store, &contract_info_v2)?;
     }
 
-    // migration from 0.15.0 - 0.15.1 => 0.15.2
-    if VersionReq::parse(">=0.15.0, <0.15.2")?.matches(&current_version) {
+    // migration from 0.15.0 - 0.15.1 => 0.15.3
+    if VersionReq::parse(">=0.15.0, <0.15.3")?.matches(&current_version) {
         let mut contract_info_v2: ContractInfoV2 = CONTRACT_INFO_V1.load(store)?.into();
 
         contract_info_v2.fee_rate = msg.fee_rate.clone();

@@ -52,6 +52,11 @@ pub fn instantiate(
         executors.push(address);
     }
 
+    let (fee_rate, fee_account) = match (msg.fee_rate, msg.fee_account) {
+        (Some(rate), Some(account)) => (Some(rate), Some(deps.api.addr_validate(&account)?)),
+        (_, _) => (None, None),
+    };
+
     // set contract info
     let contract_info = ContractInfoV2 {
         name: msg.name,
@@ -61,8 +66,8 @@ pub fn instantiate(
         supported_quote_denoms: msg.supported_quote_denoms,
         approvers,
         executors,
-        fee_rate: None,
-        fee_account: None,
+        fee_rate,
+        fee_account,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
         price_precision: msg.price_precision,
@@ -1392,8 +1397,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec!["approver_1".into(), "approver_2".into()],
             executors: vec!["exec_1".into(), "exec_2".into()],
-            fee_rate: None,
-            fee_account: None,
+            fee_rate: Some("0.01".into()),
+            fee_account: Some("fee_account".into()),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128(2),
@@ -1427,8 +1432,8 @@ mod tests {
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                     approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                     executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    fee_rate: None,
-                    fee_account: None,
+                    fee_rate: Some("0.01".into()),
+                    fee_account: Some(Addr::unchecked("fee_account")),
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                     price_precision: Uint128(2),
