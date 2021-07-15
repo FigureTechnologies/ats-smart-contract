@@ -1,10 +1,10 @@
 use cosmwasm_std::{
-    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128,
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
+    MessageInfo, Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{
-    bind_name, Marker, MarkerMsgParams, MarkerType, NameBinding, ProvenanceMsg, ProvenanceQuerier,
-    ProvenanceRoute,
+    bind_name, transfer_marker_coins, Marker, MarkerType, NameBinding, ProvenanceMsg,
+    ProvenanceQuerier,
 };
 
 use crate::ask_order::{
@@ -249,17 +249,12 @@ fn approve_ask(
         submessages: vec![],
         messages: match is_base_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(size.into(), base),
-                            to: env.contract.address,
-                            from: info.sender,
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    size.into(),
+                    base,
+                    env.contract.address,
+                    info.sender,
+                )?]
             }
             false => {
                 vec![]
@@ -395,17 +390,12 @@ fn create_ask(
         submessages: vec![],
         messages: match is_base_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(ask_order.size.into(), ask_order.base.to_owned()),
-                            to: env.contract.address,
-                            from: ask_order.owner,
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    ask_order.size.into(),
+                    ask_order.base.to_owned(),
+                    env.contract.address,
+                    ask_order.owner,
+                )?]
             }
             false => {
                 vec![]
@@ -548,17 +538,12 @@ fn create_bid(
         submessages: vec![],
         messages: match is_quote_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(bid_order.quote_size.into(), bid_order.quote.to_owned()),
-                            to: env.contract.address,
-                            from: bid_order.owner,
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    bid_order.quote_size.into(),
+                    bid_order.quote.to_owned(),
+                    env.contract.address,
+                    bid_order.owner,
+                )?]
             }
             false => {
                 vec![]
@@ -627,17 +612,12 @@ fn cancel_ask(
         submessages: vec![],
         messages: match is_quote_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(size.into(), base.to_owned()),
-                            to: owner,
-                            from: env.contract.address.to_owned(),
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    size.into(),
+                    base,
+                    owner,
+                    env.contract.address.to_owned(),
+                )?]
             }
             false => {
                 vec![BankMsg::Send {
@@ -670,17 +650,12 @@ fn cancel_ask(
         response
             .messages
             .push(match is_convertible_restricted_marker {
-                true => CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: converted_base,
-                            to: approver,
-                            from: env.contract.address.to_owned(),
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                }),
+                true => transfer_marker_coins(
+                    converted_base.amount.into(),
+                    converted_base.denom,
+                    approver,
+                    env.contract.address,
+                )?,
                 false => BankMsg::Send {
                     to_address: approver.to_string(),
                     amount: vec![converted_base],
@@ -741,17 +716,12 @@ fn cancel_bid(
         submessages: vec![],
         messages: match is_quote_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(quote_size.into(), quote.to_owned()),
-                            to: owner,
-                            from: env.contract.address,
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    quote_size.into(),
+                    quote.to_owned(),
+                    owner,
+                    env.contract.address,
+                )?]
             }
             false => {
                 vec![BankMsg::Send {
@@ -822,17 +792,12 @@ fn expire_ask(
         submessages: vec![],
         messages: match is_quote_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(size.into(), base),
-                            to: owner,
-                            from: env.contract.address.to_owned(),
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    size.into(),
+                    base,
+                    owner,
+                    env.contract.address.to_owned(),
+                )?]
             }
             false => {
                 vec![BankMsg::Send {
@@ -865,17 +830,12 @@ fn expire_ask(
         response
             .messages
             .push(match is_convertible_restricted_marker {
-                true => CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: converted_base,
-                            to: approver,
-                            from: env.contract.address.to_owned(),
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                }),
+                true => transfer_marker_coins(
+                    converted_base.amount.into(),
+                    converted_base.denom,
+                    approver,
+                    env.contract.address,
+                )?,
                 false => BankMsg::Send {
                     to_address: approver.to_string(),
                     amount: vec![converted_base],
@@ -939,17 +899,12 @@ fn expire_bid(
         submessages: vec![],
         messages: match is_quote_restricted_marker {
             true => {
-                vec![CosmosMsg::Custom(ProvenanceMsg {
-                    route: ProvenanceRoute::Marker,
-                    params: provwasm_std::ProvenanceMsgParams::Marker(
-                        MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(quote_size.into(), quote.to_owned()),
-                            to: owner,
-                            from: env.contract.address,
-                        },
-                    ),
-                    version: "2_0_0".to_string(),
-                })]
+                vec![transfer_marker_coins(
+                    quote_size.into(),
+                    quote,
+                    owner,
+                    env.contract.address,
+                )?]
             }
             false => {
                 vec![BankMsg::Send {
@@ -1112,17 +1067,12 @@ fn execute_match(
 
                     match is_quote_restricted_marker {
                         true => (
-                            Some(CosmosMsg::Custom(ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: provwasm_std::ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(fee_total, bid_order.quote.to_owned()),
-                                        to: fee_account,
-                                        from: env.contract.address.to_owned(),
-                                    },
-                                ),
-                                version: "2_0_0".to_string(),
-                            })),
+                            Some(transfer_marker_coins(
+                                fee_total,
+                                bid_order.quote.to_owned(),
+                                fee_account,
+                                env.contract.address.to_owned(),
+                            )?),
                             Some(fee_total),
                         ),
                         false => (
@@ -1151,17 +1101,12 @@ fn execute_match(
             submessages: vec![],
             messages: vec![
                 match is_quote_restricted_marker {
-                    true => CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(quote_total.u128(), bid_order.quote.to_owned()),
-                                to: ask_order.owner.to_owned(),
-                                from: env.contract.address.to_owned(),
-                            },
-                        ),
-                        version: "2_0_0".to_string(),
-                    }),
+                    true => transfer_marker_coins(
+                        quote_total.into(),
+                        bid_order.quote.to_owned(),
+                        ask_order.owner.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?,
                     false => BankMsg::Send {
                         to_address: ask_order.owner.to_string(),
                         amount: vec![Coin {
@@ -1172,17 +1117,12 @@ fn execute_match(
                     .into(),
                 },
                 match is_base_restricted_marker {
-                    true => CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(execute_size.into(), ask_order.base.to_owned()),
-                                to: bid_order.owner.to_owned(),
-                                from: env.contract.address,
-                            },
-                        ),
-                        version: "2_0_0".to_string(),
-                    }),
+                    true => transfer_marker_coins(
+                        execute_size.into(),
+                        ask_order.base.to_owned(),
+                        bid_order.owner.to_owned(),
+                        env.contract.address,
+                    )?,
                     false => BankMsg::Send {
                         to_address: bid_order.owner.to_string(),
                         amount: vec![Coin {
@@ -1214,17 +1154,12 @@ fn execute_match(
             submessages: vec![],
             messages: vec![
                 match is_base_restricted_marker {
-                    true => CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(execute_size.into(), ask_order.base.to_owned()),
-                                to: approver.to_owned(),
-                                from: env.contract.address.to_owned(),
-                            },
-                        ),
-                        version: "2_0_0".to_string(),
-                    }),
+                    true => transfer_marker_coins(
+                        execute_size.into(),
+                        ask_order.base.to_owned(),
+                        approver.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?,
                     false => BankMsg::Send {
                         to_address: approver.to_string(),
                         amount: vec![Coin {
@@ -1250,21 +1185,16 @@ fn execute_match(
                         ..
                     })
                 ) {
-                    true => CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(execute_size.into(), converted_base.clone().denom),
-                                to: bid_order.owner.to_owned(),
-                                from: env.contract.address,
-                            },
-                        ),
-                        version: "2_0_0".to_string(),
-                    }),
+                    true => transfer_marker_coins(
+                        execute_size.into(),
+                        converted_base.to_owned().denom,
+                        bid_order.owner.to_owned(),
+                        env.contract.address,
+                    )?,
                     false => BankMsg::Send {
                         to_address: bid_order.owner.to_owned().into(),
                         amount: vec![Coin {
-                            denom: converted_base.clone().denom,
+                            denom: converted_base.to_owned().denom,
                             amount: execute_size,
                         }],
                     }
@@ -1375,7 +1305,7 @@ mod tests {
     use cosmwasm_std::{coin, coins, Addr, BankMsg, Storage, Uint128};
     use cosmwasm_std::{from_binary, CosmosMsg};
     use provwasm_std::{
-        Marker, MarkerMsgParams, NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute,
+        Marker, NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute,
     };
 
     use crate::ask_order::{AskOrderClass, AskOrderV1};
@@ -1853,27 +1783,18 @@ mod tests {
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("price", "2"));
                 assert_eq!(response.attributes[7], attr("size", "500"));
-                assert_eq!(response.messages.len(), 1);
 
-                match &response.messages[0] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: provwasm_std::ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(500, "base_1"),
-                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                                        from: Addr::unchecked("asker"),
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    message => panic!("expected marker transfer message, but was: {:?}", message),
-                }
+                assert_eq!(response.messages.len(), 1);
+                assert_eq!(
+                    response.messages[0],
+                    transfer_marker_coins(
+                        500,
+                        "base_1",
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked("asker")
+                    )
+                    .unwrap()
+                );
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -2530,27 +2451,18 @@ mod tests {
                 assert_eq!(response.attributes[4], attr("quote_size", "1000"));
                 assert_eq!(response.attributes[5], attr("price", "2"));
                 assert_eq!(response.attributes[6], attr("size", "500"));
-                assert_eq!(response.messages.len(), 1);
 
-                match &response.messages[0] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: provwasm_std::ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(1000, "quote_1"),
-                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                                        from: Addr::unchecked("bidder"),
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    message => panic!("expected marker transfer message, but was: {:?}", message),
-                }
+                assert_eq!(response.messages.len(), 1);
+                assert_eq!(
+                    response.messages[0],
+                    transfer_marker_coins(
+                        1000,
+                        "quote_1",
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked("bidder")
+                    )
+                    .unwrap()
+                );
             }
             Err(error) => {
                 panic!("failed to create ask: {:?}", error)
@@ -3253,20 +3165,17 @@ mod tests {
                     cancel_ask_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
+
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
                     cancel_ask_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "base_1"),
-                                to: Addr::unchecked("asker"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -3497,34 +3406,27 @@ mod tests {
                     cancel_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
+
                 assert_eq!(cancel_ask_response.messages.len(), 2);
                 assert_eq!(
                     cancel_ask_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "con_base_1"),
-                                to: asker_info.sender,
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "con_base_1",
+                        asker_info.sender,
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
                 assert_eq!(
                     cancel_ask_response.messages[1],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "base_1"),
-                                to: Addr::unchecked("approver_1"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("approver_1"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -3886,20 +3788,17 @@ mod tests {
                     cancel_bid_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
+
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
                     cancel_bid_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(200, "quote_1"),
-                                to: Addr::unchecked("bidder"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        200,
+                        "quote_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -4255,17 +4154,13 @@ mod tests {
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
                     expire_ask_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "base_1"),
-                                to: Addr::unchecked("asker"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -4491,31 +4386,23 @@ mod tests {
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
                     expire_ask_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "con_base_1"),
-                                to: Addr::unchecked("asker"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "con_base_1",
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
                 assert_eq!(
                     expire_ask_response.messages[1],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(100, "base_1"),
-                                to: Addr::unchecked("approver_1"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("approver_1"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -4872,17 +4759,13 @@ mod tests {
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
                     expire_bid_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: provwasm_std::ProvenanceMsgParams::Marker(
-                            MarkerMsgParams::TransferMarkerCoins {
-                                coin: coin(200, "quote_1"),
-                                to: Addr::unchecked("bidder"),
-                                from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            }
-                        ),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        200,
+                        "quote_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -6538,28 +6421,16 @@ mod tests {
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
-                match &execute_response.messages[1] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(100, "base_1"),
-                                        to: Addr::unchecked("bidder"),
-                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    _ => panic!(
-                        "expected marker transfer, but received: {:?}",
-                        execute_response.messages[1]
-                    ),
-                }
+                assert_eq!(
+                    execute_response.messages[1],
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
             }
         }
 
@@ -6703,15 +6574,13 @@ mod tests {
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(400, "quote_1"),
-                            to: Addr::unchecked("asker"),
-                            from: Addr::unchecked(MOCK_CONTRACT_ADDR)
-                        }),
-                        version: "2_0_0".to_string()
-                    })
+                    transfer_marker_coins(
+                        400,
+                        "quote_1",
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1],
@@ -6894,27 +6763,23 @@ mod tests {
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(400, "quote_1"),
-                            to: Addr::unchecked("asker"),
-                            from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                        }),
-                        version: "2_0_0".to_string(),
-                    }),
+                    transfer_marker_coins(
+                        400,
+                        "quote_1",
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1],
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Marker,
-                        params: ProvenanceMsgParams::Marker(MarkerMsgParams::TransferMarkerCoins {
-                            coin: coin(100, "base_1"),
-                            to: Addr::unchecked("bidder"),
-                            from: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                        }),
-                        version: "2_0_0".to_string(),
-                    }),
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
                 );
             }
         }
@@ -7094,29 +6959,18 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+
                 assert_eq!(execute_response.messages.len(), 3);
-                match &execute_response.messages[0] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(100, "con_base_1"),
-                                        to: Addr::unchecked("approver_1"),
-                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    _ => panic!(
-                        "expected marker transfer, but received: {:?}",
-                        execute_response.messages[1]
-                    ),
-                }
+                assert_eq!(
+                    execute_response.messages[0],
+                    transfer_marker_coins(
+                        100,
+                        "con_base_1",
+                        Addr::unchecked("approver_1"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
                 assert_eq!(
                     execute_response.messages[1],
                     CosmosMsg::Bank(BankMsg::Send {
@@ -7124,28 +6978,16 @@ mod tests {
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
-                match &execute_response.messages[2] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(100, "base_1"),
-                                        to: Addr::unchecked("bidder"),
-                                        from: Addr::unchecked(MOCK_CONTRACT_ADDR)
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    _ => panic!(
-                        "expected marker transfer, but received: {:?}",
-                        execute_response.messages[1]
-                    ),
-                }
+                assert_eq!(
+                    execute_response.messages[2],
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
             }
         }
 
@@ -7992,29 +7834,18 @@ mod tests {
                 assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
                 assert_eq!(approve_ask_response.attributes[4], attr("price", "2"));
                 assert_eq!(approve_ask_response.attributes[5], attr("size", "100"));
+
                 assert_eq!(approve_ask_response.messages.len(), 1);
-                match &approve_ask_response.messages[0] {
-                    CosmosMsg::Custom(message) => {
-                        assert_eq!(
-                            message,
-                            &ProvenanceMsg {
-                                route: ProvenanceRoute::Marker,
-                                params: provwasm_std::ProvenanceMsgParams::Marker(
-                                    MarkerMsgParams::TransferMarkerCoins {
-                                        coin: coin(100, "base_1"),
-                                        to: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                                        from: Addr::unchecked("approver_1"),
-                                    }
-                                ),
-                                version: "2_0_0".to_string()
-                            }
-                        )
-                    }
-                    _ => panic!(
-                        "expected marker transfer message, but received: {:?}",
-                        approve_ask_response.messages[0]
-                    ),
-                }
+                assert_eq!(
+                    approve_ask_response.messages[0],
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked("approver_1")
+                    )
+                    .unwrap()
+                );
             }
         }
 
