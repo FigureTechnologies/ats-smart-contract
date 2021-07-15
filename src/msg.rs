@@ -118,6 +118,12 @@ pub enum ExecuteMsg {
     ExpireBid {
         id: String,
     },
+    RejectAsk {
+        id: String,
+    },
+    RejectBid {
+        id: String,
+    },
 }
 
 impl Validate for ExecuteMsg {
@@ -233,6 +239,16 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::ExpireBid { id } => {
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
+            ExecuteMsg::RejectAsk { id } => {
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
+            ExecuteMsg::RejectBid { id } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
