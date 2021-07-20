@@ -172,8 +172,18 @@ pub fn execute(
             price,
             size,
         } => execute_match(deps, env, info, ask_id, bid_id, price, size),
-        ExecuteMsg::ExpireAsk { id } => expire_ask(deps, env, info, id),
-        ExecuteMsg::ExpireBid { id } => expire_bid(deps, env, info, id),
+        ExecuteMsg::ExpireAsk { id } => {
+            reverse_ask(deps, env, info, id, String::from("expire_ask"))
+        }
+        ExecuteMsg::ExpireBid { id } => {
+            reverse_bid(deps, env, info, id, String::from("expire_bid"))
+        }
+        ExecuteMsg::RejectAsk { id } => {
+            reverse_ask(deps, env, info, id, String::from("reject_ask"))
+        }
+        ExecuteMsg::RejectBid { id } => {
+            reverse_bid(deps, env, info, id, String::from("reject_bid"))
+        }
     }
 }
 
@@ -739,12 +749,13 @@ fn cancel_bid(
     Ok(response)
 }
 
-// expire ask entrypoint
-fn expire_ask(
+// reverse ask entrypoint
+fn reverse_ask(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
+    action: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // return error if id is empty
     if id.is_empty() {
@@ -807,7 +818,7 @@ fn expire_ask(
                 .into()]
             }
         },
-        attributes: vec![attr("action", "expire_ask"), attr("id", id)],
+        attributes: vec![attr("action", action), attr("id", id)],
         data: None,
     };
 
@@ -847,12 +858,13 @@ fn expire_ask(
     Ok(response)
 }
 
-// expire bid entrypoint
-fn expire_bid(
+// reverse bid entrypoint
+fn reverse_bid(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
+    action: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // return error if id is empty
     if id.is_empty() {
@@ -915,7 +927,7 @@ fn expire_bid(
             }
         },
 
-        attributes: vec![attr("action", "expire_bid"), attr("id", id)],
+        attributes: vec![attr("action", action), attr("id", id)],
         data: None,
     };
 
@@ -4062,6 +4074,79 @@ mod tests {
     }
 
     #[test]
+    fn reject_ask_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV2 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                fee_rate: None,
+                fee_account: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_ask_msg = ExecuteMsg::RejectAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+        };
+        let reject_ask_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_ask_msg);
+
+        match reject_ask_response {
+            Ok(reject_ask_response) => {
+                assert_eq!(reject_ask_response.attributes.len(), 2);
+                assert_eq!(
+                    reject_ask_response.attributes[0],
+                    attr("action", "reject_ask")
+                );
+                assert_eq!(
+                    reject_ask_response.attributes[1],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(reject_ask_response.messages.len(), 1);
+                assert_eq!(
+                    reject_ask_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".to_string(),
+                        amount: coins(100, "base_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
     fn expire_ask_restricted_marker() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
@@ -4652,6 +4737,80 @@ mod tests {
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
                     expire_bid_response.messages[0],
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(200, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+    }
+
+    #[test]
+    fn reject_bid_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV2 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                fee_rate: None,
+                fee_account: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128(2),
+                size_increment: Uint128(100),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128(200),
+                price: "2".into(),
+                size: Uint128(100),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let reject_bid_response =
+            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(reject_bid_response) => {
+                assert_eq!(reject_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    reject_bid_response.attributes[0],
+                    attr("action", "reject_bid")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(reject_bid_response.messages.len(), 1);
+                assert_eq!(
+                    reject_bid_response.messages[0],
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
                         amount: coins(200, "quote_1"),
