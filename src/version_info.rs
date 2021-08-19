@@ -21,7 +21,7 @@ pub fn set_version_info(
     version_info: &VersionInfoV1,
 ) -> Result<(), ContractError> {
     VERSION_INFO
-        .save(store, &version_info)
+        .save(store, version_info)
         .map_err(ContractError::Std)
 }
 

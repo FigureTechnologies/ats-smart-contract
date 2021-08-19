@@ -385,7 +385,7 @@ fn create_ask(
         });
     }
 
-    ask_storage.save(&ask_order.id.as_bytes(), &ask_order)?;
+    ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", "create_ask"),
@@ -527,7 +527,7 @@ fn create_bid(
         });
     }
 
-    bid_storage.save(&bid_order.id.as_bytes(), &bid_order)?;
+    bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", "create_bid"),
@@ -1185,17 +1185,17 @@ fn execute_match(
 
     // finally update or remove the orders from storage
     if ask_order.size.is_zero() {
-        get_ask_storage(deps.storage).remove(&ask_id.as_bytes());
+        get_ask_storage(deps.storage).remove(ask_id.as_bytes());
     } else {
         get_ask_storage(deps.storage)
-            .update(&ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
+            .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
     }
 
     if bid_order.size.is_zero() && bid_order.quote_size.is_zero() {
-        get_bid_storage(deps.storage).remove(&bid_id.as_bytes());
+        get_bid_storage(deps.storage).remove(bid_id.as_bytes());
     } else {
         get_bid_storage(deps.storage)
-            .update(&bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
+            .update(bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
     }
 
     Ok(response)
@@ -9173,7 +9173,7 @@ mod tests {
 
         let mut ask_storage = get_ask_storage(&mut deps.storage);
         if let Err(error) = ask_storage.save(
-            &"ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
             &ask_order,
         ) {
             panic!("unexpected error: {:?}", error)
@@ -9232,7 +9232,7 @@ mod tests {
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);
-        if let Err(error) = bid_storage.save(&bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), &bid_order) {
             panic!("unexpected error: {:?}", error);
         };
 
@@ -9256,14 +9256,14 @@ mod tests {
 
     fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrderV1) {
         let mut ask_storage = get_ask_storage(storage);
-        if let Err(error) = ask_storage.save(&ask_order.id.as_bytes(), &ask_order) {
+        if let Err(error) = ask_storage.save(ask_order.id.as_bytes(), ask_order) {
             panic!("unexpected error: {:?}", error)
         };
     }
 
     fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV1) {
         let mut bid_storage = get_bid_storage(storage);
-        if let Err(error) = bid_storage.save(&bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
             panic!("unexpected error: {:?}", error);
         };
     }

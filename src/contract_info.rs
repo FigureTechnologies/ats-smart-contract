@@ -114,7 +114,7 @@ pub fn set_contract_info(
     contract_info: &ContractInfoV2,
 ) -> Result<(), ContractError> {
     CONTRACT_INFO_V2
-        .save(store, &contract_info)
+        .save(store, contract_info)
         .map_err(ContractError::Std)
 }
 
@@ -134,7 +134,7 @@ pub fn set_legacy_contract_info(
     contract_info: &ContractInfo,
 ) -> Result<(), ContractError> {
     CONTRACT_INFO
-        .save(store, &contract_info)
+        .save(store, contract_info)
         .map_err(ContractError::Std)
 }
 
@@ -153,7 +153,7 @@ pub fn migrate_contract_info(
         for approver in &msg.approvers.clone().unwrap_or_default() {
             contract_info_v2
                 .approvers
-                .push(api.addr_validate(&approver)?)
+                .push(api.addr_validate(approver)?)
         }
 
         contract_info_v2.fee_rate = msg.fee_rate.clone();
