@@ -1285,7 +1285,7 @@ mod tests {
             Ok(init_response) => {
                 assert_eq!(init_response.messages.len(), 1);
                 assert_eq!(
-                    init_response.messages[0],
+                    init_response.messages[0].msg,
                     CosmosMsg::Custom(ProvenanceMsg {
                         route: ProvenanceRoute::Name,
                         params: ProvenanceMsgParams::Name(NameMsgParams::BindName {
@@ -1728,7 +1728,7 @@ mod tests {
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
-                    response.messages[0],
+                    response.messages[0].msg,
                     transfer_marker_coins(
                         500,
                         "base_1",
@@ -2396,7 +2396,7 @@ mod tests {
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
-                    response.messages[0],
+                    response.messages[0].msg,
                     transfer_marker_coins(
                         1000,
                         "quote_1",
@@ -2998,7 +2998,7 @@ mod tests {
                 );
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: asker_info.sender.to_string(),
                         amount: coins(100, "base_1"),
@@ -3110,7 +3110,7 @@ mod tests {
 
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -3195,14 +3195,14 @@ mod tests {
                 );
                 assert_eq!(cancel_ask_response.messages.len(), 2);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: asker_info.sender.to_string(),
                         amount: coins(100, "con_base_1"),
                     })
                 );
                 assert_eq!(
-                    cancel_ask_response.messages[1],
+                    cancel_ask_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".to_string(),
                         amount: coins(100, "base_denom"),
@@ -3351,7 +3351,7 @@ mod tests {
 
                 assert_eq!(cancel_ask_response.messages.len(), 2);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -3361,7 +3361,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    cancel_ask_response.messages[1],
+                    cancel_ask_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -3621,7 +3621,7 @@ mod tests {
                 );
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_bid_response.messages[0],
+                    cancel_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: bidder_info.sender.to_string(),
                         amount: coins(200, "quote_1"),
@@ -3733,7 +3733,7 @@ mod tests {
 
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_bid_response.messages[0],
+                    cancel_bid_response.messages[0].msg,
                     transfer_marker_coins(
                         200,
                         "quote_1",
@@ -3988,7 +3988,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "base_1"),
@@ -4061,7 +4061,7 @@ mod tests {
                 );
                 assert_eq!(reject_ask_response.messages.len(), 1);
                 assert_eq!(
-                    reject_ask_response.messages[0],
+                    reject_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "base_1"),
@@ -4168,7 +4168,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -4249,14 +4249,14 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "con_base_1"),
                     })
                 );
                 assert_eq!(
-                    expire_ask_response.messages[1],
+                    expire_ask_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".to_string(),
                         amount: coins(100, "base_denom"),
@@ -4400,7 +4400,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -4410,7 +4410,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    expire_ask_response.messages[1],
+                    expire_ask_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -4666,7 +4666,7 @@ mod tests {
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
-                    expire_bid_response.messages[0],
+                    expire_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
                         amount: coins(200, "quote_1"),
@@ -4740,7 +4740,7 @@ mod tests {
                 );
                 assert_eq!(reject_bid_response.messages.len(), 1);
                 assert_eq!(
-                    reject_bid_response.messages[0],
+                    reject_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
                         amount: coins(200, "quote_1"),
@@ -4847,7 +4847,7 @@ mod tests {
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
-                    expire_bid_response.messages[0],
+                    expire_bid_response.messages[0].msg,
                     transfer_marker_coins(
                         200,
                         "quote_1",
@@ -5131,14 +5131,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(200, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5253,14 +5253,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(100, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5376,21 +5376,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[7], attr("fee", "1"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(148, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(149, "base_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "fee_account".into(),
                         amount: coins(1, "quote_1"),
@@ -5505,14 +5505,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "10"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(20, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(10, "base_1"),
@@ -5639,14 +5639,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "50"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(100, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(50, "base_1"),
@@ -5768,14 +5768,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(200, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5920,21 +5920,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
                         amount: vec![coin(100, "con_base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
                         amount: vec![coin(200, "quote_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -6086,21 +6086,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(10, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(5, "base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(490, "quote_1")],
@@ -6253,7 +6253,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         10,
                         "quote_1",
@@ -6263,14 +6263,14 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(5, "base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         490,
                         "quote_1",
@@ -6388,14 +6388,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(400, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -6515,21 +6515,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_denom"),
@@ -6677,14 +6677,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -6835,7 +6835,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -6845,7 +6845,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(100, "base_1")]
@@ -7024,7 +7024,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7034,7 +7034,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -7224,7 +7224,7 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -7234,14 +7234,14 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -7399,14 +7399,14 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7416,7 +7416,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(100, "base_1")]
@@ -7635,7 +7635,7 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -7645,7 +7645,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7655,7 +7655,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -8513,7 +8513,7 @@ mod tests {
 
                 assert_eq!(approve_ask_response.messages.len(), 1);
                 assert_eq!(
-                    approve_ask_response.messages[0],
+                    approve_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
