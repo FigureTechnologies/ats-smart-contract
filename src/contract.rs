@@ -3010,7 +3010,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3125,7 +3125,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3214,7 +3214,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3376,7 +3376,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3633,7 +3633,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3748,7 +3748,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4000,7 +4000,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4073,7 +4073,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4183,7 +4183,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4268,7 +4268,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4425,7 +4425,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4678,7 +4678,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4752,7 +4752,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4862,7 +4862,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -5149,21 +5149,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5271,21 +5265,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5401,21 +5389,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5545,12 +5527,9 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5679,7 +5658,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -6111,21 +6090,15 @@ mod tests {
 
         // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            false
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
@@ -6284,21 +6257,15 @@ mod tests {
 
         // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            false
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6406,21 +6373,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6540,21 +6501,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6698,21 +6653,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6856,21 +6805,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7048,21 +6991,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7255,21 +7192,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7427,21 +7358,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7669,21 +7594,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -8175,21 +8094,15 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_ok());
     }
 
     #[test]
@@ -8268,21 +8181,15 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_ok());
     }
 
     #[test]
@@ -9274,12 +9181,9 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // query for ask order
         let query_ask_response = query(
