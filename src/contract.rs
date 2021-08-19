@@ -96,18 +96,15 @@ pub fn instantiate(
     )?;
 
     // build response
-    Ok(Response {
-        submessages: vec![],
-        messages: vec![bind_name_msg],
-        attributes: vec![
+    Ok(Response::new()
+        .add_message(bind_name_msg)
+        .add_attributes(vec![
             attr(
                 "contract_info",
                 format!("{:?}", get_contract_info(deps.storage)?),
             ),
             attr("action", "init"),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 // smart contract execute entrypoint
@@ -255,31 +252,25 @@ fn approve_ask(
     )?;
 
     // build response
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_base_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    env.contract.address,
-                    info.sender,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "approve_ask"),
-            attr("id", &updated_ask_order.id),
-            attr("class", serde_json::to_string(&updated_ask_order.class)?),
-            attr("quote", &updated_ask_order.quote),
-            attr("price", &updated_ask_order.price),
-            attr("size", &updated_ask_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "approve_ask"),
+        attr("id", &updated_ask_order.id),
+        attr("class", serde_json::to_string(&updated_ask_order.class)?),
+        attr("quote", &updated_ask_order.quote),
+        attr("price", &updated_ask_order.price),
+        attr("size", &updated_ask_order.size),
+    ]);
+
+    if is_base_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            size.into(),
+            base,
+            env.contract.address,
+            info.sender,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // create ask entrypoint
@@ -396,33 +387,27 @@ fn create_ask(
 
     ask_storage.save(&ask_order.id.as_bytes(), &ask_order)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_base_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    ask_order.size.into(),
-                    ask_order.base.to_owned(),
-                    env.contract.address,
-                    ask_order.owner,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "create_ask"),
-            attr("id", &ask_order.id),
-            attr("class", serde_json::to_string(&ask_order.class)?),
-            attr("target_base", &contract_info.base_denom),
-            attr("base", &ask_order.base),
-            attr("quote", &ask_order.quote),
-            attr("price", &ask_order.price),
-            attr("size", &ask_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "create_ask"),
+        attr("id", &ask_order.id),
+        attr("class", serde_json::to_string(&ask_order.class)?),
+        attr("target_base", &contract_info.base_denom),
+        attr("base", &ask_order.base),
+        attr("quote", &ask_order.quote),
+        attr("price", &ask_order.price),
+        attr("size", &ask_order.size),
+    ]);
+
+    if is_base_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            ask_order.size.into(),
+            ask_order.base.to_owned(),
+            env.contract.address,
+            ask_order.owner,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // create bid entrypoint
@@ -544,32 +529,26 @@ fn create_bid(
 
     bid_storage.save(&bid_order.id.as_bytes(), &bid_order)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    bid_order.quote_size.into(),
-                    bid_order.quote.to_owned(),
-                    env.contract.address,
-                    bid_order.owner,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "create_bid"),
-            attr("id", &bid_order.id),
-            attr("base", &bid_order.base),
-            attr("quote", &bid_order.quote),
-            attr("quote_size", &bid_order.quote_size),
-            attr("price", &bid_order.price),
-            attr("size", &bid_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "create_bid"),
+        attr("id", &bid_order.id),
+        attr("base", &bid_order.base),
+        attr("quote", &bid_order.quote),
+        attr("quote_size", &bid_order.quote_size),
+        attr("price", &bid_order.price),
+        attr("size", &bid_order.size),
+    ]);
+
+    if is_quote_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            bid_order.quote_size.into(),
+            bid_order.quote.to_owned(),
+            env.contract.address,
+            bid_order.owner,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // cancel ask entrypoint
@@ -618,28 +597,18 @@ fn cancel_ask(
     );
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
+    let mut response = Response::new()
+        .add_message(match is_quote_restricted_marker {
             true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    owner,
-                    env.contract.address.to_owned(),
-                )?]
+                transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: coins(u128::from(size), base),
-                }
-                .into()]
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: coins(u128::from(size), base),
             }
-        },
-        attributes: vec![attr("action", "cancel_ask"), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", "cancel_ask"), attr("id", id)]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -657,21 +626,19 @@ fn cancel_ask(
             })
         );
 
-        response
-            .messages
-            .push(match is_convertible_restricted_marker {
-                true => transfer_marker_coins(
-                    converted_base.amount.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address,
-                )?,
-                false => BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![converted_base],
-                }
-                .into(),
-            });
+        response = response.add_message(match is_convertible_restricted_marker {
+            true => transfer_marker_coins(
+                converted_base.amount.into(),
+                converted_base.denom,
+                approver,
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: approver.to_string(),
+                amount: vec![converted_base],
+            }
+            .into(),
+        });
     }
 
     Ok(response)
@@ -722,31 +689,21 @@ fn cancel_bid(
     );
 
     // 'send quote back to owner' message
-    let response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    quote_size.into(),
-                    quote.to_owned(),
-                    owner,
-                    env.contract.address,
-                )?]
+    Ok(Response::new()
+        .add_message(match is_quote_restricted_marker {
+            true => transfer_marker_coins(
+                quote_size.into(),
+                quote.to_owned(),
+                owner,
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: vec![coin(quote_size.u128(), quote)],
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: vec![coin(quote_size.u128(), quote)],
-                }
-                .into()]
-            }
-        },
-
-        attributes: vec![attr("action", "cancel_bid"), attr("id", id)],
-        data: None,
-    };
-
-    Ok(response)
+            .into(),
+        })
+        .add_attributes(vec![attr("action", "cancel_bid"), attr("id", id)]))
 }
 
 // reverse ask entrypoint
@@ -799,28 +756,18 @@ fn reverse_ask(
     );
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
+    let mut response = Response::new()
+        .add_message(match is_quote_restricted_marker {
             true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    owner,
-                    env.contract.address.to_owned(),
-                )?]
+                transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: coins(u128::from(size), base),
-                }
-                .into()]
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: coins(u128::from(size), base),
             }
-        },
-        attributes: vec![attr("action", action), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", action), attr("id", id)]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -838,21 +785,19 @@ fn reverse_ask(
             })
         );
 
-        response
-            .messages
-            .push(match is_convertible_restricted_marker {
-                true => transfer_marker_coins(
-                    converted_base.amount.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address,
-                )?,
-                false => BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![converted_base],
-                }
-                .into(),
-            });
+        response = response.add_message(match is_convertible_restricted_marker {
+            true => transfer_marker_coins(
+                converted_base.amount.into(),
+                converted_base.denom,
+                approver,
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: approver.to_string(),
+                amount: vec![converted_base],
+            }
+            .into(),
+        });
     }
 
     Ok(response)
@@ -907,29 +852,16 @@ fn reverse_bid(
     );
 
     // 'send quote back to owner' message
-    let response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    quote_size.into(),
-                    quote,
-                    owner,
-                    env.contract.address,
-                )?]
+    let response = Response::new()
+        .add_message(match is_quote_restricted_marker {
+            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: vec![coin(quote_size.u128(), quote)],
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: vec![coin(quote_size.u128(), quote)],
-                }
-                .into()]
-            }
-        },
-
-        attributes: vec![attr("action", action), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", action), attr("id", id)]);
 
     Ok(response)
 }
@@ -1109,9 +1041,8 @@ fn execute_match(
 
     // 'send quote to asker' and 'send base to bidder' messages
     let mut response = match &ask_order_class {
-        AskOrderClass::Basic => Response {
-            submessages: vec![],
-            messages: vec![
+        AskOrderClass::Basic => Response::new()
+            .add_messages(vec![
                 match is_quote_restricted_marker {
                     true => transfer_marker_coins(
                         quote_total.into(),
@@ -1144,8 +1075,8 @@ fn execute_match(
                     }
                     .into(),
                 },
-            ],
-            attributes: vec![
+            ])
+            .add_attributes(vec![
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
@@ -1153,18 +1084,15 @@ fn execute_match(
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price),
                 attr("size", &execute_size),
-            ],
-            data: None,
-        },
+            ]),
         AskOrderClass::Convertible {
             status:
                 AskOrderStatus::Ready {
                     approver,
                     converted_base,
                 },
-        } => Response {
-            submessages: vec![],
-            messages: vec![
+        } => Response::new()
+            .add_messages(vec![
                 match is_base_restricted_marker {
                     true => transfer_marker_coins(
                         execute_size.into(),
@@ -1213,8 +1141,8 @@ fn execute_match(
                     }
                     .into(),
                 },
-            ],
-            attributes: vec![
+            ])
+            .add_attributes(vec![
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
@@ -1222,9 +1150,7 @@ fn execute_match(
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price),
                 attr("size", &execute_size),
-            ],
-            data: None,
-        },
+            ]),
         AskOrderClass::Convertible { status } => {
             return Err(ContractError::AskOrderNotReady {
                 current_status: format!("{:?}", status),
@@ -1233,7 +1159,7 @@ fn execute_match(
     };
 
     if !bidder_refund.is_zero() {
-        response.messages.push(match is_quote_restricted_marker {
+        response = response.add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
                 bidder_refund.into(),
                 bid_order.quote.clone(),
@@ -1252,8 +1178,8 @@ fn execute_match(
     }
 
     if let (Some(message), Some(fee_total)) = (fee_message, fee_total) {
-        response.messages.push(message);
-        response.attributes.push(attr("fee", fee_total));
+        response = response.add_message(message);
+        response = response.add_attribute("fee", fee_total);
     }
 
     // finally update or remove the orders from storage
