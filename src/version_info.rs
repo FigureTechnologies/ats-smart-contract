@@ -109,8 +109,8 @@ mod tests {
                 issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 

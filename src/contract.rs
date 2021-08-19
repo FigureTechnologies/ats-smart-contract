@@ -947,9 +947,9 @@ fn execute_match(
         return Err(ContractError::NonIntegerTotal);
     }
 
-    let mut quote_total = Uint128(total.to_u128().ok_or(ContractError::TotalOverflow)?);
+    let mut quote_total = Uint128::new(total.to_u128().ok_or(ContractError::TotalOverflow)?);
 
-    ask_order.size = Uint128(ask_order.size.u128() - execute_size.u128());
+    ask_order.size = Uint128::new(ask_order.size.u128() - execute_size.u128());
 
     let ask_order_class = &mut ask_order.class;
 
@@ -960,14 +960,14 @@ fn execute_match(
         converted_base.amount = ask_order.size;
     }
 
-    bid_order.size = Uint128(bid_order.size.u128() - execute_size.u128());
-    bid_order.quote_size = Uint128(bid_order.quote_size.u128() - quote_total.u128());
+    bid_order.size = Uint128::new(bid_order.size.u128() - execute_size.u128());
+    bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - quote_total.u128());
 
     // calculate refund to bidder if bid order is completed but quote funds remain
-    let mut bidder_refund = Uint128(0);
+    let mut bidder_refund = Uint128::new(0);
     if bid_order.size.is_zero() && !bid_order.quote_size.is_zero() {
         bidder_refund = bid_order.quote_size;
-        bid_order.quote_size = Uint128(bid_order.quote_size.u128() - bidder_refund.u128());
+        bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
     }
 
     // is ask base a restricted marker
@@ -1003,11 +1003,12 @@ fn execute_match(
             {
                 0u128 => (None, None),
                 fee_total => {
-                    quote_total = quote_total
-                        .checked_sub(Uint128(fee_total))
-                        .map_err(|error| {
-                            ContractError::Std(StdError::Overflow { source: error })
-                        })?;
+                    quote_total =
+                        quote_total
+                            .checked_sub(Uint128::new(fee_total))
+                            .map_err(|error| {
+                                ContractError::Std(StdError::Overflow { source: error })
+                            })?;
 
                     match is_quote_restricted_marker {
                         true => (
@@ -1025,7 +1026,7 @@ fn execute_match(
                                     to_address: fee_account.to_string(),
                                     amount: vec![Coin {
                                         denom: bid_order.quote.to_owned(),
-                                        amount: Uint128(fee_total),
+                                        amount: Uint128::new(fee_total),
                                     }],
                                 }
                                 .into(),
@@ -1272,8 +1273,8 @@ mod tests {
             fee_account: Some("fee_account".into()),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         // initialize
@@ -1307,8 +1308,8 @@ mod tests {
                     fee_account: Some(Addr::unchecked("fee_account")),
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                    price_precision: Uint128(2),
-                    size_increment: Uint128(100),
+                    price_precision: Uint128::new(2),
+                    size_increment: Uint128::new(100),
                 };
 
                 let expected_version_info = VersionInfoV1 {
@@ -1352,8 +1353,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec![],
             bid_required_attributes: vec![],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         // initialize
@@ -1392,8 +1393,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(10),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(10),
         };
 
         // initialize
@@ -1426,8 +1427,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1445,7 +1446,7 @@ mod tests {
             price: "2.5".into(),
             quote: "quote_1".into(),
             base: "base_1".to_string(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1536,8 +1537,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1555,7 +1556,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &coins(500, "base_1"));
@@ -1646,8 +1647,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1690,7 +1691,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &[]);
@@ -1793,8 +1794,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1837,7 +1838,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &[coin(10, "base_1")]);
@@ -1872,8 +1873,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1883,7 +1884,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2.5".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1905,7 +1906,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_2".into(),
             price: "4.5".into(),
-            size: Uint128(400),
+            size: Uint128::new(400),
         };
 
         let asker_info = mock_info("asker", &coins(400, "base_1"));
@@ -1938,7 +1939,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2.5".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(200)
+                        size: Uint128::new(200)
                     }
                 )
             }
@@ -1965,8 +1966,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1976,7 +1977,7 @@ mod tests {
             base: "".to_string(),
             quote: "".into(),
             price: "".into(),
-            size: Uint128(0),
+            size: Uint128::new(0),
         };
 
         // execute create ask
@@ -2020,8 +2021,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2031,7 +2032,7 @@ mod tests {
             base: "inconvertible".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2069,8 +2070,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2080,7 +2081,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "unsupported".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2118,8 +2119,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2129,7 +2130,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "quote_1".into(),
             price: "2.123".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         // execute create ask
@@ -2169,8 +2170,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2180,7 +2181,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_denom"));
@@ -2215,8 +2216,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2233,9 +2234,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(250),
+            quote_size: Uint128::new(250),
             price: "2.5".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let bidder_info = mock_info("bidder", &coins(250, "quote_1"));
@@ -2320,8 +2321,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2363,9 +2364,9 @@ mod tests {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
             quote: "quote_1".into(),
-            quote_size: Uint128(1000),
+            quote_size: Uint128::new(1000),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let bidder_info = mock_info("bidder", &[]);
@@ -2462,8 +2463,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2505,9 +2506,9 @@ mod tests {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
             quote: "quote_1".into(),
-            quote_size: Uint128(10),
+            quote_size: Uint128::new(10),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let bidder_info = mock_info("bidder", &[coin(10, "quote_2")]);
@@ -2542,8 +2543,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2560,9 +2561,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(250),
+            quote_size: Uint128::new(250),
             price: "2.5".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let bidder_info = mock_info("bidder", &coins(250, "quote_1"));
@@ -2583,9 +2584,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(900),
+            quote_size: Uint128::new(900),
             price: "4.5".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let bidder_info = mock_info("bidder", &coins(900, "quote_1"));
@@ -2617,8 +2618,8 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(250),
-                        size: Uint128(100),
+                        quote_size: Uint128::new(250),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -2645,8 +2646,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2655,9 +2656,9 @@ mod tests {
             id: "".into(),
             base: "".into(),
             quote: "".into(),
-            quote_size: Uint128(0),
+            quote_size: Uint128::new(0),
             price: "".into(),
-            size: Uint128(0),
+            size: Uint128::new(0),
         };
 
         // execute create bid
@@ -2700,8 +2701,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2710,9 +2711,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "notbasedenom".into(),
             quote: "quote_2".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2750,8 +2751,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2760,9 +2761,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "unsupported".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2800,8 +2801,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2810,9 +2811,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(100),
+            quote_size: Uint128::new(100),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2850,8 +2851,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2860,9 +2861,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2900,8 +2901,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2910,9 +2911,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2.123".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2952,8 +2953,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2967,7 +2968,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3029,8 +3030,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3077,7 +3078,7 @@ mod tests {
                 base: "base_1".into(),
                 quote: "quote_1".into(),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3144,8 +3145,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3164,7 +3165,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3233,8 +3234,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3319,7 +3320,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3395,8 +3396,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3436,8 +3437,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3478,8 +3479,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3494,7 +3495,7 @@ mod tests {
                 owner: Addr::unchecked("not_asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -3533,8 +3534,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3574,8 +3575,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3587,9 +3588,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3652,8 +3653,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3698,9 +3699,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3767,8 +3768,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3808,8 +3809,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3850,8 +3851,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3864,9 +3865,9 @@ mod tests {
                 owner: Addr::unchecked("not_bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "2".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -3905,8 +3906,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3946,8 +3947,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3961,7 +3962,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4019,8 +4020,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4034,7 +4035,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4092,8 +4093,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4140,7 +4141,7 @@ mod tests {
                 base: "base_1".into(),
                 quote: "quote_1".into(),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4202,8 +4203,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4222,7 +4223,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4287,8 +4288,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4373,7 +4374,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4444,8 +4445,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4485,8 +4486,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4527,8 +4528,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4543,7 +4544,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -4582,8 +4583,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4623,8 +4624,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4636,9 +4637,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4697,8 +4698,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4710,9 +4711,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4771,8 +4772,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4817,9 +4818,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4881,8 +4882,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4922,8 +4923,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4964,8 +4965,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4978,9 +4979,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "2".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5019,8 +5020,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5062,8 +5063,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5077,7 +5078,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5089,9 +5090,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5100,7 +5101,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5184,8 +5185,8 @@ mod tests {
                 fee_account: Some(Addr::unchecked("fee_account")),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5199,7 +5200,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "1".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5211,9 +5212,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5222,7 +5223,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "1".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5306,8 +5307,8 @@ mod tests {
                 fee_account: Some(Addr::unchecked("fee_account")),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(0),
-                size_increment: Uint128(1),
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
             },
         );
 
@@ -5321,7 +5322,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "1".into(),
                 quote: "quote_1".into(),
-                size: Uint128(149),
+                size: Uint128::new(149),
             },
         );
 
@@ -5333,9 +5334,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(149),
+                quote_size: Uint128::new(149),
                 price: "1".into(),
-                size: Uint128(149),
+                size: Uint128::new(149),
             },
         );
 
@@ -5344,7 +5345,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "1".into(),
-            size: Uint128(149),
+            size: Uint128::new(149),
         };
 
         let execute_response = execute(
@@ -5436,8 +5437,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5451,7 +5452,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(30),
+                size: Uint128::new(30),
             },
         );
 
@@ -5463,9 +5464,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(20),
+                quote_size: Uint128::new(20),
                 price: "2".into(),
-                size: Uint128(10),
+                size: Uint128::new(10),
             },
         );
 
@@ -5474,7 +5475,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(10),
+            size: Uint128::new(10),
         };
 
         let execute_response = execute(
@@ -5533,7 +5534,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(20)
+                        size: Uint128::new(20)
                     }
                 )
             }
@@ -5570,8 +5571,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5585,7 +5586,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(50),
+                size: Uint128::new(50),
             },
         );
 
@@ -5597,9 +5598,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5608,7 +5609,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(50),
+            size: Uint128::new(50),
         };
 
         let execute_response = execute(
@@ -5665,9 +5666,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(100),
+                        quote_size: Uint128::new(100),
                         price: "2".into(),
-                        size: Uint128(50),
+                        size: Uint128::new(50),
                     }
                 )
             }
@@ -5699,8 +5700,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5714,7 +5715,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5726,9 +5727,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(600),
+                quote_size: Uint128::new(600),
                 price: "2".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -5737,7 +5738,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5796,7 +5797,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100)
+                        size: Uint128::new(100)
                     }
                 )
             }
@@ -5816,9 +5817,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(400),
+                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128(200),
+                        size: Uint128::new(200),
                     }
                 )
             }
@@ -5846,8 +5847,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5866,7 +5867,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5878,9 +5879,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(600),
+                quote_size: Uint128::new(600),
                 price: "2".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -5889,7 +5890,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5961,7 +5962,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100)
+                        size: Uint128::new(100)
                     }
                 )
             }
@@ -5981,9 +5982,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(400),
+                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128(200),
+                        size: Uint128::new(200),
                     }
                 )
             }
@@ -6014,8 +6015,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6029,7 +6030,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
-                size: Uint128(777),
+                size: Uint128::new(777),
             },
         );
 
@@ -6041,9 +6042,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(500),
+                quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
-                size: Uint128(5),
+                size: Uint128::new(5),
             },
         );
 
@@ -6052,7 +6053,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.000000000000000000".into(),
-            size: Uint128(5),
+            size: Uint128::new(5),
         };
 
         let execute_response = execute(
@@ -6148,8 +6149,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6196,7 +6197,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
-                size: Uint128(777),
+                size: Uint128::new(777),
             },
         );
 
@@ -6208,9 +6209,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(500),
+                quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
-                size: Uint128(5),
+                size: Uint128::new(5),
             },
         );
 
@@ -6219,7 +6220,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.000000000000000000".into(),
-            size: Uint128(5),
+            size: Uint128::new(5),
         };
 
         let execute_response = execute(
@@ -6319,8 +6320,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6334,7 +6335,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6346,9 +6347,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
+                quote_size: Uint128::new(400),
                 price: "4".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6357,7 +6358,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6441,8 +6442,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6461,7 +6462,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6474,8 +6475,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6484,7 +6485,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6575,8 +6576,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6623,7 +6624,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6636,8 +6637,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6646,7 +6647,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6733,8 +6734,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6781,7 +6782,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6794,8 +6795,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6804,7 +6805,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6891,8 +6892,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6970,7 +6971,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6983,8 +6984,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6993,7 +6994,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7149,8 +7150,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7169,7 +7170,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7182,8 +7183,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7192,7 +7193,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7324,8 +7325,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7344,7 +7345,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7357,8 +7358,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7367,7 +7368,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7560,8 +7561,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7580,7 +7581,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7593,8 +7594,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7603,7 +7604,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7703,8 +7704,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7756,8 +7757,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7766,7 +7767,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(1),
+            size: Uint128::new(1),
         };
 
         let execute_response = execute(
@@ -7801,8 +7802,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
         // store valid ask order
@@ -7817,7 +7818,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -7830,8 +7831,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(200),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(200),
             },
         );
 
@@ -7840,7 +7841,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -7880,8 +7881,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7894,8 +7895,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
-                size: Uint128(200),
+                quote_size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -7904,7 +7905,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -7939,8 +7940,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
         // store valid ask order
@@ -7953,7 +7954,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -7962,7 +7963,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -7997,8 +7998,8 @@ mod tests {
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8007,7 +8008,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(1),
+            size: Uint128::new(1),
         };
 
         let execute_response = execute(
@@ -8042,8 +8043,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8057,7 +8058,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "3".into(),
                 quote: "quote_1".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -8070,8 +8071,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
-                size: Uint128(200),
+                quote_size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -8080,7 +8081,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8117,8 +8118,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8132,7 +8133,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8145,8 +8146,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -8155,7 +8156,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "6".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -8210,8 +8211,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8225,7 +8226,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8238,8 +8239,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -8248,7 +8249,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8303,8 +8304,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8320,7 +8321,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8331,7 +8332,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8386,7 +8387,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8415,8 +8416,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8465,7 +8466,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8476,7 +8477,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8542,7 +8543,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8571,8 +8572,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8588,7 +8589,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8599,7 +8600,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "59e82f8f-268e-433f-9711-e9f2d2cc19a5".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8629,7 +8630,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8658,8 +8659,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8675,7 +8676,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8686,7 +8687,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "wrong_base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8714,7 +8715,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8743,8 +8744,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8760,7 +8761,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8771,7 +8772,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8799,7 +8800,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8828,8 +8829,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8845,7 +8846,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8856,7 +8857,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(99),
+                size: Uint128::new(99),
             },
         );
 
@@ -8884,7 +8885,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8913,8 +8914,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8963,7 +8964,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8974,7 +8975,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9007,8 +9008,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9057,7 +9058,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9068,7 +9069,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(101),
+                size: Uint128::new(101),
             },
         );
 
@@ -9096,7 +9097,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -9125,8 +9126,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9142,7 +9143,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9153,7 +9154,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9181,7 +9182,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -9209,8 +9210,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9247,8 +9248,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9260,7 +9261,7 @@ mod tests {
             owner: Addr::unchecked("asker"),
             price: "2".into(),
             quote: "quote_1".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let mut ask_storage = get_ask_storage(&mut deps.storage);
@@ -9310,8 +9311,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9322,8 +9323,8 @@ mod tests {
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(100),
-            size: Uint128(100),
+            quote_size: Uint128::new(100),
+            size: Uint128::new(100),
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);
