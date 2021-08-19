@@ -258,7 +258,7 @@ fn approve_ask(
         attr("class", serde_json::to_string(&updated_ask_order.class)?),
         attr("quote", &updated_ask_order.quote),
         attr("price", &updated_ask_order.price),
-        attr("size", &updated_ask_order.size),
+        attr("size", &updated_ask_order.size.to_string()),
     ]);
 
     if is_base_restricted_marker {
@@ -395,7 +395,7 @@ fn create_ask(
         attr("base", &ask_order.base),
         attr("quote", &ask_order.quote),
         attr("price", &ask_order.price),
-        attr("size", &ask_order.size),
+        attr("size", &ask_order.size.to_string()),
     ]);
 
     if is_base_restricted_marker {
@@ -534,9 +534,9 @@ fn create_bid(
         attr("id", &bid_order.id),
         attr("base", &bid_order.base),
         attr("quote", &bid_order.quote),
-        attr("quote_size", &bid_order.quote_size),
+        attr("quote_size", &bid_order.quote_size.to_string()),
         attr("price", &bid_order.price),
-        attr("size", &bid_order.size),
+        attr("size", &bid_order.size.to_string()),
     ]);
 
     if is_quote_restricted_marker {
@@ -1083,8 +1083,8 @@ fn execute_match(
                 attr("bid_id", &bid_id),
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
-                attr("price", &execute_price),
-                attr("size", &execute_size),
+                attr("price", &execute_price.to_string()),
+                attr("size", &execute_size.to_string()),
             ]),
         AskOrderClass::Convertible {
             status:
@@ -1149,8 +1149,8 @@ fn execute_match(
                 attr("bid_id", &bid_id),
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
-                attr("price", &execute_price),
-                attr("size", &execute_size),
+                attr("price", &execute_price.to_string()),
+                attr("size", &execute_size.to_string()),
             ]),
         AskOrderClass::Convertible { status } => {
             return Err(ContractError::AskOrderNotReady {
@@ -1180,7 +1180,7 @@ fn execute_match(
 
     if let (Some(message), Some(fee_total)) = (fee_message, fee_total) {
         response = response.add_message(message);
-        response = response.add_attribute("fee", fee_total);
+        response = response.add_attribute("fee", fee_total.to_string());
     }
 
     // finally update or remove the orders from storage
