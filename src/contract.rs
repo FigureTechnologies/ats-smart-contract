@@ -691,12 +691,7 @@ fn cancel_bid(
     // 'send quote back to owner' message
     Ok(Response::new()
         .add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(
-                quote_size.into(),
-                quote.to_owned(),
-                owner,
-                env.contract.address,
-            )?,
+            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
             false => BankMsg::Send {
                 to_address: owner.to_string(),
                 amount: vec![coin(quote_size.u128(), quote)],
@@ -1165,7 +1160,7 @@ fn execute_match(
                 bidder_refund.into(),
                 bid_order.quote.clone(),
                 bid_order.owner.to_owned(),
-                env.contract.address.to_owned(),
+                env.contract.address,
             )?,
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
@@ -3089,12 +3084,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let cancel_ask_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            cancel_ask_msg,
-        );
+        let cancel_ask_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
 
         match cancel_ask_response {
             Ok(cancel_ask_response) => {
@@ -3712,12 +3702,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let cancel_bid_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            bidder_info.clone(),
-            cancel_bid_msg,
-        );
+        let cancel_bid_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
 
         match cancel_bid_response {
             Ok(cancel_bid_response) => {
@@ -3972,8 +3957,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4045,8 +4029,7 @@ mod tests {
         let reject_ask_msg = ExecuteMsg::RejectAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let reject_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_ask_msg);
+        let reject_ask_response = execute(deps.as_mut(), mock_env(), exec_info, reject_ask_msg);
 
         match reject_ask_response {
             Ok(reject_ask_response) => {
@@ -4152,8 +4135,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4233,8 +4215,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4384,8 +4365,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4650,8 +4630,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+        let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
@@ -4724,8 +4703,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let reject_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_bid_msg);
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
 
         match reject_bid_response {
             Ok(reject_bid_response) => {
@@ -4831,8 +4809,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+        let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
