@@ -1181,22 +1181,23 @@ fn execute_match(
                     }
                     .into(),
                 },
-                BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![Coin {
-                        denom: bid_order.quote.clone(),
-                        amount: quote_total,
-                    }],
-                }
-                .into(),
-                match matches!(
-                    ProvenanceQuerier::new(&deps.querier)
-                        .get_marker_by_denom(ask_order.base.clone()),
-                    Ok(Marker {
-                        marker_type: MarkerType::Restricted,
-                        ..
-                    })
-                ) {
+                match is_quote_restricted_marker {
+                    true => transfer_marker_coins(
+                        quote_total.into(),
+                        bid_order.quote.clone(),
+                        approver.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?,
+                    false => BankMsg::Send {
+                        to_address: approver.to_string(),
+                        amount: vec![Coin {
+                            denom: bid_order.quote.clone(),
+                            amount: quote_total,
+                        }],
+                    }
+                    .into(),
+                },
+                match is_base_restricted_marker {
                     true => transfer_marker_coins(
                         execute_size.into(),
                         converted_base.to_owned().denom,
@@ -7314,13 +7315,10 @@ mod tests {
                 );
                 assert_eq!(
                     execute_response.messages[2],
-                    transfer_marker_coins(
-                        100,
-                        "base_1",
-                        Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
-                    )
-                    .unwrap()
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(100, "base_1")]
+                    })
                 );
             }
         }
@@ -7410,10 +7408,42 @@ mod tests {
               \"supply_fixed\": false
             }";
 
+        let restricted_quote_marker_json = b"{
+              \"address\": \"tp1sfn6qfhpf9rw3ns8zrvate8qfya52tvgg5sc2w\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 11,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp1sfn6qfhpf9rw3ns8zrvate8qfya52tvgg5sc2w\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
         let marker_base_1: Marker = from_binary(&Binary::from(restricted_base_1)).unwrap();
         let marker_con_base_1: Marker = from_binary(&Binary::from(restricted_con_base_1)).unwrap();
+        let marker_quote_1: Marker =
+            from_binary(&Binary::from(restricted_quote_marker_json)).unwrap();
         deps.querier
-            .with_markers(vec![marker_base_1, marker_con_base_1]);
+            .with_markers(vec![marker_base_1, marker_con_base_1, marker_quote_1]);
 
         setup_test_base(
             &mut deps.storage,
