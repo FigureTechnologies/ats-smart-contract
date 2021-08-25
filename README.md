@@ -21,6 +21,7 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 
 | Contract Version | Code ID |
 | ---------------- | ------- |
+| 0.15.7           | 40      |
 | 0.15.6           | 38      |
 | 0.15.5           | 35      |
 | 0.15.4           | 34      |
