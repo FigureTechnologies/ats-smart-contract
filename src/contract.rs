@@ -1133,7 +1133,7 @@ fn execute_match(
                         execute_size.into(),
                         ask_order.base.to_owned(),
                         bid_order.owner.to_owned(),
-                        env.contract.address,
+                        env.contract.address.to_owned(),
                     )?,
                     false => BankMsg::Send {
                         to_address: bid_order.owner.to_string(),
@@ -1202,7 +1202,7 @@ fn execute_match(
                         execute_size.into(),
                         converted_base.to_owned().denom,
                         bid_order.owner.to_owned(),
-                        env.contract.address,
+                        env.contract.address.to_owned(),
                     )?,
                     false => BankMsg::Send {
                         to_address: bid_order.owner.to_owned().into(),
@@ -1233,20 +1233,22 @@ fn execute_match(
     };
 
     if !bidder_refund.is_zero() {
-        response.messages.push(
-            BankMsg::Send {
-                    to_address: bid_order.owner.to_owned().into(),
-                    amount:
-                    // bid order completed, refund any remaining quote funds to bidder
-                    vec![
-                        Coin {
-                            denom: bid_order.quote.clone(),
-                            amount: bidder_refund,
-                        },
-                    ]
-                }
+        response.messages.push(match is_quote_restricted_marker {
+            true => transfer_marker_coins(
+                bidder_refund.into(),
+                bid_order.quote.clone(),
+                bid_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+            )?,
+            false => BankMsg::Send {
+                to_address: bid_order.owner.to_string(),
+                amount: vec![Coin {
+                    denom: bid_order.quote.clone(),
+                    amount: bidder_refund,
+                }],
+            }
             .into(),
-        )
+        })
     }
 
     if let (Some(message), Some(fee_total)) = (fee_message, fee_total) {
