@@ -21,7 +21,7 @@ pub fn set_version_info(
     version_info: &VersionInfoV1,
 ) -> Result<(), ContractError> {
     VERSION_INFO
-        .save(store, &version_info)
+        .save(store, version_info)
         .map_err(ContractError::Std)
 }
 
@@ -109,8 +109,8 @@ mod tests {
                 issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 

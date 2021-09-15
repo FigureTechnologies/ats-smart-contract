@@ -143,8 +143,8 @@ mod tests {
                 issuers: vec![],
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 
@@ -160,7 +160,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "10".to_string(),
                 quote: "quote_1".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         )?;
 
@@ -186,7 +186,7 @@ mod tests {
                 base: "base_1".to_string(),
                 quote: "quote_1".to_string(),
                 price: "10".to_string(),
-                size: Uint128(100)
+                size: Uint128::new(100)
             }
         );
 

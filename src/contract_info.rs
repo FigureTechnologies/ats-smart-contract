@@ -114,7 +114,7 @@ pub fn set_contract_info(
     contract_info: &ContractInfoV2,
 ) -> Result<(), ContractError> {
     CONTRACT_INFO_V2
-        .save(store, &contract_info)
+        .save(store, contract_info)
         .map_err(ContractError::Std)
 }
 
@@ -134,7 +134,7 @@ pub fn set_legacy_contract_info(
     contract_info: &ContractInfo,
 ) -> Result<(), ContractError> {
     CONTRACT_INFO
-        .save(store, &contract_info)
+        .save(store, contract_info)
         .map_err(ContractError::Std)
 }
 
@@ -153,7 +153,7 @@ pub fn migrate_contract_info(
         for approver in &msg.approvers.clone().unwrap_or_default() {
             contract_info_v2
                 .approvers
-                .push(api.addr_validate(&approver)?)
+                .push(api.addr_validate(approver)?)
         }
 
         contract_info_v2.fee_rate = msg.fee_rate.clone();
@@ -214,8 +214,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                price_precision: Uint128(3),
-                size_increment: Uint128(1000),
+                price_precision: Uint128::new(3),
+                size_increment: Uint128::new(1000),
             },
         )?;
 
@@ -248,8 +248,8 @@ mod tests {
             contract_info.bid_required_attributes,
             vec!["ask_tag_1", "ask_tag_2"]
         );
-        assert_eq!(contract_info.price_precision, Uint128(3));
-        assert_eq!(contract_info.size_increment, Uint128(1000));
+        assert_eq!(contract_info.price_precision, Uint128::new(3));
+        assert_eq!(contract_info.size_increment, Uint128::new(1000));
 
         Ok(())
     }
@@ -274,8 +274,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 
@@ -305,8 +305,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         assert_eq!(contract_info, expected_contract_info);
@@ -334,8 +334,8 @@ mod tests {
                 issuers: vec![Addr::unchecked("issuer_1"), Addr::unchecked("issuer_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 
@@ -365,8 +365,8 @@ mod tests {
             fee_account: Some(Addr::unchecked("fee_account")),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         assert_eq!(contract_info, expected_contract_info);
@@ -400,8 +400,8 @@ mod tests {
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 
@@ -430,8 +430,8 @@ mod tests {
             fee_account: Some(Addr::unchecked("fee_account")),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         assert_eq!(contract_info, expected_contract_info);
@@ -465,8 +465,8 @@ mod tests {
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         )?;
 
@@ -495,8 +495,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         assert_eq!(contract_info, expected_contract_info);

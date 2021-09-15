@@ -96,18 +96,15 @@ pub fn instantiate(
     )?;
 
     // build response
-    Ok(Response {
-        submessages: vec![],
-        messages: vec![bind_name_msg],
-        attributes: vec![
+    Ok(Response::new()
+        .add_message(bind_name_msg)
+        .add_attributes(vec![
             attr(
                 "contract_info",
                 format!("{:?}", get_contract_info(deps.storage)?),
             ),
             attr("action", "init"),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 // smart contract execute entrypoint
@@ -255,31 +252,25 @@ fn approve_ask(
     )?;
 
     // build response
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_base_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    env.contract.address,
-                    info.sender,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "approve_ask"),
-            attr("id", &updated_ask_order.id),
-            attr("class", serde_json::to_string(&updated_ask_order.class)?),
-            attr("quote", &updated_ask_order.quote),
-            attr("price", &updated_ask_order.price),
-            attr("size", &updated_ask_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "approve_ask"),
+        attr("id", &updated_ask_order.id),
+        attr("class", serde_json::to_string(&updated_ask_order.class)?),
+        attr("quote", &updated_ask_order.quote),
+        attr("price", &updated_ask_order.price),
+        attr("size", &updated_ask_order.size.to_string()),
+    ]);
+
+    if is_base_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            size.into(),
+            base,
+            env.contract.address,
+            info.sender,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // create ask entrypoint
@@ -394,35 +385,29 @@ fn create_ask(
         });
     }
 
-    ask_storage.save(&ask_order.id.as_bytes(), &ask_order)?;
+    ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_base_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    ask_order.size.into(),
-                    ask_order.base.to_owned(),
-                    env.contract.address,
-                    ask_order.owner,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "create_ask"),
-            attr("id", &ask_order.id),
-            attr("class", serde_json::to_string(&ask_order.class)?),
-            attr("target_base", &contract_info.base_denom),
-            attr("base", &ask_order.base),
-            attr("quote", &ask_order.quote),
-            attr("price", &ask_order.price),
-            attr("size", &ask_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "create_ask"),
+        attr("id", &ask_order.id),
+        attr("class", serde_json::to_string(&ask_order.class)?),
+        attr("target_base", &contract_info.base_denom),
+        attr("base", &ask_order.base),
+        attr("quote", &ask_order.quote),
+        attr("price", &ask_order.price),
+        attr("size", &ask_order.size.to_string()),
+    ]);
+
+    if is_base_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            ask_order.size.into(),
+            ask_order.base.to_owned(),
+            env.contract.address,
+            ask_order.owner,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // create bid entrypoint
@@ -542,34 +527,28 @@ fn create_bid(
         });
     }
 
-    bid_storage.save(&bid_order.id.as_bytes(), &bid_order)?;
+    bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    bid_order.quote_size.into(),
-                    bid_order.quote.to_owned(),
-                    env.contract.address,
-                    bid_order.owner,
-                )?]
-            }
-            false => {
-                vec![]
-            }
-        },
-        attributes: vec![
-            attr("action", "create_bid"),
-            attr("id", &bid_order.id),
-            attr("base", &bid_order.base),
-            attr("quote", &bid_order.quote),
-            attr("quote_size", &bid_order.quote_size),
-            attr("price", &bid_order.price),
-            attr("size", &bid_order.size),
-        ],
-        data: None,
-    })
+    let mut response = Response::new().add_attributes(vec![
+        attr("action", "create_bid"),
+        attr("id", &bid_order.id),
+        attr("base", &bid_order.base),
+        attr("quote", &bid_order.quote),
+        attr("quote_size", &bid_order.quote_size.to_string()),
+        attr("price", &bid_order.price),
+        attr("size", &bid_order.size.to_string()),
+    ]);
+
+    if is_quote_restricted_marker {
+        response = response.add_message(transfer_marker_coins(
+            bid_order.quote_size.into(),
+            bid_order.quote.to_owned(),
+            env.contract.address,
+            bid_order.owner,
+        )?);
+    }
+
+    Ok(response)
 }
 
 // cancel ask entrypoint
@@ -618,28 +597,18 @@ fn cancel_ask(
     );
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
+    let mut response = Response::new()
+        .add_message(match is_quote_restricted_marker {
             true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    owner,
-                    env.contract.address.to_owned(),
-                )?]
+                transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: coins(u128::from(size), base),
-                }
-                .into()]
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: coins(u128::from(size), base),
             }
-        },
-        attributes: vec![attr("action", "cancel_ask"), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", "cancel_ask"), attr("id", id)]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -657,21 +626,19 @@ fn cancel_ask(
             })
         );
 
-        response
-            .messages
-            .push(match is_convertible_restricted_marker {
-                true => transfer_marker_coins(
-                    converted_base.amount.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address,
-                )?,
-                false => BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![converted_base],
-                }
-                .into(),
-            });
+        response = response.add_message(match is_convertible_restricted_marker {
+            true => transfer_marker_coins(
+                converted_base.amount.into(),
+                converted_base.denom,
+                approver,
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: approver.to_string(),
+                amount: vec![converted_base],
+            }
+            .into(),
+        });
     }
 
     Ok(response)
@@ -722,31 +689,16 @@ fn cancel_bid(
     );
 
     // 'send quote back to owner' message
-    let response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    quote_size.into(),
-                    quote.to_owned(),
-                    owner,
-                    env.contract.address,
-                )?]
+    Ok(Response::new()
+        .add_message(match is_quote_restricted_marker {
+            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: vec![coin(quote_size.u128(), quote)],
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: vec![coin(quote_size.u128(), quote)],
-                }
-                .into()]
-            }
-        },
-
-        attributes: vec![attr("action", "cancel_bid"), attr("id", id)],
-        data: None,
-    };
-
-    Ok(response)
+            .into(),
+        })
+        .add_attributes(vec![attr("action", "cancel_bid"), attr("id", id)]))
 }
 
 // reverse ask entrypoint
@@ -799,28 +751,18 @@ fn reverse_ask(
     );
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
+    let mut response = Response::new()
+        .add_message(match is_quote_restricted_marker {
             true => {
-                vec![transfer_marker_coins(
-                    size.into(),
-                    base,
-                    owner,
-                    env.contract.address.to_owned(),
-                )?]
+                transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: coins(u128::from(size), base),
-                }
-                .into()]
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: coins(u128::from(size), base),
             }
-        },
-        attributes: vec![attr("action", action), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", action), attr("id", id)]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -838,21 +780,19 @@ fn reverse_ask(
             })
         );
 
-        response
-            .messages
-            .push(match is_convertible_restricted_marker {
-                true => transfer_marker_coins(
-                    converted_base.amount.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address,
-                )?,
-                false => BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![converted_base],
-                }
-                .into(),
-            });
+        response = response.add_message(match is_convertible_restricted_marker {
+            true => transfer_marker_coins(
+                converted_base.amount.into(),
+                converted_base.denom,
+                approver,
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: approver.to_string(),
+                amount: vec![converted_base],
+            }
+            .into(),
+        });
     }
 
     Ok(response)
@@ -907,29 +847,16 @@ fn reverse_bid(
     );
 
     // 'send quote back to owner' message
-    let response = Response {
-        submessages: vec![],
-        messages: match is_quote_restricted_marker {
-            true => {
-                vec![transfer_marker_coins(
-                    quote_size.into(),
-                    quote,
-                    owner,
-                    env.contract.address,
-                )?]
+    let response = Response::new()
+        .add_message(match is_quote_restricted_marker {
+            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
+            false => BankMsg::Send {
+                to_address: owner.to_string(),
+                amount: vec![coin(quote_size.u128(), quote)],
             }
-            false => {
-                vec![BankMsg::Send {
-                    to_address: owner.to_string(),
-                    amount: vec![coin(quote_size.u128(), quote)],
-                }
-                .into()]
-            }
-        },
-
-        attributes: vec![attr("action", action), attr("id", id)],
-        data: None,
-    };
+            .into(),
+        })
+        .add_attributes(vec![attr("action", action), attr("id", id)]);
 
     Ok(response)
 }
@@ -1015,9 +942,9 @@ fn execute_match(
         return Err(ContractError::NonIntegerTotal);
     }
 
-    let mut quote_total = Uint128(total.to_u128().ok_or(ContractError::TotalOverflow)?);
+    let mut quote_total = Uint128::new(total.to_u128().ok_or(ContractError::TotalOverflow)?);
 
-    ask_order.size = Uint128(ask_order.size.u128() - execute_size.u128());
+    ask_order.size = Uint128::new(ask_order.size.u128() - execute_size.u128());
 
     let ask_order_class = &mut ask_order.class;
 
@@ -1028,14 +955,14 @@ fn execute_match(
         converted_base.amount = ask_order.size;
     }
 
-    bid_order.size = Uint128(bid_order.size.u128() - execute_size.u128());
-    bid_order.quote_size = Uint128(bid_order.quote_size.u128() - quote_total.u128());
+    bid_order.size = Uint128::new(bid_order.size.u128() - execute_size.u128());
+    bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - quote_total.u128());
 
     // calculate refund to bidder if bid order is completed but quote funds remain
-    let mut bidder_refund = Uint128(0);
+    let mut bidder_refund = Uint128::new(0);
     if bid_order.size.is_zero() && !bid_order.quote_size.is_zero() {
         bidder_refund = bid_order.quote_size;
-        bid_order.quote_size = Uint128(bid_order.quote_size.u128() - bidder_refund.u128());
+        bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
     }
 
     // is ask base a restricted marker
@@ -1071,11 +998,12 @@ fn execute_match(
             {
                 0u128 => (None, None),
                 fee_total => {
-                    quote_total = quote_total
-                        .checked_sub(Uint128(fee_total))
-                        .map_err(|error| {
-                            ContractError::Std(StdError::Overflow { source: error })
-                        })?;
+                    quote_total =
+                        quote_total
+                            .checked_sub(Uint128::new(fee_total))
+                            .map_err(|error| {
+                                ContractError::Std(StdError::Overflow { source: error })
+                            })?;
 
                     match is_quote_restricted_marker {
                         true => (
@@ -1093,7 +1021,7 @@ fn execute_match(
                                     to_address: fee_account.to_string(),
                                     amount: vec![Coin {
                                         denom: bid_order.quote.to_owned(),
-                                        amount: Uint128(fee_total),
+                                        amount: Uint128::new(fee_total),
                                     }],
                                 }
                                 .into(),
@@ -1109,9 +1037,8 @@ fn execute_match(
 
     // 'send quote to asker' and 'send base to bidder' messages
     let mut response = match &ask_order_class {
-        AskOrderClass::Basic => Response {
-            submessages: vec![],
-            messages: vec![
+        AskOrderClass::Basic => Response::new()
+            .add_messages(vec![
                 match is_quote_restricted_marker {
                     true => transfer_marker_coins(
                         quote_total.into(),
@@ -1144,27 +1071,24 @@ fn execute_match(
                     }
                     .into(),
                 },
-            ],
-            attributes: vec![
+            ])
+            .add_attributes(vec![
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
-                attr("price", &execute_price),
-                attr("size", &execute_size),
-            ],
-            data: None,
-        },
+                attr("price", &execute_price.to_string()),
+                attr("size", &execute_size.to_string()),
+            ]),
         AskOrderClass::Convertible {
             status:
                 AskOrderStatus::Ready {
                     approver,
                     converted_base,
                 },
-        } => Response {
-            submessages: vec![],
-            messages: vec![
+        } => Response::new()
+            .add_messages(vec![
                 match is_base_restricted_marker {
                     true => transfer_marker_coins(
                         execute_size.into(),
@@ -1213,18 +1137,16 @@ fn execute_match(
                     }
                     .into(),
                 },
-            ],
-            attributes: vec![
+            ])
+            .add_attributes(vec![
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
                 attr("base", &bid_order.base),
                 attr("quote", &ask_order.quote),
-                attr("price", &execute_price),
-                attr("size", &execute_size),
-            ],
-            data: None,
-        },
+                attr("price", &execute_price.to_string()),
+                attr("size", &execute_size.to_string()),
+            ]),
         AskOrderClass::Convertible { status } => {
             return Err(ContractError::AskOrderNotReady {
                 current_status: format!("{:?}", status),
@@ -1233,12 +1155,12 @@ fn execute_match(
     };
 
     if !bidder_refund.is_zero() {
-        response.messages.push(match is_quote_restricted_marker {
+        response = response.add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
                 bidder_refund.into(),
                 bid_order.quote.clone(),
                 bid_order.owner.to_owned(),
-                env.contract.address.to_owned(),
+                env.contract.address,
             )?,
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
@@ -1252,23 +1174,23 @@ fn execute_match(
     }
 
     if let (Some(message), Some(fee_total)) = (fee_message, fee_total) {
-        response.messages.push(message);
-        response.attributes.push(attr("fee", fee_total));
+        response = response.add_message(message);
+        response = response.add_attribute("fee", fee_total.to_string());
     }
 
     // finally update or remove the orders from storage
     if ask_order.size.is_zero() {
-        get_ask_storage(deps.storage).remove(&ask_id.as_bytes());
+        get_ask_storage(deps.storage).remove(ask_id.as_bytes());
     } else {
         get_ask_storage(deps.storage)
-            .update(&ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
+            .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
     }
 
     if bid_order.size.is_zero() && bid_order.quote_size.is_zero() {
-        get_bid_storage(deps.storage).remove(&bid_id.as_bytes());
+        get_bid_storage(deps.storage).remove(bid_id.as_bytes());
     } else {
         get_bid_storage(deps.storage)
-            .update(&bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
+            .update(bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
     }
 
     Ok(response)
@@ -1346,8 +1268,8 @@ mod tests {
             fee_account: Some("fee_account".into()),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         // initialize
@@ -1358,7 +1280,7 @@ mod tests {
             Ok(init_response) => {
                 assert_eq!(init_response.messages.len(), 1);
                 assert_eq!(
-                    init_response.messages[0],
+                    init_response.messages[0].msg,
                     CosmosMsg::Custom(ProvenanceMsg {
                         route: ProvenanceRoute::Name,
                         params: ProvenanceMsgParams::Name(NameMsgParams::BindName {
@@ -1381,8 +1303,8 @@ mod tests {
                     fee_account: Some(Addr::unchecked("fee_account")),
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                    price_precision: Uint128(2),
-                    size_increment: Uint128(100),
+                    price_precision: Uint128::new(2),
+                    size_increment: Uint128::new(100),
                 };
 
                 let expected_version_info = VersionInfoV1 {
@@ -1426,8 +1348,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec![],
             bid_required_attributes: vec![],
-            price_precision: Uint128(2),
-            size_increment: Uint128(100),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(100),
         };
 
         // initialize
@@ -1466,8 +1388,8 @@ mod tests {
             fee_account: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-            price_precision: Uint128(2),
-            size_increment: Uint128(10),
+            price_precision: Uint128::new(2),
+            size_increment: Uint128::new(10),
         };
 
         // initialize
@@ -1500,8 +1422,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1519,7 +1441,7 @@ mod tests {
             price: "2.5".into(),
             quote: "quote_1".into(),
             base: "base_1".to_string(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1610,8 +1532,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1629,7 +1551,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &coins(500, "base_1"));
@@ -1720,8 +1642,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1764,7 +1686,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &[]);
@@ -1801,7 +1723,7 @@ mod tests {
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
-                    response.messages[0],
+                    response.messages[0].msg,
                     transfer_marker_coins(
                         500,
                         "base_1",
@@ -1867,8 +1789,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1911,7 +1833,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let asker_info = mock_info("asker", &[coin(10, "base_1")]);
@@ -1946,8 +1868,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -1957,7 +1879,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_1".into(),
             price: "2.5".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_1"));
@@ -1979,7 +1901,7 @@ mod tests {
             base: "base_1".to_string(),
             quote: "quote_2".into(),
             price: "4.5".into(),
-            size: Uint128(400),
+            size: Uint128::new(400),
         };
 
         let asker_info = mock_info("asker", &coins(400, "base_1"));
@@ -2012,7 +1934,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2.5".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(200)
+                        size: Uint128::new(200)
                     }
                 )
             }
@@ -2039,8 +1961,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2050,7 +1972,7 @@ mod tests {
             base: "".to_string(),
             quote: "".into(),
             price: "".into(),
-            size: Uint128(0),
+            size: Uint128::new(0),
         };
 
         // execute create ask
@@ -2094,8 +2016,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2105,7 +2027,7 @@ mod tests {
             base: "inconvertible".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2143,8 +2065,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2154,7 +2076,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "unsupported".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2192,8 +2114,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2203,7 +2125,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "quote_1".into(),
             price: "2.123".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         // execute create ask
@@ -2243,8 +2165,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2254,7 +2176,7 @@ mod tests {
             base: "base_denom".to_string(),
             quote: "quote_1".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let asker_info = mock_info("asker", &coins(200, "base_denom"));
@@ -2289,8 +2211,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2307,9 +2229,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(250),
+            quote_size: Uint128::new(250),
             price: "2.5".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let bidder_info = mock_info("bidder", &coins(250, "quote_1"));
@@ -2394,8 +2316,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2437,9 +2359,9 @@ mod tests {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
             quote: "quote_1".into(),
-            quote_size: Uint128(1000),
+            quote_size: Uint128::new(1000),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let bidder_info = mock_info("bidder", &[]);
@@ -2469,7 +2391,7 @@ mod tests {
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
-                    response.messages[0],
+                    response.messages[0].msg,
                     transfer_marker_coins(
                         1000,
                         "quote_1",
@@ -2536,8 +2458,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2579,9 +2501,9 @@ mod tests {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
             quote: "quote_1".into(),
-            quote_size: Uint128(10),
+            quote_size: Uint128::new(10),
             price: "2".into(),
-            size: Uint128(500),
+            size: Uint128::new(500),
         };
 
         let bidder_info = mock_info("bidder", &[coin(10, "quote_2")]);
@@ -2616,8 +2538,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2634,9 +2556,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(250),
+            quote_size: Uint128::new(250),
             price: "2.5".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let bidder_info = mock_info("bidder", &coins(250, "quote_1"));
@@ -2657,9 +2579,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(900),
+            quote_size: Uint128::new(900),
             price: "4.5".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let bidder_info = mock_info("bidder", &coins(900, "quote_1"));
@@ -2691,8 +2613,8 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(250),
-                        size: Uint128(100),
+                        quote_size: Uint128::new(250),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -2719,8 +2641,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2729,9 +2651,9 @@ mod tests {
             id: "".into(),
             base: "".into(),
             quote: "".into(),
-            quote_size: Uint128(0),
+            quote_size: Uint128::new(0),
             price: "".into(),
-            size: Uint128(0),
+            size: Uint128::new(0),
         };
 
         // execute create bid
@@ -2774,8 +2696,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2784,9 +2706,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "notbasedenom".into(),
             quote: "quote_2".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create ask
@@ -2824,8 +2746,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2834,9 +2756,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "unsupported".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2874,8 +2796,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2884,9 +2806,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(100),
+            quote_size: Uint128::new(100),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2924,8 +2846,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2934,9 +2856,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -2974,8 +2896,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -2984,9 +2906,9 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(200),
+            quote_size: Uint128::new(200),
             price: "2.123".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         // execute create bid
@@ -3026,8 +2948,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3041,7 +2963,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3071,7 +2993,7 @@ mod tests {
                 );
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: asker_info.sender.to_string(),
                         amount: coins(100, "base_1"),
@@ -3083,7 +3005,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3103,8 +3025,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3151,7 +3073,7 @@ mod tests {
                 base: "base_1".into(),
                 quote: "quote_1".into(),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3162,12 +3084,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let cancel_ask_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            asker_info.clone(),
-            cancel_ask_msg,
-        );
+        let cancel_ask_response = execute(deps.as_mut(), mock_env(), asker_info, cancel_ask_msg);
 
         match cancel_ask_response {
             Ok(cancel_ask_response) => {
@@ -3183,7 +3100,7 @@ mod tests {
 
                 assert_eq!(cancel_ask_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -3198,7 +3115,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3218,8 +3135,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3238,7 +3155,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3268,14 +3185,14 @@ mod tests {
                 );
                 assert_eq!(cancel_ask_response.messages.len(), 2);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: asker_info.sender.to_string(),
                         amount: coins(100, "con_base_1"),
                     })
                 );
                 assert_eq!(
-                    cancel_ask_response.messages[1],
+                    cancel_ask_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".to_string(),
                         amount: coins(100, "base_denom"),
@@ -3287,7 +3204,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3307,8 +3224,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3393,7 +3310,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3424,7 +3341,7 @@ mod tests {
 
                 assert_eq!(cancel_ask_response.messages.len(), 2);
                 assert_eq!(
-                    cancel_ask_response.messages[0],
+                    cancel_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -3434,7 +3351,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    cancel_ask_response.messages[1],
+                    cancel_ask_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -3449,7 +3366,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3469,8 +3386,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3510,8 +3427,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3552,8 +3469,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3568,7 +3485,7 @@ mod tests {
                 owner: Addr::unchecked("not_asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -3607,8 +3524,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3648,8 +3565,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3661,9 +3578,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3694,7 +3611,7 @@ mod tests {
                 );
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_bid_response.messages[0],
+                    cancel_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: bidder_info.sender.to_string(),
                         amount: coins(200, "quote_1"),
@@ -3706,7 +3623,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3726,8 +3643,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3772,9 +3689,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -3785,12 +3702,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let cancel_bid_response = execute(
-            deps.as_mut(),
-            mock_env(),
-            bidder_info.clone(),
-            cancel_bid_msg,
-        );
+        let cancel_bid_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
 
         match cancel_bid_response {
             Ok(cancel_bid_response) => {
@@ -3806,7 +3718,7 @@ mod tests {
 
                 assert_eq!(cancel_bid_response.messages.len(), 1);
                 assert_eq!(
-                    cancel_bid_response.messages[0],
+                    cancel_bid_response.messages[0].msg,
                     transfer_marker_coins(
                         200,
                         "quote_1",
@@ -3821,7 +3733,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -3841,8 +3753,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3882,8 +3794,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3924,8 +3836,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -3938,9 +3850,9 @@ mod tests {
                 owner: Addr::unchecked("not_bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "2".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -3979,8 +3891,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4020,8 +3932,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4035,7 +3947,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4045,8 +3957,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4061,7 +3972,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "base_1"),
@@ -4073,7 +3984,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4093,8 +4004,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4108,7 +4019,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4118,8 +4029,7 @@ mod tests {
         let reject_ask_msg = ExecuteMsg::RejectAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let reject_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_ask_msg);
+        let reject_ask_response = execute(deps.as_mut(), mock_env(), exec_info, reject_ask_msg);
 
         match reject_ask_response {
             Ok(reject_ask_response) => {
@@ -4134,7 +4044,7 @@ mod tests {
                 );
                 assert_eq!(reject_ask_response.messages.len(), 1);
                 assert_eq!(
-                    reject_ask_response.messages[0],
+                    reject_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "base_1"),
@@ -4146,7 +4056,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4166,8 +4076,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4214,7 +4124,7 @@ mod tests {
                 base: "base_1".into(),
                 quote: "quote_1".into(),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4225,8 +4135,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4241,7 +4150,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -4256,7 +4165,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4276,8 +4185,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4296,7 +4205,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4306,8 +4215,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4322,14 +4230,14 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
                         amount: coins(100, "con_base_1"),
                     })
                 );
                 assert_eq!(
-                    expire_ask_response.messages[1],
+                    expire_ask_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".to_string(),
                         amount: coins(100, "base_denom"),
@@ -4341,7 +4249,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4361,8 +4269,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4447,7 +4355,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4457,8 +4365,7 @@ mod tests {
         let expire_ask_msg = ExecuteMsg::ExpireAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
         };
-        let expire_ask_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_ask_msg);
+        let expire_ask_response = execute(deps.as_mut(), mock_env(), exec_info, expire_ask_msg);
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
@@ -4473,7 +4380,7 @@ mod tests {
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
-                    expire_ask_response.messages[0],
+                    expire_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -4483,7 +4390,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    expire_ask_response.messages[1],
+                    expire_ask_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -4498,7 +4405,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4518,8 +4425,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4559,8 +4466,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4601,8 +4508,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4617,7 +4524,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -4656,8 +4563,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4697,8 +4604,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4710,9 +4617,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4723,8 +4630,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+        let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
@@ -4739,7 +4645,7 @@ mod tests {
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
-                    expire_bid_response.messages[0],
+                    expire_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
                         amount: coins(200, "quote_1"),
@@ -4751,7 +4657,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4771,8 +4677,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4784,9 +4690,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4797,8 +4703,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let reject_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), reject_bid_msg);
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
 
         match reject_bid_response {
             Ok(reject_bid_response) => {
@@ -4813,7 +4718,7 @@ mod tests {
                 );
                 assert_eq!(reject_bid_response.messages.len(), 1);
                 assert_eq!(
-                    reject_bid_response.messages[0],
+                    reject_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
                         amount: coins(200, "quote_1"),
@@ -4825,7 +4730,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4845,8 +4750,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4891,9 +4796,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -4904,8 +4809,7 @@ mod tests {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
-        let expire_bid_response =
-            execute(deps.as_mut(), mock_env(), exec_info.clone(), expire_bid_msg);
+        let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
@@ -4920,7 +4824,7 @@ mod tests {
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
-                    expire_bid_response.messages[0],
+                    expire_bid_response.messages[0].msg,
                     transfer_marker_coins(
                         200,
                         "quote_1",
@@ -4935,7 +4839,7 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(bid_storage.load("bid_id".as_bytes()).is_err(), true);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -4955,8 +4859,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -4996,8 +4900,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5038,8 +4942,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5052,9 +4956,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "2".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5093,8 +4997,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5136,8 +5040,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5151,7 +5055,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5163,9 +5067,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5174,7 +5078,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5204,14 +5108,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(200, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5222,21 +5126,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5258,8 +5156,8 @@ mod tests {
                 fee_account: Some(Addr::unchecked("fee_account")),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5273,7 +5171,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "1".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5285,9 +5183,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
+                quote_size: Uint128::new(100),
                 price: "1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5296,7 +5194,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "1".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5326,14 +5224,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(100, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5344,21 +5242,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5380,8 +5272,8 @@ mod tests {
                 fee_account: Some(Addr::unchecked("fee_account")),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(0),
-                size_increment: Uint128(1),
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
             },
         );
 
@@ -5395,7 +5287,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "1".into(),
                 quote: "quote_1".into(),
-                size: Uint128(149),
+                size: Uint128::new(149),
             },
         );
 
@@ -5407,9 +5299,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(149),
+                quote_size: Uint128::new(149),
                 price: "1".into(),
-                size: Uint128(149),
+                size: Uint128::new(149),
             },
         );
 
@@ -5418,7 +5310,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "1".into(),
-            size: Uint128(149),
+            size: Uint128::new(149),
         };
 
         let execute_response = execute(
@@ -5449,21 +5341,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[7], attr("fee", "1"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(148, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(149, "base_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "fee_account".into(),
                         amount: coins(1, "quote_1"),
@@ -5474,21 +5366,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5510,8 +5396,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5525,7 +5411,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(30),
+                size: Uint128::new(30),
             },
         );
 
@@ -5537,9 +5423,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(20),
+                quote_size: Uint128::new(20),
                 price: "2".into(),
-                size: Uint128(10),
+                size: Uint128::new(10),
             },
         );
 
@@ -5548,7 +5434,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(10),
+            size: Uint128::new(10),
         };
 
         let execute_response = execute(
@@ -5578,14 +5464,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "10"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(20, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(10, "base_1"),
@@ -5607,7 +5493,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(20)
+                        size: Uint128::new(20)
                     }
                 )
             }
@@ -5618,12 +5504,9 @@ mod tests {
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -5644,8 +5527,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5659,7 +5542,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(50),
+                size: Uint128::new(50),
             },
         );
 
@@ -5671,9 +5554,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(200),
+                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -5682,7 +5565,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(50),
+            size: Uint128::new(50),
         };
 
         let execute_response = execute(
@@ -5712,14 +5595,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "50"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(100, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(50, "base_1"),
@@ -5739,9 +5622,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(100),
+                        quote_size: Uint128::new(100),
                         price: "2".into(),
-                        size: Uint128(50),
+                        size: Uint128::new(50),
                     }
                 )
             }
@@ -5752,7 +5635,7 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(ask_storage.load("ask_id".as_bytes()).is_err(), true);
+        assert!(ask_storage.load("ask_id".as_bytes()).is_err());
     }
 
     #[test]
@@ -5773,8 +5656,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5788,7 +5671,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5800,9 +5683,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(600),
+                quote_size: Uint128::new(600),
                 price: "2".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -5811,7 +5694,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5841,14 +5724,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(200, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -5870,7 +5753,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100)
+                        size: Uint128::new(100)
                     }
                 )
             }
@@ -5890,9 +5773,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(400),
+                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128(200),
+                        size: Uint128::new(200),
                     }
                 )
             }
@@ -5920,8 +5803,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -5940,7 +5823,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -5952,9 +5835,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(600),
+                quote_size: Uint128::new(600),
                 price: "2".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -5963,7 +5846,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -5993,21 +5876,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
                         amount: vec![coin(100, "con_base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
                         amount: vec![coin(200, "quote_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -6035,7 +5918,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100)
+                        size: Uint128::new(100)
                     }
                 )
             }
@@ -6055,9 +5938,9 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128(400),
+                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128(200),
+                        size: Uint128::new(200),
                     }
                 )
             }
@@ -6088,8 +5971,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6103,7 +5986,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
-                size: Uint128(777),
+                size: Uint128::new(777),
             },
         );
 
@@ -6115,9 +5998,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(500),
+                quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
-                size: Uint128(5),
+                size: Uint128::new(5),
             },
         );
 
@@ -6126,7 +6009,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.000000000000000000".into(),
-            size: Uint128(5),
+            size: Uint128::new(5),
         };
 
         let execute_response = execute(
@@ -6159,21 +6042,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(10, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(5, "base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(490, "quote_1")],
@@ -6184,21 +6067,15 @@ mod tests {
 
         // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            false
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
@@ -6222,8 +6099,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6270,7 +6147,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2.000000000000000000".into(),
                 quote: "quote_1".into(),
-                size: Uint128(777),
+                size: Uint128::new(777),
             },
         );
 
@@ -6282,9 +6159,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(500),
+                quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
-                size: Uint128(5),
+                size: Uint128::new(5),
             },
         );
 
@@ -6293,7 +6170,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2.000000000000000000".into(),
-            size: Uint128(5),
+            size: Uint128::new(5),
         };
 
         let execute_response = execute(
@@ -6326,7 +6203,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         10,
                         "quote_1",
@@ -6336,14 +6213,14 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(5, "base_1")],
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         490,
                         "quote_1",
@@ -6357,21 +6234,15 @@ mod tests {
 
         // verify ask order IS NOT removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            false
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6393,8 +6264,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6408,7 +6279,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6420,9 +6291,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
+                quote_size: Uint128::new(400),
                 price: "4".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6431,7 +6302,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6461,14 +6332,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(400, "quote_1"),
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_1"),
@@ -6479,21 +6350,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6515,8 +6380,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6535,7 +6400,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6548,8 +6413,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6558,7 +6423,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6588,21 +6453,21 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: coins(100, "base_denom"),
@@ -6613,21 +6478,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6649,8 +6508,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6697,7 +6556,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6710,8 +6569,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6720,7 +6579,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6750,14 +6609,14 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -6771,21 +6630,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6807,8 +6660,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -6855,7 +6708,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -6868,8 +6721,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -6878,7 +6731,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -6908,7 +6761,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -6918,7 +6771,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(100, "base_1")]
@@ -6929,21 +6782,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -6965,8 +6812,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7044,7 +6891,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7057,8 +6904,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7067,7 +6914,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7097,7 +6944,7 @@ mod tests {
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7107,7 +6954,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -7121,21 +6968,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7223,8 +7064,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7243,7 +7084,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7256,8 +7097,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7266,7 +7107,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7297,7 +7138,7 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -7307,14 +7148,14 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -7328,21 +7169,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7398,8 +7233,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7418,7 +7253,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7431,8 +7266,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7441,7 +7276,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7472,14 +7307,14 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7489,7 +7324,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
                         amount: vec![coin(100, "base_1")]
@@ -7500,21 +7335,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7634,8 +7463,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7654,7 +7483,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -7667,8 +7496,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -7677,7 +7506,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -7708,7 +7537,7 @@ mod tests {
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
-                    execute_response.messages[0],
+                    execute_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -7718,7 +7547,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1],
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7728,7 +7557,7 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[2],
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -7742,21 +7571,15 @@ mod tests {
 
         // verify ask order removed from storage
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
 
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_err(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -7777,8 +7600,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7830,8 +7653,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7840,7 +7663,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(1),
+            size: Uint128::new(1),
         };
 
         let execute_response = execute(
@@ -7875,8 +7698,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
         // store valid ask order
@@ -7891,7 +7714,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -7904,8 +7727,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(200),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(200),
             },
         );
 
@@ -7914,7 +7737,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -7954,8 +7777,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -7968,8 +7791,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
-                size: Uint128(200),
+                quote_size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -7978,7 +7801,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8013,8 +7836,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
         // store valid ask order
@@ -8027,7 +7850,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(200),
+                size: Uint128::new(200),
             },
         );
 
@@ -8036,7 +7859,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8071,8 +7894,8 @@ mod tests {
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8081,7 +7904,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(1),
+            size: Uint128::new(1),
         };
 
         let execute_response = execute(
@@ -8116,8 +7939,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8131,7 +7954,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "3".into(),
                 quote: "quote_1".into(),
-                size: Uint128(300),
+                size: Uint128::new(300),
             },
         );
 
@@ -8144,8 +7967,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(100),
-                size: Uint128(200),
+                quote_size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -8154,7 +7977,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "2".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8191,8 +8014,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8206,7 +8029,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8219,8 +8042,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -8229,7 +8052,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "6".into(),
-            size: Uint128(100),
+            size: Uint128::new(100),
         };
 
         let execute_response = execute(
@@ -8248,21 +8071,15 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_ok());
     }
 
     #[test]
@@ -8284,8 +8101,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8299,7 +8116,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8312,8 +8129,8 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128(400),
-                size: Uint128(100),
+                quote_size: Uint128::new(400),
+                size: Uint128::new(100),
             },
         );
 
@@ -8322,7 +8139,7 @@ mod tests {
             ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             price: "4".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let execute_response = execute(
@@ -8341,21 +8158,15 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // verify bid order still exists
         let bid_storage = get_bid_storage_read(&deps.storage);
-        assert_eq!(
-            bid_storage
-                .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_ok());
     }
 
     #[test]
@@ -8377,8 +8188,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8394,7 +8205,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8405,7 +8216,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8460,7 +8271,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8489,8 +8300,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8539,7 +8350,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8550,7 +8361,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8586,7 +8397,7 @@ mod tests {
 
                 assert_eq!(approve_ask_response.messages.len(), 1);
                 assert_eq!(
-                    approve_ask_response.messages[0],
+                    approve_ask_response.messages[0].msg,
                     transfer_marker_coins(
                         100,
                         "base_1",
@@ -8616,7 +8427,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8645,8 +8456,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8662,7 +8473,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8673,7 +8484,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "59e82f8f-268e-433f-9711-e9f2d2cc19a5".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8703,7 +8514,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8732,8 +8543,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8749,7 +8560,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8760,7 +8571,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "wrong_base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8788,7 +8599,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8817,8 +8628,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8834,7 +8645,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8845,7 +8656,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8873,7 +8684,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8902,8 +8713,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -8919,7 +8730,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -8930,7 +8741,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(99),
+                size: Uint128::new(99),
             },
         );
 
@@ -8958,7 +8769,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -8987,8 +8798,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9037,7 +8848,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9048,7 +8859,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9081,8 +8892,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9131,7 +8942,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9142,7 +8953,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_1".into(),
-                size: Uint128(101),
+                size: Uint128::new(101),
             },
         );
 
@@ -9170,7 +8981,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -9199,8 +9010,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9216,7 +9027,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9227,7 +9038,7 @@ mod tests {
             ExecuteMsg::ApproveAsk {
                 id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
                 base: "base_denom".to_string(),
-                size: Uint128(100),
+                size: Uint128::new(100),
             },
         );
 
@@ -9255,7 +9066,7 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128(100),
+                        size: Uint128::new(100),
                     }
                 )
             }
@@ -9283,8 +9094,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9321,8 +9132,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9334,12 +9145,12 @@ mod tests {
             owner: Addr::unchecked("asker"),
             price: "2".into(),
             quote: "quote_1".into(),
-            size: Uint128(200),
+            size: Uint128::new(200),
         };
 
         let mut ask_storage = get_ask_storage(&mut deps.storage);
         if let Err(error) = ask_storage.save(
-            &"ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
             &ask_order,
         ) {
             panic!("unexpected error: {:?}", error)
@@ -9347,12 +9158,9 @@ mod tests {
 
         // verify ask order still exists
         let ask_storage = get_ask_storage_read(&deps.storage);
-        assert_eq!(
-            ask_storage
-                .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-                .is_ok(),
-            true
-        );
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
 
         // query for ask order
         let query_ask_response = query(
@@ -9384,8 +9192,8 @@ mod tests {
                 fee_account: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128(2),
-                size_increment: Uint128(100),
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
             },
         );
 
@@ -9396,12 +9204,12 @@ mod tests {
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128(100),
-            size: Uint128(100),
+            quote_size: Uint128::new(100),
+            size: Uint128::new(100),
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);
-        if let Err(error) = bid_storage.save(&bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), &bid_order) {
             panic!("unexpected error: {:?}", error);
         };
 
@@ -9425,14 +9233,14 @@ mod tests {
 
     fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrderV1) {
         let mut ask_storage = get_ask_storage(storage);
-        if let Err(error) = ask_storage.save(&ask_order.id.as_bytes(), &ask_order) {
+        if let Err(error) = ask_storage.save(ask_order.id.as_bytes(), ask_order) {
             panic!("unexpected error: {:?}", error)
         };
     }
 
     fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV1) {
         let mut bid_storage = get_bid_storage(storage);
-        if let Err(error) = bid_storage.save(&bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
             panic!("unexpected error: {:?}", error);
         };
     }

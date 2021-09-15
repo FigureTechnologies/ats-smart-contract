@@ -61,10 +61,10 @@ impl Validate for InstantiateMsg {
             (Some(_), Some(_)) => (),
             (None, None) => (),
         }
-        if self.price_precision.lt(&Uint128(0)) || self.price_precision.gt(&Uint128(18)) {
+        if self.price_precision.lt(&Uint128::new(0)) || self.price_precision.gt(&Uint128::new(18)) {
             invalid_fields.push("price_precision");
         }
-        if self.size_increment.lt(&Uint128(1)) {
+        if self.size_increment.lt(&Uint128::new(1)) {
             invalid_fields.push("size_increment");
         }
 
@@ -150,7 +150,7 @@ impl Validate for ExecuteMsg {
                 if base.is_empty() {
                     invalid_fields.push("base");
                 }
-                if size.lt(&Uint128(1)) {
+                if size.lt(&Uint128::new(1)) {
                     invalid_fields.push("size");
                 }
             }
@@ -173,7 +173,7 @@ impl Validate for ExecuteMsg {
                 if price.is_empty() {
                     invalid_fields.push("price");
                 }
-                if size.lt(&Uint128(1)) {
+                if size.lt(&Uint128::new(1)) {
                     invalid_fields.push("size");
                 }
             }
@@ -197,10 +197,10 @@ impl Validate for ExecuteMsg {
                 if quote.is_empty() {
                     invalid_fields.push("quote");
                 }
-                if quote_size.lt(&Uint128(1)) {
+                if quote_size.lt(&Uint128::new(1)) {
                     invalid_fields.push("quote_size");
                 }
-                if size.lt(&Uint128(1)) {
+                if size.lt(&Uint128::new(1)) {
                     invalid_fields.push("size");
                 }
             }
@@ -229,7 +229,7 @@ impl Validate for ExecuteMsg {
                 if price.is_empty() {
                     invalid_fields.push("price");
                 }
-                if size.lt(&Uint128(1)) {
+                if size.lt(&Uint128::new(1)) {
                     invalid_fields.push("price");
                 }
             }
