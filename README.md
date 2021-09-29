@@ -17,10 +17,11 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 [codecov-report]: https://codecov.io/gh/provenance-io/ats-smart-contract
 
 ### [Provenance Testnet](https://github.com/provenance-io/testnet) Deployments
-#### pio-testnet-1
+#### [pio-testnet-1](https://github.com/provenance-io/testnet/tree/main/pio-testnet-1)
 
 | Contract Version | Code ID |
 | ---------------- | ------- |
+| 0.16.0           | 45      |
 | 0.15.7           | 40      |
 | 0.15.6           | 38      |
 | 0.15.5           | 35      |
@@ -34,11 +35,9 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 
 ## Build
 
----
+___
 
-_Make sure $PIO_HOME is set_
-
-1. Compile and install
+1. Compile and package to wasm
 
     ```bash
     make
@@ -47,209 +46,349 @@ _Make sure $PIO_HOME is set_
 ## Example Usage
 
 ---
-_note: Address bech32 values and other params may vary._
+_note: Address bech32 values may vary._
 
-0. Pre-configure the following:
-    1. Accounts:
-        - asker
-        - buyer
-    1. Markers:
-        - hash
-        - gme (base)
-        - usd (quote)
+### 1. Blockchain setup
 
-
-1. Store the `ats-smart-contract` WASM:
-    ```shell
-    build/provenanced tx wasm store ats_smart_contract.wasm \
-        -t \
-        --source "https://github.com/provenance-io/ats-smart-contract" \
-        --builder "cosmwasm/rust-optimizer:0.11.3" \
-        --from validator \
-        --keyring-backend test \
-        --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --fees 500000nhash \
-        --broadcast-mode block \
-        --yes | jq;
+1. Checkout [provenance](https://github.com/provenance-io/provenance) v1.7.2, clear all existing state, install the `provenanced` command, and start.
+    
+    ```bash
+    git clone https://github.com/provenance-io/provenance.git
+    git checkout v1.7.2
+    make clean
+    make build
+    make install
+    make run
     ```
 
-1. Instantiate the contract, binding the name `atsgmeusd.sc` to the contract address:
+### 2. Create markers
+
+The example requires two markers: base (gme) and quote (usd)
+
+1. Base
+
     ```shell
-    build/provenanced tx wasm instantiate 1 '{"name":"ats-ex", "bind_name":"ats-ex.sc", "base_denom":"gme", "convertible_base_denoms":[], "supported_quote_denoms":["usd"], "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"], "issuers":[], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
-        -t \
+    provenanced tx marker new 1000gme.local \
+        --type COIN \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker grant (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) gme.local mint,burn,admin,withdraw,deposit \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker finalize gme.local \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker activate gme.local \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    ```
+
+2. Quote
+   
+    ```shell
+    provenanced tx marker new 1000usd.local \
+        --type COIN \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker grant (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) usd.local mint,burn,admin,withdraw,deposit \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker finalize usd.local \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    
+    provenanced tx marker activate usd.local \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    ```
+
+### 3. Create accounts
+
+The example requires two trading accounts: buyer and seller
+
+1. Buyer
+
+    ```shell
+    provenanced keys add buyer \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --testnet
+    ```
+
+2. Seller
+
+    ```shell
+    provenanced keys add seller \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --testnet
+    ```
+
+### 4. Fund the accounts
+
+1. Fund buyer's account with nhash for transaction fees and usd (quote)
+
+    ```shell
+    provenanced tx bank send \
+        (provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
+        (provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
+        100000000000nhash \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+        
+    provenanced tx marker withdraw usd.local 1000usd.local (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    ```
+
+2. Fund seller's account with nhash for transaction fees and gme (base) to sell
+
+    ```shell
+    provenanced tx bank send \
+        (provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
+        (provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
+        100000000000nhash \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+        
+    provenanced tx marker withdraw gme.local 500gme.local (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    ```
+
+### 5. Store and Instantiate the `ats-smart-contract`
+
+1. Deploy the `ats-smart-contract` to provenance. Copy the previously built `artifacts/ats-smart-contract.wasm` to the root directory of the Provenance git project
+    ```shell
+    provenanced tx wasm store ats_smart_contract.wasm \
+        --from validator \
+        --home build/run/provenanced \
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
+    ```
+
+2. Instantiate the contract, binding the name `ats-ex.pb` to the contract address:
+    ```shell
+    provenanced tx wasm instantiate 1 \
+   '{"name":"ats-ex", "bind_name":"ats-ex.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
         --admin (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
+        --label ats-ex \
         --from validator \
-        --keyring-backend test \
         --home build/run/provenanced \
-        --chain-id testing \
-        --label ats-gme-usd \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --fees 7000nhash \
-        --broadcast-mode block \
-        --yes | jq
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
     ```
 
-1. Create an `ask` order:
-
-    _note: The json data '{"create_ask":{}}' is the action and order data to pass into the smart contract. The actual
-   marker token sent is the order base, identified by `--amount` below._
-
-    ```shell
-    build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "quote":"usd", "price": "1"}}' \
-        -t \
-        --amount 700gme \
-        --from (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
-        --keyring-backend test \
-        --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --fees 5000nhash \
-        --broadcast-mode block \
-        --yes | jq
-    ```
-
-1. Create a `bid` order:
-
-    _note: The json data '{"create_bid":{}}' is the action and order data to pass into the smart contract, he actual
-   marker token sent is the order quote, identified by `--amount` below._
-
-    ```shell
-    build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"create_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277", "base":"gme", "size":"500", "price": "2"}}' \
-        --amount 1000usd \
-        --from (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
-        --keyring-backend test \
-        --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --fees 5000nhash \
-        --broadcast-mode block \
-        --yes \
-        --testnet | jq
-    ```
-
-1. Match and execute the ask and bid orders.
-
-    ```shell
-    build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-        '{"execute_match":{"ask_id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "bid_id":"6a25ffc2-181e-4187-9ac6-572c17038277", "price":"2", "size": "100"}}' \
-        --from validator \
-        --keyring-backend test \
-        --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --fees 6000nhash \
-        --broadcast-mode block \
-        --yes \
-        --testnet | jq
-    ```
-
-## Other actions
-
----
-Cancel an ask order:
+### 6. Create an `ask` order
 
 ```shell
-build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-    '{"cancel_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
-    -t \
-    --from (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
-    --keyring-backend test \
+provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"create_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "base":"gme.local", "quote":"usd.local", "price": "2", "size":"500"}}' \
+    --from seller \
+    --amount 500gme.local \
     --home build/run/provenanced \
-    --chain-id testing \
-    --gas auto \
-    --gas-adjustment 1.4 \
-    --fees 5000nhash \
-    --broadcast-mode block \
-    --yes | jq
-```
-
-Cancel a bid order:
-
-```shell
-build/provenanced tx wasm execute tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-    '{"cancel_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
-    -t \
-    --from (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
     --keyring-backend test \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --testnet \
+    --yes
+```
+
+### 7. Create a `bid` order
+
+```shell
+provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"create_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277", "base":"gme.local", "price": "2", "quote":"usd.local", "quote_size":"1000", "size":"500"}}' \
+    --amount 1000usd.local \
+    --from buyer \
     --home build/run/provenanced \
-    --chain-id testing \
-    --gas auto \
-    --gas-adjustment 1.4 \
-    --fees 5000nhash \
-    --broadcast-mode block \
-    --yes | jq
+    --keyring-backend test \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --testnet \
+    --yes
 ```
 
-Query for ask order information:
+### 8. Match and execute the `ask` and `bid` orders
 
 ```shell
-build/provenanced query wasm contract-state smart tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-  '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
-  --ascii \
-  --testnet
+provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"execute_match":{"ask_id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "bid_id":"6a25ffc2-181e-4187-9ac6-572c17038277", "price":"2", "size": "500"}}' \
+    --from validator \
+    --home build/run/provenanced \
+    --keyring-backend test \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --testnet \
+    --yes
 ```
 
-Query for bid order information:
+### 9. Query account balances to verify trade has executed
+
+1. Buyer account balance
+    ```shell
+    provenanced q bank balances \
+      (provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
+      --testnet
+    ```
+   
+1. Seller account balance
+    ```shell
+    provenanced q bank balances \
+      (provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
+      --testnet
+    ```
+
+
+
+## Contract Queries
+
+___
+
+### contract general information
 
 ```shell
-build/provenanced query wasm contract-state smart tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
-  '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
-  --ascii \
-  --testnet
-```
-
-Query for general contract information
-
-```shell
-build/provenanced query wasm contract-state smart \
-    tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz \
+provenanced query wasm contract-state smart \
+    (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
     '{"get_contract_info":{}}' --testnet
 ```
+
+### contract version
+
+```shell
+provenanced query wasm contract-state smart \
+    (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"get_version_info":{}}' --testnet
+```
+
+### ask order information
+
+```shell
+provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+  '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
+  --testnet
+```
+
+### bid order information
+
+```shell
+provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+  '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+  --testnet
+```
+
+## Other actions
+___
+
+### Cancel an ask order
+
+```shell
+provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"cancel_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
+    --from seller \
+    --home build/run/provenanced \
+    --keyring-backend test \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --testnet \
+    --yes
+```
+
+### Cancel a bid order
+
+```shell
+provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+    '{"cancel_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+    -t \
+    --from buyer \
+    --home build/run/provenanced \
+    --keyring-backend test \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --testnet \
+    --yes
+```
+
 
 ## Migrate/Upgrade contract
 
 ---
-1. Store the new `ats-smart-contract` WASM:
+1. Store the new `ats-smart-contract` wasm
     ```shell
-    build/provenanced tx wasm store ats_smart_contract.wasm \
-        -t \
-        --source "https://github.com/provenance-io/ats-smart-contract" \
-        --builder "cosmwasm/rust-optimizer:0.11.3" \
+    provenanced tx wasm store ats_smart_contract.wasm \
         --from validator \
-        --keyring-backend test \
         --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --fees 500000nhash \
-        --broadcast-mode block \
-        --yes | jq;
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
     ```
 
-1. Migrate/Upgrade to the new code id:
+1. Migrate/Upgrade to the new code id
    
    _note: The `CODE_ID` is the `code_id` returned when storing the new wasm in the previous step._
 
     ```shell
-    build/provenanced tx wasm migrate tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz CODE_ID \
+    provenanced tx wasm migrate (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') CODE_ID \
     '{"migrate":{}}' \
         --from validator \
-        --keyring-backend test \
         --home build/run/provenanced \
-        --chain-id testing \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --fees 6000nhash \
-        --broadcast-mode block \
-        --yes \
-        --testnet | jq
+        --keyring-backend test \
+        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --testnet \
+        --yes
     ```
 
 ## Glossary
