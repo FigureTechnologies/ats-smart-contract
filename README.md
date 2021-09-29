@@ -3,8 +3,6 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 
 ## Status
 
----
-
 [![Latest Release][release-badge]][release-latest]
 [![Build Status][build-badge]][build-status]
 [![Code Coverage][codecov-badge]][codecov-report]
@@ -35,8 +33,6 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 
 ## Build
 
-___
-
 1. Compile and package to wasm
 
     ```bash
@@ -45,7 +41,6 @@ ___
 
 ## Example Usage
 
----
 _note: Address bech32 values may vary._
 
 ### 1. Blockchain setup
@@ -297,8 +292,6 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
 
 ## Contract Queries
 
-___
-
 ### contract general information
 
 ```shell
@@ -332,7 +325,6 @@ provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.p
 ```
 
 ## Other actions
-___
 
 ### Cancel an ask order
 
@@ -364,7 +356,6 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
 
 ## Migrate/Upgrade contract
 
----
 1. Store the new `ats-smart-contract` wasm
     ```shell
     provenanced tx wasm store ats_smart_contract.wasm \
@@ -393,7 +384,6 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
 
 ## Glossary
 
----
 The following terms are used to identify parts of a token swap. It is strongly influenced by Forex:
 - token pair - two different currencies that are traded for each other (ex: BTC/HASH)
 - base (token) - the token being sold, indicated by the first token in the pair representation BASE/QUOTE
