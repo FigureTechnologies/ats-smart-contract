@@ -766,7 +766,11 @@ fn reverse_ask(
             }
             .into(),
         })
-        .add_attributes(vec![attr("action", action), attr("id", id)]);
+        .add_attributes(vec![
+            attr("action", action),
+            attr("id", id),
+            attr("reverse_size", effective_cancel_size),
+        ]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -805,9 +809,11 @@ fn reverse_ask(
     match ask_order.size.is_zero() {
         true => {
             ask_storage.remove(ask_order.id.as_bytes());
+            response = response.add_attributes(vec![attr("order_open", "false")]);
         }
         false => {
             ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+            response = response.add_attributes(vec![attr("order_open", "true")]);
         }
     }
 
@@ -883,7 +889,7 @@ fn reverse_bid(
     );
 
     // 'send quote back to owner' message
-    let response = Response::new()
+    let mut response = Response::new()
         .add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
                 effective_cancel_quote_size.to_u128().unwrap(),
@@ -900,7 +906,11 @@ fn reverse_bid(
             }
             .into(),
         })
-        .add_attributes(vec![attr("action", action), attr("id", id)]);
+        .add_attributes(vec![
+            attr("action", action),
+            attr("id", id),
+            attr("reverse_size", effective_cancel_size),
+        ]);
 
     let mut bid_storage = get_bid_storage(deps.storage);
 
@@ -908,9 +918,11 @@ fn reverse_bid(
     match bid_order.size.is_zero() {
         true => {
             bid_storage.remove(bid_order.id.as_bytes());
+            response = response.add_attributes(vec![attr("order_open", "false")]);
         }
         false => {
             bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
+            response = response.add_attributes(vec![attr("order_open", "true")]);
         }
     }
 
@@ -4017,7 +4029,7 @@ mod tests {
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
-                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(expire_ask_response.attributes.len(), 4);
                 assert_eq!(
                     expire_ask_response.attributes[0],
                     attr("action", "expire_ask")
@@ -4025,6 +4037,14 @@ mod tests {
                 assert_eq!(
                     expire_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
@@ -4090,7 +4110,7 @@ mod tests {
 
         match reject_ask_response {
             Ok(reject_ask_response) => {
-                assert_eq!(reject_ask_response.attributes.len(), 2);
+                assert_eq!(reject_ask_response.attributes.len(), 4);
                 assert_eq!(
                     reject_ask_response.attributes[0],
                     attr("action", "reject_ask")
@@ -4098,6 +4118,14 @@ mod tests {
                 assert_eq!(
                     reject_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    reject_ask_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    reject_ask_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(reject_ask_response.messages.len(), 1);
                 assert_eq!(
@@ -4163,7 +4191,7 @@ mod tests {
 
         match reject_ask_response {
             Ok(reject_ask_response) => {
-                assert_eq!(reject_ask_response.attributes.len(), 2);
+                assert_eq!(reject_ask_response.attributes.len(), 4);
                 assert_eq!(
                     reject_ask_response.attributes[0],
                     attr("action", "reject_ask")
@@ -4171,6 +4199,14 @@ mod tests {
                 assert_eq!(
                     reject_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    reject_ask_response.attributes[2],
+                    attr("reverse_size", "50")
+                );
+                assert_eq!(
+                    reject_ask_response.attributes[3],
+                    attr("order_open", "true")
                 );
                 assert_eq!(reject_ask_response.messages.len(), 1);
                 assert_eq!(
@@ -4287,7 +4323,7 @@ mod tests {
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
-                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(expire_ask_response.attributes.len(), 4);
                 assert_eq!(
                     expire_ask_response.attributes[0],
                     attr("action", "expire_ask")
@@ -4295,6 +4331,14 @@ mod tests {
                 assert_eq!(
                     expire_ask_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_ask_response.messages.len(), 1);
                 assert_eq!(
@@ -4367,7 +4411,7 @@ mod tests {
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
-                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(expire_ask_response.attributes.len(), 4);
                 assert_eq!(
                     expire_ask_response.attributes[0],
                     attr("action", "expire_ask")
@@ -4375,6 +4419,14 @@ mod tests {
                 assert_eq!(
                     expire_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
@@ -4517,7 +4569,7 @@ mod tests {
 
         match expire_ask_response {
             Ok(expire_ask_response) => {
-                assert_eq!(expire_ask_response.attributes.len(), 2);
+                assert_eq!(expire_ask_response.attributes.len(), 4);
                 assert_eq!(
                     expire_ask_response.attributes[0],
                     attr("action", "expire_ask")
@@ -4525,6 +4577,14 @@ mod tests {
                 assert_eq!(
                     expire_ask_response.attributes[1],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_ask_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_ask_response.messages.len(), 2);
                 assert_eq!(
@@ -4782,7 +4842,7 @@ mod tests {
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
-                assert_eq!(expire_bid_response.attributes.len(), 2);
+                assert_eq!(expire_bid_response.attributes.len(), 4);
                 assert_eq!(
                     expire_bid_response.attributes[0],
                     attr("action", "expire_bid")
@@ -4790,6 +4850,14 @@ mod tests {
                 assert_eq!(
                     expire_bid_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(
@@ -4856,7 +4924,7 @@ mod tests {
 
         match reject_bid_response {
             Ok(reject_bid_response) => {
-                assert_eq!(reject_bid_response.attributes.len(), 2);
+                assert_eq!(reject_bid_response.attributes.len(), 4);
                 assert_eq!(
                     reject_bid_response.attributes[0],
                     attr("action", "reject_bid")
@@ -4864,6 +4932,14 @@ mod tests {
                 assert_eq!(
                     reject_bid_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(reject_bid_response.messages.len(), 1);
                 assert_eq!(
@@ -4930,7 +5006,7 @@ mod tests {
 
         match reject_bid_response {
             Ok(reject_bid_response) => {
-                assert_eq!(reject_bid_response.attributes.len(), 2);
+                assert_eq!(reject_bid_response.attributes.len(), 4);
                 assert_eq!(
                     reject_bid_response.attributes[0],
                     attr("action", "reject_bid")
@@ -4938,6 +5014,14 @@ mod tests {
                 assert_eq!(
                     reject_bid_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "50")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "true")
                 );
                 assert_eq!(reject_bid_response.messages.len(), 1);
                 assert_eq!(
@@ -5054,7 +5138,7 @@ mod tests {
 
         match expire_bid_response {
             Ok(expire_bid_response) => {
-                assert_eq!(expire_bid_response.attributes.len(), 2);
+                assert_eq!(expire_bid_response.attributes.len(), 4);
                 assert_eq!(
                     expire_bid_response.attributes[0],
                     attr("action", "expire_bid")
@@ -5062,6 +5146,14 @@ mod tests {
                 assert_eq!(
                     expire_bid_response.attributes[1],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    expire_bid_response.attributes[3],
+                    attr("order_open", "false")
                 );
                 assert_eq!(expire_bid_response.messages.len(), 1);
                 assert_eq!(

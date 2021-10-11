@@ -232,6 +232,16 @@
           "properties": {
             "id": {
               "type": "string"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }
@@ -252,6 +262,16 @@
           "properties": {
             "id": {
               "type": "string"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }
