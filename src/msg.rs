@@ -120,9 +120,11 @@ pub enum ExecuteMsg {
     },
     RejectAsk {
         id: String,
+        size: Option<Uint128>,
     },
     RejectBid {
         id: String,
+        size: Option<Uint128>,
     },
 }
 
@@ -243,14 +245,24 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("id");
                 }
             }
-            ExecuteMsg::RejectAsk { id } => {
+            ExecuteMsg::RejectAsk { id, size } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
+                if let Some(size) = size {
+                    if size.lt(&Uint128::new(1)) {
+                        invalid_fields.push("size");
+                    }
+                }
             }
-            ExecuteMsg::RejectBid { id } => {
+            ExecuteMsg::RejectBid { id, size } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
+                }
+                if let Some(size) = size {
+                    if size.lt(&Uint128::new(1)) {
+                        invalid_fields.push("size");
+                    }
                 }
             }
         }
