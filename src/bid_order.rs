@@ -151,6 +151,8 @@ mod tests {
                 approvers: None,
                 fee_rate: None,
                 fee_account: None,
+                ask_required_attributes: None,
+                bid_required_attributes: None,
             },
         )?;
 

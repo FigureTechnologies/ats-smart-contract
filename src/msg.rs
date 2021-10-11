@@ -330,6 +330,8 @@ pub struct MigrateMsg {
     pub approvers: Option<Vec<String>>,
     pub fee_rate: Option<String>,
     pub fee_account: Option<String>,
+    pub ask_required_attributes: Option<Vec<String>>,
+    pub bid_required_attributes: Option<Vec<String>>,
 }
 
 impl Validate for MigrateMsg {
