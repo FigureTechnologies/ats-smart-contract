@@ -739,6 +739,13 @@ fn reverse_ask(
         Some(cancel_size) => cancel_size,
     };
 
+    // error if cancel size is not multiple of size_increment
+    if (effective_cancel_size.u128() % contract_info.size_increment.u128()).ne(&0) {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        });
+    }
+
     // subtract the cancel size from the order size
     ask_order.size.sub_assign(effective_cancel_size);
 
@@ -869,6 +876,13 @@ fn reverse_bid(
     // error if cancelled quote total is not an integer
     if effective_cancel_quote_size.fract().ne(&Decimal::zero()) {
         return Err(ContractError::NonIntegerTotal);
+    }
+
+    // error if cancel size is not multiple of size_increment
+    if (effective_cancel_size.u128() % contract_info.size_increment.u128()).ne(&0) {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        });
     }
 
     // subtract the cancel size from the order size
@@ -4176,7 +4190,7 @@ mod tests {
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
                 quote: "quote_1".into(),
-                size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -4185,7 +4199,7 @@ mod tests {
 
         let reject_ask_msg = ExecuteMsg::RejectAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
-            size: Some(Uint128::new(50)),
+            size: Some(Uint128::new(100)),
         };
         let reject_ask_response = execute(deps.as_mut(), mock_env(), exec_info, reject_ask_msg);
 
@@ -4202,7 +4216,7 @@ mod tests {
                 );
                 assert_eq!(
                     reject_ask_response.attributes[2],
-                    attr("reverse_size", "50")
+                    attr("reverse_size", "100")
                 );
                 assert_eq!(
                     reject_ask_response.attributes[3],
@@ -4213,7 +4227,7 @@ mod tests {
                     reject_ask_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".to_string(),
-                        amount: coins(50, "base_1"),
+                        amount: coins(100, "base_1"),
                     })
                 );
             }
@@ -4233,7 +4247,85 @@ mod tests {
                         owner: Addr::unchecked("asker"),
                         price: "2".into(),
                         quote: "quote_1".into(),
-                        size: Uint128::new(50)
+                        size: Uint128::new(100)
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_partial_ask_cancel_size_not_increment() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV2 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                fee_rate: None,
+                fee_account: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_ask_msg = ExecuteMsg::RejectAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+            size: Some(Uint128::new(50)),
+        };
+        let reject_ask_response = execute(deps.as_mut(), mock_env(), exec_info, reject_ask_msg);
+
+        match reject_ask_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"size".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        // verify ask order unchanged
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrderV1 {
+                        base: "base_1".into(),
+                        class: AskOrderClass::Basic,
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128::new(100)
                     }
                 )
             }
@@ -4988,9 +5080,9 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
                 quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                quote_size: Uint128::new(400),
                 price: "2".into(),
-                size: Uint128::new(100),
+                size: Uint128::new(200),
             },
         );
 
@@ -4999,7 +5091,7 @@ mod tests {
 
         let reject_bid_msg = ExecuteMsg::RejectBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
-            size: Some(Uint128::new(50)),
+            size: Some(Uint128::new(100)),
         };
 
         let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
@@ -5017,7 +5109,7 @@ mod tests {
                 );
                 assert_eq!(
                     reject_bid_response.attributes[2],
-                    attr("reverse_size", "50")
+                    attr("reverse_size", "100")
                 );
                 assert_eq!(
                     reject_bid_response.attributes[3],
@@ -5028,7 +5120,7 @@ mod tests {
                     reject_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
-                        amount: coins(100, "quote_1"),
+                        amount: coins(200, "quote_1"),
                     })
                 );
             }
@@ -5046,9 +5138,88 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
                         quote: "quote_1".into(),
-                        quote_size: Uint128::new(100),
+                        quote_size: Uint128::new(200),
                         price: "2".into(),
-                        size: Uint128::new(50),
+                        size: Uint128::new(100),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_partial_bid_cancel_size_not_increment() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV2 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                fee_rate: None,
+                fee_account: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV1 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: "base_1".into(),
+                quote: "quote_1".into(),
+                quote_size: Uint128::new(200),
+                price: "2".into(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+            size: Some(Uint128::new(50)),
+        };
+
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"size".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV1 {
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        base: "base_1".into(),
+                        quote: "quote_1".into(),
+                        quote_size: Uint128::new(200),
+                        price: "2".into(),
+                        size: Uint128::new(100),
                     }
                 )
             }
