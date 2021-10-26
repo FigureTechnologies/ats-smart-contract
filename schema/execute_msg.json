@@ -126,6 +126,16 @@
             "base": {
               "type": "string"
             },
+            "fee_size": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },

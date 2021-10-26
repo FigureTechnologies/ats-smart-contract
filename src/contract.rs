@@ -55,13 +55,23 @@ pub fn instantiate(
 
     // Validate and set ask fee data
     let (ask_fee_rate, ask_fee_account) = match (msg.ask_fee_rate, msg.ask_fee_account) {
-        (Some(rate), Some(account)) => (Some(rate), Some(deps.api.addr_validate(&account)?)),
+        (Some(rate), Some(account)) => {
+            Decimal::from_str(&rate).map_err(|_| ContractError::InvalidFields {
+                fields: vec![String::from("ask_fee_rate")],
+            })?;
+            (Some(rate), Some(deps.api.addr_validate(&account)?))
+        }
         (_, _) => (None, None),
     };
 
     // Validate and set bid fee data
     let (bid_fee_rate, bid_fee_account) = match (msg.bid_fee_rate, msg.bid_fee_account) {
-        (Some(rate), Some(account)) => (Some(rate), Some(deps.api.addr_validate(&account)?)),
+        (Some(rate), Some(account)) => {
+            Decimal::from_str(&rate).map_err(|_| ContractError::InvalidFields {
+                fields: vec![String::from("bid_fee_rate")],
+            })?;
+            (Some(rate), Some(deps.api.addr_validate(&account)?))
+        }
         (_, _) => (None, None),
     };
 
@@ -153,6 +163,7 @@ pub fn execute(
         ExecuteMsg::CreateBid {
             id,
             base,
+            fee_size,
             price,
             quote,
             quote_size,
@@ -167,8 +178,11 @@ pub fn execute(
                     filled: Uint128::zero(),
                     size,
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee_size,
+                fee_filled: match fee_size {
+                    Some(_) => Some(Uint128::zero()),
+                    _ => None,
+                },
                 id,
                 owner: info.sender.to_owned(),
                 price,
@@ -472,9 +486,34 @@ fn create_bid(
         return Err(ContractError::NonIntegerTotal);
     }
 
-    // error if total is not equal to sent funds
-    if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
-        return Err(ContractError::SentFundsOrderMismatch);
+    // if bid fee exists, calculate and compare to sent fee_size
+    match (contract_info.bid_fee_rate, contract_info.bid_fee_account) {
+        (Some(bid_fee_rate), Some(_)) => {
+            let fee_size = Decimal::from_str(&bid_fee_rate)
+                .map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("bid_fee_rate")],
+                })?
+                .checked_mul(total)
+                .ok_or(ContractError::TotalOverflow)?
+                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                .to_u128()
+                .ok_or(ContractError::TotalOverflow)?;
+
+            if bid_order.fee_size.ne(&Some(Uint128::new(fee_size))) {
+                return Err(ContractError::InvalidFeeSize {
+                    fee_rate: bid_fee_rate,
+                });
+            }
+
+            if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
+        (_, _) => {
+            if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
+                return Err(ContractError::SentFundsOrderMismatch);
+            }
+        }
     }
 
     // error if order quote is not supported quote denom
@@ -509,7 +548,7 @@ fn create_bid(
         }
     }
 
-    // is ask base a marker
+    // is bid quote a marker
     let is_quote_restricted_marker = matches!(
         ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
         Ok(Marker {
@@ -529,7 +568,10 @@ fn create_bid(
         // sent funds must match order if not a restricted marker
         false => {
             if info.funds.ne(&coins(
-                bid_order.quote.size.u128(),
+                match bid_order.fee_size {
+                    Some(fee_size) => bid_order.quote.size.u128() + fee_size.u128(),
+                    _ => bid_order.quote.size.u128(),
+                },
                 bid_order.quote.denom.to_owned(),
             )) {
                 return Err(ContractError::SentFundsOrderMismatch);
@@ -549,17 +591,27 @@ fn create_bid(
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", "create_bid"),
-        attr("id", &bid_order.id),
         attr("base", &bid_order.base.denom),
+        attr("id", &bid_order.id),
+        attr(
+            "fee_size",
+            match bid_order.fee_size {
+                Some(fee_size) => fee_size.to_string(),
+                _ => "None".into(),
+            },
+        ),
+        attr("price", &bid_order.price),
         attr("quote", &bid_order.quote.denom),
         attr("quote_size", &bid_order.quote.size.to_string()),
-        attr("price", &bid_order.price),
         attr("size", &bid_order.base.size.to_string()),
     ]);
 
     if is_quote_restricted_marker {
         response = response.add_message(transfer_marker_coins(
-            bid_order.quote.size.into(),
+            match bid_order.fee_size {
+                Some(fee_size) => (bid_order.quote.size + fee_size).into(),
+                _ => bid_order.quote.size.into(),
+            },
             bid_order.quote.denom.to_owned(),
             env.contract.address,
             bid_order.owner,
@@ -2367,9 +2419,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee_size: None,
+            price: "2.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(250),
-            price: "2.5".into(),
             size: Uint128::new(100),
         };
 
@@ -2386,17 +2439,18 @@ mod tests {
         // verify execute create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
                 assert_eq!(
-                    response.attributes[1],
+                    response.attributes[2],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("quote_size", "250"));
-                assert_eq!(response.attributes[5], attr("price", "2.5"));
-                assert_eq!(response.attributes[6], attr("size", "100"));
+                assert_eq!(response.attributes[3], attr("fee_size", "None"));
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "250"));
+                assert_eq!(response.attributes[7], attr("size", "100"));
             }
             Err(error) => {
                 panic!("failed to create bid: {:?}", error)
@@ -2408,6 +2462,7 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
+            fee_size,
             quote,
             quote_size,
             price,
@@ -2447,7 +2502,7 @@ mod tests {
     }
 
     #[test]
-    fn create_bid_with_restricted_marker() {
+    fn create_bid_with_restricted_marker_valid_data() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
@@ -2507,9 +2562,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
+            fee_size: None,
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(1000),
-            price: "2".into(),
             size: Uint128::new(500),
         };
 
@@ -2526,17 +2582,18 @@ mod tests {
         // verify create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
                 assert_eq!(
-                    response.attributes[1],
+                    response.attributes[2],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("quote_size", "1000"));
-                assert_eq!(response.attributes[5], attr("price", "2"));
-                assert_eq!(response.attributes[6], attr("size", "500"));
+                assert_eq!(response.attributes[3], attr("fee_size", "None"));
+                assert_eq!(response.attributes[4], attr("price", "2"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "1000"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
@@ -2560,9 +2617,283 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
+            fee_size,
+            price,
+            quote,
+            quote_size,
+            size,
+        } = create_bid_msg
+        {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            id,
+                            owner: bidder_info.sender,
+                            base: Base {
+                                denom: base,
+                                filled: Uint128::zero(),
+                                size
+                            },
+                            fee_size,
+                            fee_filled: None,
+                            price,
+                            quote: Quote {
+                                denom: quote,
+                                filled: Uint128::zero(),
+                                size: quote_size,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_fees_valid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_rate: None,
+                ask_fee_account: None,
+                bid_fee_rate: Some("0.1".into()),
+                bid_fee_account: Some(Addr::unchecked("bid_fee_acct")),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        deps.querier.with_attributes(
+            "bidder",
+            &[
+                ("bid_tag_1", "bid_tag_1_value", "String"),
+                ("bid_tag_2", "bid_tag_2_value", "String"),
+            ],
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            base: "base_1".into(),
+            fee_size: Some(Uint128::new(25)),
+            price: "2.5".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+
+        let bidder_info = mock_info("bidder", &coins(275, "quote_1"));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(response.attributes[3], attr("fee_size", "25"));
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "250"));
+                assert_eq!(response.attributes[7], attr("size", "100"));
+            }
+            Err(error) => {
+                panic!("failed to create bid: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            id,
+            base,
+            fee_size,
             quote,
             quote_size,
             price,
+            size,
+        } = create_bid_msg
+        {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            base: Base {
+                                denom: base,
+                                filled: Uint128::zero(),
+                                size
+                            },
+                            fee_size: Some(Uint128::new(25)),
+                            fee_filled: Some(Uint128::zero()),
+                            id,
+                            owner: bidder_info.sender,
+                            price,
+                            quote: Quote {
+                                denom: quote,
+                                filled: Uint128::zero(),
+                                size: quote_size,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_restricted_marker_with_fees_valid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_rate: None,
+                ask_fee_account: None,
+                bid_fee_rate: Some("0.1".into()),
+                bid_fee_account: Some(Addr::unchecked("bid_fee_acct")),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            base: "base_1".to_string(),
+            fee_size: Some(Uint128::new(100)),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(1000),
+            size: Uint128::new(500),
+        };
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(response.attributes[3], attr("fee_size", "100"));
+                assert_eq!(response.attributes[4], attr("price", "2"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "1000"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
+
+                assert_eq!(response.messages.len(), 1);
+                assert_eq!(
+                    response.messages[0].msg,
+                    transfer_marker_coins(
+                        1000,
+                        "quote_1",
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked("bidder")
+                    )
+                    .unwrap()
+                );
+            }
+            Err(error) => {
+                panic!("failed to create ask: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let ask_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            id,
+            base,
+            fee_size,
+            price,
+            quote,
+            quote_size,
             size,
         } = create_bid_msg
         {
@@ -2580,12 +2911,12 @@ mod tests {
                             },
                             fee_size: None,
                             fee_filled: None,
+                            price,
                             quote: Quote {
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
                             },
-                            price,
                         }
                     )
                 }
@@ -2659,9 +2990,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
+            fee_size: None,
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(10),
-            price: "2".into(),
             size: Uint128::new(500),
         };
 
@@ -2716,9 +3048,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee_size: None,
+            price: "2.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(250),
-            price: "2.5".into(),
             size: Uint128::new(100),
         };
 
@@ -2739,9 +3072,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee_size: None,
+            price: "4.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(900),
-            price: "4.5".into(),
             size: Uint128::new(200),
         };
 
@@ -2821,9 +3155,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "".into(),
             base: "".into(),
+            fee_size: None,
+            price: "".into(),
             quote: "".into(),
             quote_size: Uint128::new(0),
-            price: "".into(),
             size: Uint128::new(0),
         };
 
@@ -2878,9 +3213,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "notbasedenom".into(),
+            fee_size: None,
+            price: "2".into(),
             quote: "quote_2".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2930,9 +3266,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee_size: None,
+            price: "2".into(),
             quote: "unsupported".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2982,9 +3319,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee_size: None,
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(100),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -3034,9 +3372,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee_size: None,
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -3086,9 +3425,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee_size: None,
+            price: "2.123".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(200),
-            price: "2.123".into(),
             size: Uint128::new(100),
         };
 

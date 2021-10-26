@@ -113,6 +113,7 @@ pub enum ExecuteMsg {
     CreateBid {
         id: String,
         base: String,
+        fee_size: Option<Uint128>,
         price: String,
         quote: String,
         quote_size: Uint128,
@@ -194,6 +195,7 @@ impl Validate for ExecuteMsg {
             ExecuteMsg::CreateBid {
                 id,
                 base,
+                fee_size,
                 price,
                 quote,
                 quote_size,
@@ -204,6 +206,11 @@ impl Validate for ExecuteMsg {
                 }
                 if base.is_empty() {
                     invalid_fields.push("base");
+                }
+                if let Some(fee_size) = fee_size {
+                    if fee_size.lt(&Uint128::new(1)) {
+                        invalid_fields.push("fee_size");
+                    }
                 }
                 if price.is_empty() {
                     invalid_fields.push("price");

@@ -26,6 +26,9 @@ pub enum ContractError {
     #[error("Cannot send funds when expiring order")]
     ExpireWithFunds,
 
+    #[error("Fee size is not: {fee_rate:?}% of total")]
+    InvalidFeeSize { fee_rate: String },
+
     #[error("Inconvertible base denomination")]
     InconvertibleBaseDenom,
 
