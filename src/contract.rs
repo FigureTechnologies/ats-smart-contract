@@ -12,6 +12,7 @@ use crate::ask_order::{
     AskOrderV1,
 };
 use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV2};
+use crate::common::{Base, Quote};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
@@ -161,17 +162,21 @@ pub fn execute(
             env,
             &info,
             BidOrderV2 {
-                base,
+                base: Base {
+                    denom: base,
+                    filled: Uint128::zero(),
+                    size,
+                },
                 fee_size: None,
                 fee_filled: None,
                 id,
                 owner: info.sender.to_owned(),
                 price,
-                quote,
-                quote_filled: Uint128::zero(),
-                quote_size,
-                size,
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: quote,
+                    filled: Uint128::zero(),
+                    size: quote_size,
+                },
             },
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
@@ -451,7 +456,7 @@ fn create_bid(
     }
 
     // error if order size is not multiple of size_increment
-    if (bid_order.size.u128() % contract_info.size_increment.u128()).ne(&0) {
+    if (bid_order.base.size.u128() % contract_info.size_increment.u128()).ne(&0) {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("size")],
         });
@@ -459,7 +464,7 @@ fn create_bid(
 
     // calculate quote total (price * size), error if overflows
     let total = bid_price
-        .checked_mul(Decimal::from(bid_order.size.u128()))
+        .checked_mul(Decimal::from(bid_order.base.size.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
     // error if total is not an integer
@@ -468,20 +473,20 @@ fn create_bid(
     }
 
     // error if total is not equal to sent funds
-    if bid_order.quote_size.u128().ne(&total.to_u128().unwrap()) {
+    if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
     // error if order quote is not supported quote denom
     if !&contract_info
         .supported_quote_denoms
-        .contains(&bid_order.quote)
+        .contains(&bid_order.quote.denom)
     {
         return Err(ContractError::UnsupportedQuoteDenom);
     }
 
     // error if order base denom not equal to contract base denom
-    if bid_order.base.ne(&contract_info.base_denom) {
+    if bid_order.base.denom.ne(&contract_info.base_denom) {
         return Err(ContractError::InconvertibleBaseDenom);
     }
 
@@ -506,7 +511,7 @@ fn create_bid(
 
     // is ask base a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -524,8 +529,8 @@ fn create_bid(
         // sent funds must match order if not a restricted marker
         false => {
             if info.funds.ne(&coins(
-                bid_order.quote_size.u128(),
-                bid_order.quote.to_owned(),
+                bid_order.quote.size.u128(),
+                bid_order.quote.denom.to_owned(),
             )) {
                 return Err(ContractError::SentFundsOrderMismatch);
             }
@@ -545,17 +550,17 @@ fn create_bid(
     let mut response = Response::new().add_attributes(vec![
         attr("action", "create_bid"),
         attr("id", &bid_order.id),
-        attr("base", &bid_order.base),
-        attr("quote", &bid_order.quote),
-        attr("quote_size", &bid_order.quote_size.to_string()),
+        attr("base", &bid_order.base.denom),
+        attr("quote", &bid_order.quote.denom),
+        attr("quote_size", &bid_order.quote.size.to_string()),
         attr("price", &bid_order.price),
-        attr("size", &bid_order.size.to_string()),
+        attr("size", &bid_order.base.size.to_string()),
     ]);
 
     if is_quote_restricted_marker {
         response = response.add_message(transfer_marker_coins(
-            bid_order.quote_size.into(),
-            bid_order.quote.to_owned(),
+            bid_order.quote.size.into(),
+            bid_order.quote.denom.to_owned(),
             env.contract.address,
             bid_order.owner,
         )?);
@@ -676,11 +681,7 @@ fn cancel_bid(
 
     let bid_storage = get_bid_storage_read(deps.storage);
     let BidOrderV2 {
-        id,
-        owner,
-        quote,
-        quote_size,
-        ..
+        id, owner, quote, ..
     } = bid_storage
         .load(id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
@@ -694,7 +695,7 @@ fn cancel_bid(
 
     // is bid quote a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -704,10 +705,12 @@ fn cancel_bid(
     // 'send quote back to owner' message
     Ok(Response::new()
         .add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
+            true => {
+                transfer_marker_coins(quote.size.into(), quote.denom, owner, env.contract.address)?
+            }
             false => BankMsg::Send {
                 to_address: owner.to_string(),
-                amount: vec![coin(quote_size.u128(), quote)],
+                amount: vec![coin(quote.size.u128(), quote.denom)],
             }
             .into(),
         })
@@ -874,7 +877,7 @@ fn reverse_bid(
 
     // determine the effective cancel size
     let effective_cancel_size = match cancel_size {
-        None => bid_order.size,
+        None => bid_order.base.size,
         Some(cancel_size) => cancel_size,
     };
 
@@ -899,16 +902,17 @@ fn reverse_bid(
     }
 
     // subtract the cancel size from the order size
-    bid_order.size.sub_assign(effective_cancel_size);
+    bid_order.base.size.sub_assign(effective_cancel_size);
 
     // subtract the cancel quote size from the order quote size
     bid_order
-        .quote_size
+        .quote
+        .size
         .sub_assign(Uint128::new(effective_cancel_quote_size.to_u128().unwrap()));
 
     // is bid quote a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.to_owned()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.to_owned()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -920,7 +924,7 @@ fn reverse_bid(
         .add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
                 effective_cancel_quote_size.to_u128().unwrap(),
-                bid_order.quote.to_owned(),
+                bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
                 env.contract.address,
             )?,
@@ -928,7 +932,7 @@ fn reverse_bid(
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(
                     effective_cancel_quote_size.to_u128().unwrap(),
-                    bid_order.quote.to_owned(),
+                    bid_order.quote.denom.to_owned(),
                 )],
             }
             .into(),
@@ -942,7 +946,7 @@ fn reverse_bid(
     let mut bid_storage = get_bid_storage(deps.storage);
 
     // remove the bid order from storage if remaining size is 0, otherwise, store updated order
-    match bid_order.size.is_zero() {
+    match bid_order.base.size.is_zero() {
         true => {
             bid_storage.remove(bid_order.id.as_bytes());
             response = response.add_attributes(vec![attr("order_open", "false")]);
@@ -1024,7 +1028,7 @@ fn execute_match(
     // at least one side of the order will always execute fully, both sides if order sizes equal
     // so the provided execute match size must be either the ask or bid size (or both if equal)
     if execute_size.gt(&ask_order.size)
-        || execute_size.gt(&(bid_order.size - bid_order.size_filled))
+        || execute_size.gt(&(bid_order.base.size - bid_order.base.filled))
     {
         return Err(ContractError::InvalidExecuteSize);
     }
@@ -1052,15 +1056,15 @@ fn execute_match(
         converted_base.amount = ask_order.size;
     }
 
-    bid_order.size_filled += execute_size;
-    bid_order.quote_filled += quote_total;
+    bid_order.base.filled += execute_size;
+    bid_order.quote.filled += quote_total;
 
     // calculate refund to bidder if bid order is completed but quote funds remain
     let mut bidder_refund = Uint128::new(0);
-    if bid_order.size_filled.eq(&bid_order.size)
-        && !bid_order.quote_size.eq(&bid_order.quote_filled)
+    if bid_order.base.filled.eq(&bid_order.base.size)
+        && !bid_order.quote.size.eq(&bid_order.quote.filled)
     {
-        bidder_refund = bid_order.quote_size - bid_order.quote_filled;
+        bidder_refund = bid_order.quote.size - bid_order.quote.filled;
         // bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
     }
 
@@ -1075,7 +1079,7 @@ fn execute_match(
 
     // is bid quote a restricted marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -1109,7 +1113,7 @@ fn execute_match(
                         true => (
                             Some(transfer_marker_coins(
                                 fee_total,
-                                bid_order.quote.to_owned(),
+                                bid_order.quote.denom.to_owned(),
                                 ask_fee_account,
                                 env.contract.address.to_owned(),
                             )?),
@@ -1120,7 +1124,7 @@ fn execute_match(
                                 BankMsg::Send {
                                     to_address: ask_fee_account.to_string(),
                                     amount: vec![Coin {
-                                        denom: bid_order.quote.to_owned(),
+                                        denom: bid_order.quote.denom.to_owned(),
                                         amount: Uint128::new(fee_total),
                                     }],
                                 }
@@ -1142,14 +1146,14 @@ fn execute_match(
                 match is_quote_restricted_marker {
                     true => transfer_marker_coins(
                         quote_total.into(),
-                        bid_order.quote.to_owned(),
+                        bid_order.quote.denom.to_owned(),
                         ask_order.owner.to_owned(),
                         env.contract.address.to_owned(),
                     )?,
                     false => BankMsg::Send {
                         to_address: ask_order.owner.to_string(),
                         amount: vec![Coin {
-                            denom: bid_order.quote.to_owned(),
+                            denom: bid_order.quote.denom.to_owned(),
                             amount: quote_total,
                         }],
                     }
@@ -1176,7 +1180,7 @@ fn execute_match(
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
-                attr("base", &bid_order.base),
+                attr("base", &bid_order.base.denom),
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price.to_string()),
                 attr("size", &execute_size.to_string()),
@@ -1208,14 +1212,14 @@ fn execute_match(
                 match is_quote_restricted_marker {
                     true => transfer_marker_coins(
                         quote_total.into(),
-                        bid_order.quote.clone(),
+                        bid_order.quote.denom.clone(),
                         approver.to_owned(),
                         env.contract.address.to_owned(),
                     )?,
                     false => BankMsg::Send {
                         to_address: approver.to_string(),
                         amount: vec![Coin {
-                            denom: bid_order.quote.clone(),
+                            denom: bid_order.quote.denom.clone(),
                             amount: quote_total,
                         }],
                     }
@@ -1242,7 +1246,7 @@ fn execute_match(
                 attr("action", "execute"),
                 attr("ask_id", &ask_id),
                 attr("bid_id", &bid_id),
-                attr("base", &bid_order.base),
+                attr("base", &bid_order.base.denom),
                 attr("quote", &ask_order.quote),
                 attr("price", &execute_price.to_string()),
                 attr("size", &execute_size.to_string()),
@@ -1258,14 +1262,14 @@ fn execute_match(
         response = response.add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
                 bidder_refund.into(),
-                bid_order.quote.clone(),
+                bid_order.quote.denom.clone(),
                 bid_order.owner.to_owned(),
                 env.contract.address,
             )?,
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
                 amount: vec![Coin {
-                    denom: bid_order.quote.clone(),
+                    denom: bid_order.quote.denom.clone(),
                     amount: bidder_refund,
                 }],
             }
@@ -1286,10 +1290,11 @@ fn execute_match(
             .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
     }
 
-    if bid_order.size.eq(&bid_order.size_filled)
+    if bid_order.base.size.eq(&bid_order.base.filled)
         && bid_order
-            .quote_size
-            .eq(&(bid_order.quote_filled + bidder_refund))
+            .quote
+            .size
+            .eq(&(bid_order.quote.filled + bidder_refund))
     {
         get_bid_storage(deps.storage).remove(bid_id.as_bytes());
     } else {
@@ -2414,17 +2419,21 @@ mod tests {
                     assert_eq!(
                         stored_order,
                         BidOrderV2 {
-                            base,
+                            base: Base {
+                                denom: base,
+                                filled: Uint128::zero(),
+                                size
+                            },
                             fee_size: None,
                             fee_filled: None,
                             id,
                             owner: bidder_info.sender,
                             price,
-                            quote,
-                            quote_filled: Uint128::zero(),
-                            quote_size,
-                            size,
-                            size_filled: Uint128::zero()
+                            quote: Quote {
+                                denom: quote,
+                                filled: Uint128::zero(),
+                                size: quote_size,
+                            },
                         }
                     )
                 }
@@ -2564,15 +2573,19 @@ mod tests {
                         BidOrderV2 {
                             id,
                             owner: bidder_info.sender,
-                            base,
+                            base: Base {
+                                denom: base,
+                                filled: Uint128::zero(),
+                                size
+                            },
                             fee_size: None,
-                            quote,
-                            quote_filled: Uint128::zero(),
-                            quote_size,
-                            price,
-                            size,
                             fee_filled: None,
-                            size_filled: Uint128::zero()
+                            quote: Quote {
+                                denom: quote,
+                                filled: Uint128::zero(),
+                                size: quote_size,
+                            },
+                            price,
                         }
                     )
                 }
@@ -2756,17 +2769,21 @@ mod tests {
                 assert_eq!(
                     stored_order,
                     BidOrderV2 {
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(100),
+                        },
                         fee_size: None,
                         fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::zero(),
-                        quote_size: Uint128::new(250),
-                        size: Uint128::new(100),
-                        size_filled: Uint128::zero()
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(250),
+                        },
                     }
                 )
             }
@@ -3758,15 +3775,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -3875,15 +3896,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -4046,15 +4071,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("not_bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(100),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 price: "2".into(),
-                size: Uint128::new(200),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5061,15 +5090,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5148,15 +5181,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5236,15 +5273,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
                 price: "2".into(),
-                size: Uint128::new(200),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5298,15 +5339,19 @@ mod tests {
                     BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(100),
+                        },
                         fee_size: None,
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::zero(),
-                        quote_size: Uint128::new(200),
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(200),
+                        },
                         price: "2".into(),
-                        size: Uint128::new(100),
                         fee_filled: None,
-                        size_filled: Uint128::zero()
                     }
                 )
             }
@@ -5346,15 +5391,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5387,15 +5436,19 @@ mod tests {
                     BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(100),
+                        },
                         fee_size: None,
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::zero(),
-                        quote_size: Uint128::new(200),
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::zero(),
+                            size: Uint128::new(200),
+                        },
                         price: "2".into(),
-                        size: Uint128::new(100),
                         fee_filled: None,
-                        size_filled: Uint128::zero()
                     }
                 )
             }
@@ -5468,15 +5521,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5646,15 +5703,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(100),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 price: "2".into(),
-                size: Uint128::new(200),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5765,15 +5826,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -5887,15 +5952,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(100),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 price: "1".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6009,15 +6078,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(149),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(149),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(149),
+                },
                 price: "1".into(),
-                size: Uint128::new(149),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6139,15 +6212,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(10),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(20),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(20),
+                },
                 price: "2".into(),
-                size: Uint128::new(10),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6276,15 +6353,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(200),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6348,15 +6429,19 @@ mod tests {
                     BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::new(50),
+                            size: Uint128::new(100),
+                        },
                         fee_size: None,
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::new(100),
-                        quote_size: Uint128::new(200),
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::new(100),
+                            size: Uint128::new(200),
+                        },
                         price: "2".into(),
-                        size: Uint128::new(100),
                         fee_filled: None,
-                        size_filled: Uint128::new(50)
                     }
                 )
             }
@@ -6415,15 +6500,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(300),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(600),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(600),
+                },
                 price: "2".into(),
-                size: Uint128::new(300),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6507,17 +6596,21 @@ mod tests {
                 assert_eq!(
                     stored_order,
                     BidOrderV2 {
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::new(100),
+                            size: Uint128::new(300),
+                        },
                         fee_size: None,
                         fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::new(200),
-                        quote_size: Uint128::new(600),
-                        size: Uint128::new(300),
-                        size_filled: Uint128::new(100)
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::new(200),
+                            size: Uint128::new(600),
+                        },
                     }
                 )
             }
@@ -6577,15 +6670,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(300),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(600),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(600),
+                },
                 price: "2".into(),
-                size: Uint128::new(300),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6682,17 +6779,21 @@ mod tests {
                 assert_eq!(
                     stored_order,
                     BidOrderV2 {
-                        base: "base_1".into(),
+                        base: Base {
+                            denom: "base_1".into(),
+                            filled: Uint128::new(100),
+                            size: Uint128::new(300),
+                        },
                         fee_size: None,
                         fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
-                        quote: "quote_1".into(),
-                        quote_filled: Uint128::new(200),
-                        quote_size: Uint128::new(600),
-                        size: Uint128::new(300),
-                        size_filled: Uint128::new(100)
+                        quote: Quote {
+                            denom: "quote_1".into(),
+                            filled: Uint128::new(200),
+                            size: Uint128::new(600),
+                        },
                     }
                 )
             }
@@ -6750,15 +6851,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(5),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(500),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(500),
+                },
                 price: "100.000000000000000000".into(),
-                size: Uint128::new(5),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -6917,15 +7022,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(5),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(500),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(500),
+                },
                 price: "100.000000000000000000".into(),
-                size: Uint128::new(5),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -7055,15 +7164,19 @@ mod tests {
             &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
                 price: "4".into(),
-                size: Uint128::new(100),
                 fee_filled: None,
-                size_filled: Uint128::zero(),
             },
         );
 
@@ -7180,17 +7293,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_denom".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -7223,7 +7340,7 @@ mod tests {
                     execute_response.attributes[2],
                     attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(execute_response.attributes[3], attr("base", "base_denom"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
@@ -7342,17 +7459,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -7500,17 +7621,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -7689,17 +7814,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -7888,17 +8017,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -8063,17 +8196,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -8299,17 +8436,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -8540,17 +8681,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(200),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -8610,17 +8755,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(100),
-                size: Uint128::new(200),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
             },
         );
 
@@ -8796,17 +8945,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(200),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(100),
-                size: Uint128::new(200),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
             },
         );
 
@@ -8877,17 +9030,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -8970,17 +9127,21 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                base: "base_1".into(),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_size: None,
                 fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_filled: Uint128::zero(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
-                size_filled: Uint128::zero(),
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(400),
+                },
             },
         );
 
@@ -10073,17 +10234,21 @@ mod tests {
 
         // store valid bid order
         let bid_order = BidOrderV2 {
-            base: "base_1".into(),
+            base: Base {
+                denom: "base_1".into(),
+                filled: Uint128::zero(),
+                size: Uint128::new(100),
+            },
             fee_size: None,
             fee_filled: None,
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
-            quote: "quote_1".into(),
-            quote_filled: Uint128::zero(),
-            quote_size: Uint128::new(100),
-            size: Uint128::new(100),
-            size_filled: Uint128::zero(),
+            quote: Quote {
+                denom: "quote_1".into(),
+                filled: Uint128::zero(),
+                size: Uint128::new(100),
+            },
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);

@@ -1,3 +1,4 @@
+use crate::common::{Base, Quote};
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
@@ -34,34 +35,34 @@ pub struct BidOrderV1 {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
-    pub base: String,
+    pub base: Base,
     pub fee_size: Option<Uint128>,
     pub fee_filled: Option<Uint128>,
     pub id: String,
     pub owner: Addr,
     pub price: String,
-    pub quote: String,
-    pub quote_filled: Uint128,
-    pub quote_size: Uint128,
-    pub size: Uint128,
-    pub size_filled: Uint128,
+    pub quote: Quote,
 }
 
 #[allow(deprecated)]
 impl From<BidOrder> for BidOrderV2 {
     fn from(bid_order: BidOrder) -> Self {
         BidOrderV2 {
-            base: bid_order.base,
+            base: Base {
+                denom: bid_order.base,
+                filled: Uint128::zero(),
+                size: bid_order.size,
+            },
             fee_filled: None,
             fee_size: None,
             id: bid_order.id,
             owner: bid_order.owner,
             price: bid_order.price,
-            quote: bid_order.quote.denom,
-            quote_filled: Default::default(),
-            quote_size: bid_order.quote.amount,
-            size: bid_order.size,
-            size_filled: Default::default(),
+            quote: Quote {
+                denom: bid_order.quote.denom,
+                filled: Uint128::zero(),
+                size: bid_order.quote.amount,
+            },
         }
     }
 }
@@ -70,17 +71,21 @@ impl From<BidOrder> for BidOrderV2 {
 impl From<BidOrderV1> for BidOrderV2 {
     fn from(bid_order: BidOrderV1) -> Self {
         BidOrderV2 {
-            base: bid_order.base,
+            base: Base {
+                denom: bid_order.base,
+                filled: Uint128::zero(),
+                size: bid_order.size,
+            },
             id: bid_order.id,
             fee_size: None,
             fee_filled: None,
             owner: bid_order.owner,
             price: bid_order.price,
-            quote: bid_order.quote,
-            quote_filled: Uint128::zero(),
-            quote_size: bid_order.quote_size,
-            size: bid_order.size,
-            size_filled: Uint128::zero(),
+            quote: Quote {
+                denom: bid_order.quote,
+                filled: Uint128::zero(),
+                size: bid_order.quote_size,
+            },
         }
     }
 }
@@ -158,6 +163,7 @@ mod tests {
     use crate::bid_order::{
         get_bid_storage_read, migrate_bid_orders, BidOrderV1, BidOrderV2, NAMESPACE_ORDER_BID,
     };
+    use crate::common::{Base, Quote};
     use crate::contract_info::set_legacy_contract_info;
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
@@ -226,17 +232,21 @@ mod tests {
         assert_eq!(
             migrated_bid,
             BidOrderV2 {
-                base: "base_1".to_string(),
+                base: Base {
+                    denom: "base_1".to_string(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100)
+                },
                 fee_filled: None,
                 fee_size: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
-                quote: "quote_1".to_string(),
-                quote_filled: Default::default(),
-                quote_size: Uint128::new(1000),
-                size: Uint128::new(100),
-                size_filled: Default::default()
+                quote: Quote {
+                    denom: "quote_1".to_string(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(1000),
+                },
             }
         );
 
@@ -292,17 +302,21 @@ mod tests {
         assert_eq!(
             migrated_bid,
             BidOrderV2 {
-                base: "base_1".to_string(),
+                base: Base {
+                    denom: "base_1".to_string(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(100),
+                },
                 fee_filled: None,
                 fee_size: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
-                quote: "quote_1".to_string(),
-                quote_filled: Default::default(),
-                quote_size: Uint128::new(1000),
-                size: Uint128::new(100),
-                size_filled: Default::default()
+                quote: Quote {
+                    denom: "quote_1".to_string(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(1000),
+                },
             }
         );
 
