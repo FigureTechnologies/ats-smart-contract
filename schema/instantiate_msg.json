@@ -22,6 +22,18 @@
         "type": "string"
       }
     },
+    "ask_fee_account": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ask_fee_rate": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "ask_required_attributes": {
       "type": "array",
       "items": {
@@ -30,6 +42,18 @@
     },
     "base_denom": {
       "type": "string"
+    },
+    "bid_fee_account": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bid_fee_rate": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "bid_required_attributes": {
       "type": "array",
@@ -51,18 +75,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "fee_account": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "fee_rate": {
-      "type": [
-        "string",
-        "null"
-      ]
     },
     "name": {
       "type": "string"

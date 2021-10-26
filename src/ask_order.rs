@@ -169,10 +169,12 @@ mod tests {
             &deps.api,
             &MigrateMsg {
                 approvers: None,
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_rate: None,
+                ask_fee_account: None,
+                bid_fee_rate: None,
                 ask_required_attributes: None,
                 bid_required_attributes: None,
+                bid_fee_account: None,
             },
         )?;
 

@@ -13,8 +13,10 @@ pub struct InstantiateMsg {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<String>,
     pub executors: Vec<String>,
-    pub fee_rate: Option<String>,
-    pub fee_account: Option<String>,
+    pub ask_fee_rate: Option<String>,
+    pub ask_fee_account: Option<String>,
+    pub bid_fee_rate: Option<String>,
+    pub bid_fee_account: Option<String>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -51,12 +53,22 @@ impl Validate for InstantiateMsg {
         if self.executors.is_empty() {
             invalid_fields.push("executors");
         }
-        match (&self.fee_rate, &self.fee_account) {
+        match (&self.ask_fee_rate, &self.ask_fee_account) {
             (Some(_), None) => {
-                invalid_fields.push("fee_account");
+                invalid_fields.push("ask_fee_account");
             }
             (None, Some(_)) => {
-                invalid_fields.push("fee");
+                invalid_fields.push("ask_fee_rate");
+            }
+            (Some(_), Some(_)) => (),
+            (None, None) => (),
+        }
+        match (&self.bid_fee_rate, &self.bid_fee_account) {
+            (Some(_), None) => {
+                invalid_fields.push("bid_fee_account");
+            }
+            (None, Some(_)) => {
+                invalid_fields.push("bid_fee_rate");
             }
             (Some(_), Some(_)) => (),
             (None, None) => (),
@@ -328,8 +340,10 @@ impl Validate for QueryMsg {
 #[serde(rename_all = "snake_case")]
 pub struct MigrateMsg {
     pub approvers: Option<Vec<String>>,
-    pub fee_rate: Option<String>,
-    pub fee_account: Option<String>,
+    pub ask_fee_rate: Option<String>,
+    pub ask_fee_account: Option<String>,
+    pub bid_fee_rate: Option<String>,
+    pub bid_fee_account: Option<String>,
     pub ask_required_attributes: Option<Vec<String>>,
     pub bid_required_attributes: Option<Vec<String>>,
 }
@@ -349,12 +363,22 @@ impl Validate for MigrateMsg {
     fn validate(&self) -> Result<(), ContractError> {
         let mut invalid_fields: Vec<&str> = vec![];
 
-        match (&self.fee_rate, &self.fee_account) {
+        match (&self.ask_fee_rate, &self.ask_fee_account) {
             (Some(_), None) => {
-                invalid_fields.push("fee_account");
+                invalid_fields.push("ask_fee_account");
             }
             (None, Some(_)) => {
-                invalid_fields.push("fee");
+                invalid_fields.push("ask_fee_rate");
+            }
+            (Some(_), Some(_)) => (),
+            (None, None) => (),
+        }
+        match (&self.bid_fee_rate, &self.bid_fee_account) {
+            (Some(_), None) => {
+                invalid_fields.push("bid_fee_account");
+            }
+            (None, Some(_)) => {
+                invalid_fields.push("bid_fee_rate");
             }
             (Some(_), Some(_)) => (),
             (None, None) => (),
