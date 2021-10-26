@@ -288,8 +288,6 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
       --testnet
     ```
 
-
-
 ## Contract Queries
 
 ### contract general information
@@ -308,7 +306,7 @@ provenanced query wasm contract-state smart \
     '{"get_version_info":{}}' --testnet
 ```
 
-### `ask` order information
+### ask order information
 
 ```shell
 provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
@@ -316,7 +314,7 @@ provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.p
   --testnet
 ```
 
-### `bid` order information
+### bid order information
 
 ```shell
 provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
@@ -326,7 +324,7 @@ provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.p
 
 ## Other actions
 
-### Cancel an `ask` order
+### Cancel an ask order
 
 ```shell
 provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
@@ -339,7 +337,7 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
     --yes
 ```
 
-### Cancel a `bid` order
+### Cancel a bid order
 
 ```shell
 provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
@@ -353,11 +351,11 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
     --yes
 ```
 
-
 ## Migrate/Upgrade contract
 
 1. Store the new `ats-smart-contract` wasm
-    ```shell
+
+	```shell
     provenanced tx wasm store ats_smart_contract.wasm \
         --from validator \
         --home build/run/provenanced \
@@ -371,7 +369,7 @@ provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | aw
    
    _note: The `CODE_ID` is the `code_id` returned when storing the new wasm in the previous step._
 
-    ```shell
+	```shell
     provenanced tx wasm migrate (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') CODE_ID \
     '{"migrate":{}}' \
         --from validator \

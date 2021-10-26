@@ -120,9 +120,11 @@ pub enum ExecuteMsg {
     },
     RejectAsk {
         id: String,
+        size: Option<Uint128>,
     },
     RejectBid {
         id: String,
+        size: Option<Uint128>,
     },
 }
 
@@ -243,14 +245,24 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("id");
                 }
             }
-            ExecuteMsg::RejectAsk { id } => {
+            ExecuteMsg::RejectAsk { id, size } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
+                if let Some(size) = size {
+                    if size.lt(&Uint128::new(1)) {
+                        invalid_fields.push("size");
+                    }
+                }
             }
-            ExecuteMsg::RejectBid { id } => {
+            ExecuteMsg::RejectBid { id, size } => {
                 if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
+                }
+                if let Some(size) = size {
+                    if size.lt(&Uint128::new(1)) {
+                        invalid_fields.push("size");
+                    }
                 }
             }
         }
@@ -318,6 +330,8 @@ pub struct MigrateMsg {
     pub approvers: Option<Vec<String>>,
     pub fee_rate: Option<String>,
     pub fee_account: Option<String>,
+    pub ask_required_attributes: Option<Vec<String>>,
+    pub bid_required_attributes: Option<Vec<String>>,
 }
 
 impl Validate for MigrateMsg {
