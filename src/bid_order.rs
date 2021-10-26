@@ -19,6 +19,8 @@ pub struct BidOrder {
     pub quote: Coin,
     pub size: Uint128,
 }
+
+#[deprecated(since = "0.16.1")]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV1 {
     pub base: String,
@@ -30,17 +32,55 @@ pub struct BidOrderV1 {
     pub size: Uint128,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct BidOrderV2 {
+    pub base: String,
+    pub fee_size: Option<Uint128>,
+    pub fee_filled: Option<Uint128>,
+    pub id: String,
+    pub owner: Addr,
+    pub price: String,
+    pub quote: String,
+    pub quote_filled: Uint128,
+    pub quote_size: Uint128,
+    pub size: Uint128,
+    pub size_filled: Uint128,
+}
+
 #[allow(deprecated)]
-impl From<BidOrder> for BidOrderV1 {
+impl From<BidOrder> for BidOrderV2 {
     fn from(bid_order: BidOrder) -> Self {
-        BidOrderV1 {
+        BidOrderV2 {
+            base: bid_order.base,
+            fee_filled: None,
+            fee_size: None,
             id: bid_order.id,
             owner: bid_order.owner,
-            base: bid_order.base,
-            quote: bid_order.quote.denom,
-            quote_size: bid_order.quote.amount,
             price: bid_order.price,
+            quote: bid_order.quote.denom,
+            quote_filled: Default::default(),
+            quote_size: bid_order.quote.amount,
             size: bid_order.size,
+            size_filled: Default::default(),
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<BidOrderV1> for BidOrderV2 {
+    fn from(bid_order: BidOrderV1) -> Self {
+        BidOrderV2 {
+            base: bid_order.base,
+            id: bid_order.id,
+            fee_size: None,
+            fee_filled: None,
+            owner: bid_order.owner,
+            price: bid_order.price,
+            quote: bid_order.quote,
+            quote_filled: Uint128::zero(),
+            quote_size: bid_order.quote_size,
+            size: bid_order.size,
+            size_filled: Uint128::zero(),
         }
     }
 }
@@ -60,10 +100,30 @@ pub fn migrate_bid_orders(
     if upgrade_req.matches(&current_version) {
         let legacy_bid_storage: Bucket<BidOrder> = bucket(store, NAMESPACE_ORDER_BID);
 
-        let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV1), ContractError>> =
+        let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV2), ContractError>> =
             legacy_bid_storage
                 .range(None, None, Order::Ascending)
-                .map(|kv_bid| -> Result<(Vec<u8>, BidOrderV1), ContractError> {
+                .map(|kv_bid| -> Result<(Vec<u8>, BidOrderV2), ContractError> {
+                    let (bid_key, bid) = kv_bid?;
+                    Ok((bid_key, bid.into()))
+                })
+                .collect();
+
+        let mut bid_storage = get_bid_storage(store);
+        for migrated_bid_order in migrated_bid_orders {
+            let (bid_key, bid) = migrated_bid_order?;
+            bid_storage.save(&bid_key, &bid)?
+        }
+    }
+
+    // migration from 0.15.2 - 0.16.0 => 0.16.1
+    if VersionReq::parse(">=0.15.1, <0.16.1")?.matches(&current_version) {
+        let bid_order_v1_storage: Bucket<BidOrderV1> = bucket(store, NAMESPACE_ORDER_BID);
+
+        let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV2), ContractError>> =
+            bid_order_v1_storage
+                .range(None, None, Order::Ascending)
+                .map(|kv_bid| -> Result<(Vec<u8>, BidOrderV2), ContractError> {
                     let (bid_key, bid) = kv_bid?;
                     Ok((bid_key, bid.into()))
                 })
@@ -84,22 +144,24 @@ pub fn get_legacy_bid_storage(storage: &mut dyn Storage) -> Bucket<BidOrder> {
     bucket(storage, NAMESPACE_ORDER_BID)
 }
 
-pub fn get_bid_storage(storage: &mut dyn Storage) -> Bucket<BidOrderV1> {
+pub fn get_bid_storage(storage: &mut dyn Storage) -> Bucket<BidOrderV2> {
     bucket(storage, NAMESPACE_ORDER_BID)
 }
 
-pub fn get_bid_storage_read(storage: &dyn Storage) -> ReadonlyBucket<BidOrderV1> {
+pub fn get_bid_storage_read(storage: &dyn Storage) -> ReadonlyBucket<BidOrderV2> {
     bucket_read(storage, NAMESPACE_ORDER_BID)
 }
 
 #[cfg(test)]
 mod tests {
+    #[allow(deprecated)]
     use crate::bid_order::{
-        get_bid_storage_read, migrate_bid_orders, BidOrderV1, NAMESPACE_ORDER_BID,
+        get_bid_storage_read, migrate_bid_orders, BidOrderV1, BidOrderV2, NAMESPACE_ORDER_BID,
     };
     use crate::contract_info::set_legacy_contract_info;
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
+    use crate::version_info::{set_version_info, VersionInfoV1};
     use crate::{bid_order, contract_info};
     use cosmwasm_std::{coin, Addr, Uint128};
     use cosmwasm_storage::{bucket, Bucket};
@@ -107,7 +169,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    pub fn migrate_legacy_bid_to_v1() -> Result<(), ContractError> {
+    pub fn migrate_legacy_bid_to_v2() -> Result<(), ContractError> {
         let mut deps = mock_dependencies(&[]);
 
         set_legacy_contract_info(
@@ -163,14 +225,84 @@ mod tests {
 
         assert_eq!(
             migrated_bid,
-            BidOrderV1 {
+            BidOrderV2 {
+                base: "base_1".to_string(),
+                fee_filled: None,
+                fee_size: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
+                price: "10".to_string(),
+                quote: "quote_1".to_string(),
+                quote_filled: Default::default(),
+                quote_size: Uint128::new(1000),
+                size: Uint128::new(100),
+                size_filled: Default::default()
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    pub fn migrate_bid_v1_to_v2() -> Result<(), ContractError> {
+        let mut deps = mock_dependencies(&[]);
+
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: "def".to_string(),
+                version: "0.16.0".to_string(),
+            },
+        )?;
+
+        let mut bid_v1_storage: Bucket<bid_order::BidOrderV1> =
+            bucket(&mut deps.storage, NAMESPACE_ORDER_BID);
+
+        bid_v1_storage.save(
+            b"id",
+            &BidOrderV1 {
                 base: "base_1".to_string(),
+                id: "id".to_string(),
+                owner: Addr::unchecked("bidder"),
+                price: "10".to_string(),
                 quote: "quote_1".to_string(),
                 quote_size: Uint128::new(1000),
+                size: Uint128::new(100),
+            },
+        )?;
+
+        migrate_bid_orders(
+            &mut deps.storage,
+            &deps.api,
+            &MigrateMsg {
+                approvers: None,
+                ask_fee_rate: None,
+                ask_fee_account: None,
+                bid_fee_rate: None,
+                bid_fee_account: None,
+                ask_required_attributes: None,
+                bid_required_attributes: None,
+            },
+        )?;
+
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        let migrated_bid = bid_storage.load(b"id")?;
+
+        assert_eq!(
+            migrated_bid,
+            BidOrderV2 {
+                base: "base_1".to_string(),
+                fee_filled: None,
+                fee_size: None,
+                id: "id".to_string(),
+                owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
-                size: Uint128::new(100)
+                quote: "quote_1".to_string(),
+                quote_filled: Default::default(),
+                quote_size: Uint128::new(1000),
+                size: Uint128::new(100),
+                size_filled: Default::default()
             }
         );
 

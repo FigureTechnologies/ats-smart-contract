@@ -285,11 +285,9 @@ mod tests {
     #[allow(deprecated)]
     use crate::contract_info::{
         get_contract_info, migrate_contract_info, set_contract_info, ContractInfo, ContractInfoV1,
-        CONTRACT_INFO,
+        ContractInfoV2, CONTRACT_INFO,
     };
-    use crate::contract_info::{
-        ContractInfoV2, ContractInfoV3, CONTRACT_INFO_V1, CONTRACT_INFO_V2,
-    };
+    use crate::contract_info::{ContractInfoV3, CONTRACT_INFO_V1, CONTRACT_INFO_V2};
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
     use crate::version_info::{set_version_info, VersionInfoV1};

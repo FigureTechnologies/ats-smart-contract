@@ -11,7 +11,7 @@ use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
 };
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV1};
+use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV2};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
@@ -160,14 +160,18 @@ pub fn execute(
             deps,
             env,
             &info,
-            BidOrderV1 {
+            BidOrderV2 {
                 base,
+                fee_size: None,
+                fee_filled: None,
                 id,
                 owner: info.sender.to_owned(),
                 price,
                 quote,
+                quote_filled: Uint128::zero(),
                 quote_size,
                 size,
+                size_filled: Uint128::zero(),
             },
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
@@ -424,7 +428,7 @@ fn create_bid(
     deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    bid_order: BidOrderV1,
+    bid_order: BidOrderV2,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
@@ -671,7 +675,7 @@ fn cancel_bid(
     }
 
     let bid_storage = get_bid_storage_read(deps.storage);
-    let BidOrderV1 {
+    let BidOrderV2 {
         id,
         owner,
         quote,
@@ -1019,7 +1023,9 @@ fn execute_match(
 
     // at least one side of the order will always execute fully, both sides if order sizes equal
     // so the provided execute match size must be either the ask or bid size (or both if equal)
-    if execute_size.gt(&ask_order.size) || execute_size.gt(&bid_order.size) {
+    if execute_size.gt(&ask_order.size)
+        || execute_size.gt(&(bid_order.size - bid_order.size_filled))
+    {
         return Err(ContractError::InvalidExecuteSize);
     }
 
@@ -1046,14 +1052,16 @@ fn execute_match(
         converted_base.amount = ask_order.size;
     }
 
-    bid_order.size = Uint128::new(bid_order.size.u128() - execute_size.u128());
-    bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - quote_total.u128());
+    bid_order.size_filled += execute_size;
+    bid_order.quote_filled += quote_total;
 
     // calculate refund to bidder if bid order is completed but quote funds remain
     let mut bidder_refund = Uint128::new(0);
-    if bid_order.size.is_zero() && !bid_order.quote_size.is_zero() {
-        bidder_refund = bid_order.quote_size;
-        bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
+    if bid_order.size_filled.eq(&bid_order.size)
+        && !bid_order.quote_size.eq(&bid_order.quote_filled)
+    {
+        bidder_refund = bid_order.quote_size - bid_order.quote_filled;
+        // bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
     }
 
     // is ask base a restricted marker
@@ -1278,7 +1286,11 @@ fn execute_match(
             .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
     }
 
-    if bid_order.size.is_zero() && bid_order.quote_size.is_zero() {
+    if bid_order.size.eq(&bid_order.size_filled)
+        && bid_order
+            .quote_size
+            .eq(&(bid_order.quote_filled + bidder_refund))
+    {
         get_bid_storage(deps.storage).remove(bid_id.as_bytes());
     } else {
         get_bid_storage(deps.storage)
@@ -1293,14 +1305,14 @@ fn execute_match(
 pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     msg.validate()?;
 
+    // migrate contract_info
+    migrate_contract_info(deps.storage, deps.api, &msg)?;
+
     // migrate ask orders
     migrate_ask_orders(deps.storage, deps.api, &msg)?;
 
     // migrate bid orders
     migrate_bid_orders(deps.storage, deps.api, &msg)?;
-
-    // migrate contract_info
-    migrate_contract_info(deps.storage, deps.api, &msg)?;
 
     // lastly, migrate version_info
     migrate_version_info(deps.storage)?;
@@ -2401,14 +2413,18 @@ mod tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV1 {
+                        BidOrderV2 {
                             base,
+                            fee_size: None,
+                            fee_filled: None,
                             id,
                             owner: bidder_info.sender,
                             price,
                             quote,
+                            quote_filled: Uint128::zero(),
                             quote_size,
                             size,
+                            size_filled: Uint128::zero()
                         }
                     )
                 }
@@ -2545,14 +2561,18 @@ mod tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV1 {
+                        BidOrderV2 {
                             id,
                             owner: bidder_info.sender,
                             base,
+                            fee_size: None,
                             quote,
+                            quote_filled: Uint128::zero(),
                             quote_size,
                             price,
                             size,
+                            fee_filled: None,
+                            size_filled: Uint128::zero()
                         }
                     )
                 }
@@ -2735,14 +2755,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
                         base: "base_1".into(),
+                        fee_size: None,
+                        fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
                         quote: "quote_1".into(),
+                        quote_filled: Uint128::zero(),
                         quote_size: Uint128::new(250),
                         size: Uint128::new(100),
+                        size_filled: Uint128::zero()
                     }
                 )
             }
@@ -3731,14 +3755,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -3844,14 +3872,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -4011,14 +4043,18 @@ mod tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("not_bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(100),
                 price: "2".into(),
                 size: Uint128::new(200),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5022,14 +5058,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5105,14 +5145,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5189,14 +5233,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 price: "2".into(),
                 size: Uint128::new(200),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5247,14 +5295,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
+                        fee_size: None,
                         quote: "quote_1".into(),
+                        quote_filled: Uint128::zero(),
                         quote_size: Uint128::new(200),
                         price: "2".into(),
                         size: Uint128::new(100),
+                        fee_filled: None,
+                        size_filled: Uint128::zero()
                     }
                 )
             }
@@ -5291,14 +5343,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5328,14 +5384,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
+                        fee_size: None,
                         quote: "quote_1".into(),
+                        quote_filled: Uint128::zero(),
                         quote_size: Uint128::new(200),
                         price: "2".into(),
                         size: Uint128::new(100),
+                        fee_filled: None,
+                        size_filled: Uint128::zero()
                     }
                 )
             }
@@ -5405,14 +5465,18 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5579,14 +5643,18 @@ mod tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(100),
                 price: "2".into(),
                 size: Uint128::new(200),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5694,14 +5762,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5812,14 +5884,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(100),
                 price: "1".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -5930,14 +6006,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(149),
                 price: "1".into(),
                 size: Uint128::new(149),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6056,14 +6136,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(20),
                 price: "2".into(),
                 size: Uint128::new(10),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6189,14 +6273,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(200),
                 price: "2".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6257,14 +6345,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: "base_1".into(),
+                        fee_size: None,
                         quote: "quote_1".into(),
-                        quote_size: Uint128::new(100),
+                        quote_filled: Uint128::new(100),
+                        quote_size: Uint128::new(200),
                         price: "2".into(),
-                        size: Uint128::new(50),
+                        size: Uint128::new(100),
+                        fee_filled: None,
+                        size_filled: Uint128::new(50)
                     }
                 )
             }
@@ -6320,14 +6412,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(600),
                 price: "2".into(),
                 size: Uint128::new(300),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6410,14 +6506,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: "base_1".into(),
+                        fee_size: None,
+                        fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128::new(200),
+                        quote: "quote_1".into(),
+                        quote_filled: Uint128::new(200),
+                        quote_size: Uint128::new(600),
+                        size: Uint128::new(300),
+                        size_filled: Uint128::new(100)
                     }
                 )
             }
@@ -6474,14 +6574,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(600),
                 price: "2".into(),
                 size: Uint128::new(300),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6577,14 +6681,18 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: "base_1".into(),
+                        fee_size: None,
+                        fee_filled: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128::new(200),
+                        quote: "quote_1".into(),
+                        quote_filled: Uint128::new(200),
+                        quote_size: Uint128::new(600),
+                        size: Uint128::new(300),
+                        size_filled: Uint128::new(100)
                     }
                 )
             }
@@ -6639,14 +6747,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
                 size: Uint128::new(5),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6802,14 +6914,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(500),
                 price: "100.000000000000000000".into(),
                 size: Uint128::new(5),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -6936,14 +7052,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: "base_1".into(),
+                fee_size: None,
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 price: "4".into(),
                 size: Uint128::new(100),
+                fee_filled: None,
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7059,14 +7179,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_denom".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7217,14 +7341,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7371,14 +7499,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7556,14 +7688,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7751,14 +7887,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -7922,14 +8062,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8154,14 +8298,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8391,14 +8539,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(200),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8457,14 +8609,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(100),
                 size: Uint128::new(200),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8639,14 +8795,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(100),
                 size: Uint128::new(200),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8716,14 +8876,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -8805,14 +8969,18 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 base: "base_1".into(),
+                fee_size: None,
+                fee_filled: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: "quote_1".into(),
+                quote_filled: Uint128::zero(),
                 quote_size: Uint128::new(400),
                 size: Uint128::new(100),
+                size_filled: Uint128::zero(),
             },
         );
 
@@ -9904,14 +10072,18 @@ mod tests {
         );
 
         // store valid bid order
-        let bid_order = BidOrderV1 {
+        let bid_order = BidOrderV2 {
             base: "base_1".into(),
+            fee_size: None,
+            fee_filled: None,
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: "quote_1".into(),
+            quote_filled: Uint128::zero(),
             quote_size: Uint128::new(100),
             size: Uint128::new(100),
+            size_filled: Uint128::zero(),
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);
@@ -9944,7 +10116,7 @@ mod tests {
         };
     }
 
-    fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV1) {
+    fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV2) {
         let mut bid_storage = get_bid_storage(storage);
         if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
             panic!("unexpected error: {:?}", error);
