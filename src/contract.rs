@@ -6180,7 +6180,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_with_fees_total_zero() {
+    fn execute_with_ask_fees_total_zero() {
         // setup
         let mut deps = mock_dependencies(&[]);
         let mock_env = mock_env();
@@ -6327,10 +6327,7 @@ mod tests {
                     account: Addr::unchecked("ask_fee_account"),
                     rate: "0.01".into(),
                 }),
-                bid_fee: Some(FeeInfo {
-                    account: Addr::unchecked("bid_fee_account"),
-                    rate: "0.02".into(),
-                }),
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(0),
@@ -6427,6 +6424,140 @@ mod tests {
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "ask_fee_account".into(),
                         amount: coins(1, "quote_1"),
+                    })
+                );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
+    fn execute_with_ask_fees_round_up() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "1".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(150),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Base {
+                    denom: "base_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(150),
+                },
+                fee: None,
+                quote: Quote {
+                    denom: "quote_1".into(),
+                    filled: Uint128::zero(),
+                    size: Uint128::new(150),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "1".into(),
+            size: Uint128::new(150),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 8);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "1"));
+                assert_eq!(execute_response.attributes[6], attr("size", "150"));
+                assert_eq!(execute_response.attributes[7], attr("fee", "2"));
+                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(148, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: coins(150, "base_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "ask_fee_account".into(),
+                        amount: coins(2, "quote_1"),
                     })
                 );
             }
