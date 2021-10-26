@@ -1,8 +1,11 @@
 use cosmwasm_std::{Addr, Api, Storage, Uint128};
 use cw_storage_plus::Item;
+use rust_decimal::prelude::FromStr;
+use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::common::FeeInfo;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
@@ -79,10 +82,8 @@ pub struct ContractInfoV3 {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<Addr>,
     pub executors: Vec<Addr>,
-    pub ask_fee_rate: Option<String>,
-    pub ask_fee_account: Option<Addr>,
-    pub bid_fee_rate: Option<String>,
-    pub bid_fee_account: Option<Addr>,
+    pub ask_fee: Option<FeeInfo>,
+    pub bid_fee: Option<FeeInfo>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -100,10 +101,8 @@ impl From<ContractInfo> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: vec![],
             executors: contract_info.executors,
-            ask_fee_rate: None,
-            ask_fee_account: None,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: None,
+            bid_fee: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -123,10 +122,8 @@ impl From<ContractInfoV1> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: contract_info.approvers,
             executors: contract_info.executors,
-            ask_fee_rate: None,
-            ask_fee_account: None,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: None,
+            bid_fee: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -146,10 +143,11 @@ impl From<ContractInfoV2> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: contract_info.approvers,
             executors: contract_info.executors,
-            ask_fee_rate: contract_info.fee_rate,
-            ask_fee_account: contract_info.fee_account,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: match (contract_info.fee_account, contract_info.fee_rate) {
+                (Some(account), Some(rate)) => Some(FeeInfo { account, rate }),
+                (_, _) => None,
+            },
+            bid_fee: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -210,7 +208,7 @@ pub fn migrate_contract_info(
     }
 
     // migration from 0.15.2 - 0.16.0 => 0.16.1
-    if VersionReq::parse(">=0.15.3, <0.16.1")?.matches(&current_version) {
+    if VersionReq::parse(">=0.15.3, <0.16.2")?.matches(&current_version) {
         let contract_info_v3: ContractInfoV3 = CONTRACT_INFO_V2.load(store)?.into();
 
         set_contract_info(store, &contract_info_v3)?;
@@ -231,32 +229,42 @@ pub fn migrate_contract_info(
         }
     }
 
-    match &msg.ask_fee_rate {
-        None => {}
-        Some(ask_fee_rate) => {
-            contract_info.ask_fee_rate = Some(ask_fee_rate.clone());
-        }
-    }
+    match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.ask_fee = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("ask_fee_rate")],
+                    })?;
 
-    match &msg.ask_fee_account {
-        None => {}
-        Some(ask_fee_account) => {
-            contract_info.ask_fee_account = Some(api.addr_validate(ask_fee_account)?);
+                    Some(FeeInfo {
+                        account: api.addr_validate(&account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
         }
+        (_, _) => (),
     };
 
-    match &msg.bid_fee_rate {
-        None => {}
-        Some(bid_fee_rate) => {
-            contract_info.bid_fee_rate = Some(bid_fee_rate.clone());
-        }
-    }
+    match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.bid_fee = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("ask_fee_rate")],
+                    })?;
 
-    match &msg.bid_fee_account {
-        None => {}
-        Some(bid_fee_account) => {
-            contract_info.bid_fee_account = Some(api.addr_validate(bid_fee_account)?);
+                    Some(FeeInfo {
+                        account: api.addr_validate(&account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
         }
+        (_, _) => (),
     };
 
     match &msg.ask_required_attributes {
@@ -282,6 +290,7 @@ pub fn migrate_contract_info(
 mod tests {
     use provwasm_mocks::mock_dependencies;
 
+    use crate::common::FeeInfo;
     #[allow(deprecated)]
     use crate::contract_info::{
         get_contract_info, migrate_contract_info, set_contract_info, ContractInfo, ContractInfoV1,
@@ -307,10 +316,8 @@ mod tests {
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 price_precision: Uint128::new(3),
@@ -355,7 +362,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn pre_0_15_0_migrate_with_existing_issuers() -> Result<(), ContractError> {
+    fn migrate_legacy_contractinfo_with_existing_issuers() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -404,10 +411,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: None,
-            ask_fee_account: None,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: None,
+            bid_fee: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -421,7 +426,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn pre_0_15_0_migrate_with_approvers_and_fees() -> Result<(), ContractError> {
+    fn migrate_legacy_contractinfo_with_approvers_and_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -470,10 +475,14 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: Some("0.01".into()),
-            ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-            bid_fee_rate: Some("0.02".into()),
-            bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+            ask_fee: Some(FeeInfo {
+                account: Addr::unchecked("ask_fee_account"),
+                rate: "0.01".into(),
+            }),
+            bid_fee: Some(FeeInfo {
+                account: Addr::unchecked("bid_fee_account"),
+                rate: "0.02".into(),
+            }),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -487,7 +496,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn migrate_0_15_0_with_fees() -> Result<(), ContractError> {
+    fn migrate_contractinfo_v1_with_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -541,10 +550,14 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: Some("0.01".into()),
-            ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-            bid_fee_rate: Some("0.02".into()),
-            bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+            ask_fee: Some(FeeInfo {
+                account: Addr::unchecked("ask_fee_account"),
+                rate: "0.01".into(),
+            }),
+            bid_fee: Some(FeeInfo {
+                account: Addr::unchecked("bid_fee_account"),
+                rate: "0.02".into(),
+            }),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -558,7 +571,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn migrate_0_15_0_without_fees() -> Result<(), ContractError> {
+    fn migrate_contractinfo_v1_without_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -612,10 +625,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: None,
-            ask_fee_account: None,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: None,
+            bid_fee: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -629,7 +640,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn migrate_0_16_0_with_fees() -> Result<(), ContractError> {
+    fn migrate_contractinfo_v2_with_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -685,10 +696,14 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: Some("0.01".into()),
-            ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-            bid_fee_rate: Some("0.02".into()),
-            bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+            ask_fee: Some(FeeInfo {
+                account: Addr::unchecked("ask_fee_account"),
+                rate: "0.01".into(),
+            }),
+            bid_fee: Some(FeeInfo {
+                account: Addr::unchecked("bid_fee_account"),
+                rate: "0.02".into(),
+            }),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -702,7 +717,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn migrate_0_16_0_without_fees() -> Result<(), ContractError> {
+    fn migrate_contractinfo_v2_without_fees() -> Result<(), ContractError> {
         // setup
         let mut deps = mock_dependencies(&[]);
 
@@ -758,10 +773,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: None,
-            ask_fee_account: None,
-            bid_fee_rate: None,
-            bid_fee_account: None,
+            ask_fee: None,
+            bid_fee: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -782,7 +795,7 @@ mod tests {
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: "def".to_string(),
-                version: "0.16.1".to_string(),
+                version: "0.16.2".to_string(),
             },
         )?;
 
@@ -796,10 +809,14 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: Some("0.01".into()),
-                ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-                bid_fee_rate: Some("0.02".into()),
-                bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+                ask_fee: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.02".into(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -832,10 +849,14 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: Some("0.01".into()),
-            ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-            bid_fee_rate: Some("0.02".into()),
-            bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+            ask_fee: Some(FeeInfo {
+                account: Addr::unchecked("ask_fee_account"),
+                rate: "0.01".into(),
+            }),
+            bid_fee: Some(FeeInfo {
+                account: Addr::unchecked("bid_fee_account"),
+                rate: "0.02".into(),
+            }),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -856,7 +877,7 @@ mod tests {
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: "def".to_string(),
-                version: "0.16.0".to_string(),
+                version: "0.16.2".to_string(),
             },
         )?;
 
@@ -870,10 +891,14 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: Some("0.01".into()),
-                ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-                bid_fee_rate: Some("0.02".into()),
-                bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+                ask_fee: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.02".into(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -881,15 +906,15 @@ mod tests {
             },
         )?;
 
-        // migrate without fees
+        // migrate with new fees
         migrate_contract_info(
             &mut deps.storage,
             &deps.api,
             &MigrateMsg {
                 approvers: Some(vec!["approver_3".into(), "approver_4".into()]),
-                ask_fee_rate: Some("new_ask_fee_rate".into()),
+                ask_fee_rate: Some("0.03".into()),
                 ask_fee_account: Some("new_ask_fee_account".into()),
-                bid_fee_rate: Some("new_bid_fee_rate".into()),
+                bid_fee_rate: Some("0.04".into()),
                 bid_fee_account: Some("new_bid_fee_account".into()),
                 ask_required_attributes: Some(vec!["ask_tag_3".into(), "ask_tag_4".into()]),
                 bid_required_attributes: Some(vec!["bid_tag_3".into(), "bid_tag_4".into()]),
@@ -906,10 +931,14 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_3"), Addr::unchecked("approver_4")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee_rate: Some("new_ask_fee_rate".into()),
-            ask_fee_account: Some(Addr::unchecked("new_ask_fee_account")),
-            bid_fee_rate: Some("new_bid_fee_rate".into()),
-            bid_fee_account: Some(Addr::unchecked("new_bid_fee_account")),
+            ask_fee: Some(FeeInfo {
+                account: Addr::unchecked("new_ask_fee_account"),
+                rate: "0.03".into(),
+            }),
+            bid_fee: Some(FeeInfo {
+                account: Addr::unchecked("new_bid_fee_account"),
+                rate: "0.04".into(),
+            }),
             ask_required_attributes: vec!["ask_tag_3".into(), "ask_tag_4".into()],
             bid_required_attributes: vec!["bid_tag_3".into(), "bid_tag_4".into()],
             price_precision: Uint128::new(2),

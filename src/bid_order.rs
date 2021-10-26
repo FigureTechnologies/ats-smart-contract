@@ -1,4 +1,4 @@
-use crate::common::{Base, Quote};
+use crate::common::{Base, Fee, Quote};
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
@@ -36,8 +36,7 @@ pub struct BidOrderV1 {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
     pub base: Base,
-    pub fee_size: Option<Uint128>,
-    pub fee_filled: Option<Uint128>,
+    pub fee: Option<Fee>,
     pub id: String,
     pub owner: Addr,
     pub price: String,
@@ -53,8 +52,7 @@ impl From<BidOrder> for BidOrderV2 {
                 filled: Uint128::zero(),
                 size: bid_order.size,
             },
-            fee_filled: None,
-            fee_size: None,
+            fee: None,
             id: bid_order.id,
             owner: bid_order.owner,
             price: bid_order.price,
@@ -77,8 +75,7 @@ impl From<BidOrderV1> for BidOrderV2 {
                 size: bid_order.size,
             },
             id: bid_order.id,
-            fee_size: None,
-            fee_filled: None,
+            fee: None,
             owner: bid_order.owner,
             price: bid_order.price,
             quote: Quote {
@@ -121,8 +118,8 @@ pub fn migrate_bid_orders(
         }
     }
 
-    // migration from 0.15.2 - 0.16.0 => 0.16.1
-    if VersionReq::parse(">=0.15.1, <0.16.1")?.matches(&current_version) {
+    // migration from 0.15.2 - 0.16.1 => 0.16.2
+    if VersionReq::parse(">=0.15.1, <0.16.2")?.matches(&current_version) {
         let bid_order_v1_storage: Bucket<BidOrderV1> = bucket(store, NAMESPACE_ORDER_BID);
 
         let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV2), ContractError>> =
@@ -237,8 +234,7 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100)
                 },
-                fee_filled: None,
-                fee_size: None,
+                fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
@@ -307,8 +303,7 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_filled: None,
-                fee_size: None,
+                fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),

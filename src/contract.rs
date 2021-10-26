@@ -12,7 +12,7 @@ use crate::ask_order::{
     AskOrderV1,
 };
 use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV2};
-use crate::common::{Base, Quote};
+use crate::common::{Base, Fee, FeeInfo, Quote};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
@@ -53,26 +53,40 @@ pub fn instantiate(
         executors.push(address);
     }
 
-    // Validate and set ask fee data
-    let (ask_fee_rate, ask_fee_account) = match (msg.ask_fee_rate, msg.ask_fee_account) {
-        (Some(rate), Some(account)) => {
-            Decimal::from_str(&rate).map_err(|_| ContractError::InvalidFields {
-                fields: vec![String::from("ask_fee_rate")],
-            })?;
-            (Some(rate), Some(deps.api.addr_validate(&account)?))
-        }
-        (_, _) => (None, None),
+    // validate and set ask fee
+    let ask_fee = match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+        (Some(account), Some(rate)) => match (account.as_str(), rate.as_str()) {
+            ("", "") => None,
+            (_, _) => {
+                Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("ask_fee_rate")],
+                })?;
+
+                Some(FeeInfo {
+                    account: deps.api.addr_validate(&account)?,
+                    rate: rate.to_string(),
+                })
+            }
+        },
+        (_, _) => None,
     };
 
-    // Validate and set bid fee data
-    let (bid_fee_rate, bid_fee_account) = match (msg.bid_fee_rate, msg.bid_fee_account) {
-        (Some(rate), Some(account)) => {
-            Decimal::from_str(&rate).map_err(|_| ContractError::InvalidFields {
-                fields: vec![String::from("bid_fee_rate")],
-            })?;
-            (Some(rate), Some(deps.api.addr_validate(&account)?))
-        }
-        (_, _) => (None, None),
+    // validate and set bid fee
+    let bid_fee = match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+        (Some(account), Some(rate)) => match (account.as_str(), rate.as_str()) {
+            ("", "") => None,
+            (_, _) => {
+                Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("bid_fee_rate")],
+                })?;
+
+                Some(FeeInfo {
+                    account: deps.api.addr_validate(&account)?,
+                    rate: rate.to_string(),
+                })
+            }
+        },
+        (_, _) => None,
     };
 
     // set contract info
@@ -84,10 +98,8 @@ pub fn instantiate(
         supported_quote_denoms: msg.supported_quote_denoms,
         approvers,
         executors,
-        ask_fee_rate,
-        ask_fee_account,
-        bid_fee_rate,
-        bid_fee_account,
+        ask_fee,
+        bid_fee,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
         price_precision: msg.price_precision,
@@ -178,11 +190,11 @@ pub fn execute(
                     filled: Uint128::zero(),
                     size,
                 },
-                fee_size,
-                fee_filled: match fee_size {
-                    Some(_) => Some(Uint128::zero()),
-                    _ => None,
-                },
+                fee: fee_size.map(|fee_size| Fee {
+                    denom: quote.to_owned(),
+                    filled: Uint128::zero(),
+                    size: fee_size,
+                }),
                 id,
                 owner: info.sender.to_owned(),
                 price,
@@ -487,9 +499,9 @@ fn create_bid(
     }
 
     // if bid fee exists, calculate and compare to sent fee_size
-    match (contract_info.bid_fee_rate, contract_info.bid_fee_account) {
-        (Some(bid_fee_rate), Some(_)) => {
-            let fee_size = Decimal::from_str(&bid_fee_rate)
+    match contract_info.bid_fee {
+        Some(bid_fee) => {
+            let calculated_fee_size = Decimal::from_str(&bid_fee.rate)
                 .map_err(|_| ContractError::InvalidFields {
                     fields: vec![String::from("bid_fee_rate")],
                 })?
@@ -499,17 +511,26 @@ fn create_bid(
                 .to_u128()
                 .ok_or(ContractError::TotalOverflow)?;
 
-            if bid_order.fee_size.ne(&Some(Uint128::new(fee_size))) {
-                return Err(ContractError::InvalidFeeSize {
-                    fee_rate: bid_fee_rate,
-                });
+            match &bid_order.fee {
+                Some(fee_size) => {
+                    if fee_size.size.ne(&Uint128::new(calculated_fee_size)) {
+                        return Err(ContractError::InvalidFeeSize {
+                            fee_rate: bid_fee.rate,
+                        });
+                    }
+                }
+                _ => {
+                    return Err(ContractError::InvalidFeeSize {
+                        fee_rate: bid_fee.rate,
+                    })
+                }
             }
 
             if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
                 return Err(ContractError::SentFundsOrderMismatch);
             }
         }
-        (_, _) => {
+        _ => {
             if bid_order.quote.size.u128().ne(&total.to_u128().unwrap()) {
                 return Err(ContractError::SentFundsOrderMismatch);
             }
@@ -568,8 +589,8 @@ fn create_bid(
         // sent funds must match order if not a restricted marker
         false => {
             if info.funds.ne(&coins(
-                match bid_order.fee_size {
-                    Some(fee_size) => bid_order.quote.size.u128() + fee_size.u128(),
+                match &bid_order.fee {
+                    Some(fee) => bid_order.quote.size.u128() + fee.size.u128(),
                     _ => bid_order.quote.size.u128(),
                 },
                 bid_order.quote.denom.to_owned(),
@@ -594,9 +615,9 @@ fn create_bid(
         attr("base", &bid_order.base.denom),
         attr("id", &bid_order.id),
         attr(
-            "fee_size",
-            match bid_order.fee_size {
-                Some(fee_size) => fee_size.to_string(),
+            "fee",
+            match &bid_order.fee {
+                Some(fee) => format!("{:?}", fee),
                 _ => "None".into(),
             },
         ),
@@ -608,8 +629,8 @@ fn create_bid(
 
     if is_quote_restricted_marker {
         response = response.add_message(transfer_marker_coins(
-            match bid_order.fee_size {
-                Some(fee_size) => (bid_order.quote.size + fee_size).into(),
+            match bid_order.fee {
+                Some(fees) => (bid_order.quote.size + fees.size).into(),
                 _ => bid_order.quote.size.into(),
             },
             bid_order.quote.denom.to_owned(),
@@ -1139,10 +1160,9 @@ fn execute_match(
     );
 
     // calculate fees after subtracting quote from bidder account
-    let (fee_message, fee_total) = match (contract_info.ask_fee_rate, contract_info.ask_fee_account)
-    {
-        (Some(ask_fee_rate), Some(ask_fee_account)) => {
-            match Decimal::from_str(&ask_fee_rate)
+    let (fee_message, fee_total) = match contract_info.ask_fee {
+        Some(ask_fee) => {
+            match Decimal::from_str(&ask_fee.rate)
                 .map_err(|_| ContractError::InvalidFields {
                     fields: vec![String::from("ask_fee_rate")],
                 })?
@@ -1166,7 +1186,7 @@ fn execute_match(
                             Some(transfer_marker_coins(
                                 fee_total,
                                 bid_order.quote.denom.to_owned(),
-                                ask_fee_account,
+                                ask_fee.account,
                                 env.contract.address.to_owned(),
                             )?),
                             Some(fee_total),
@@ -1174,7 +1194,7 @@ fn execute_match(
                         false => (
                             Some(
                                 BankMsg::Send {
-                                    to_address: ask_fee_account.to_string(),
+                                    to_address: ask_fee.account.to_string(),
                                     amount: vec![Coin {
                                         denom: bid_order.quote.denom.to_owned(),
                                         amount: Uint128::new(fee_total),
@@ -1188,7 +1208,7 @@ fn execute_match(
                 }
             }
         }
-        (_, _) => (None, None),
+        _ => (None, None),
     };
 
     // 'send quote to asker' and 'send base to bidder' messages
@@ -1462,10 +1482,14 @@ mod tests {
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                     approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                     executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    ask_fee_rate: Some("0.01".into()),
-                    ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-                    bid_fee_rate: Some("0.02".into()),
-                    bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+                    ask_fee: Some(FeeInfo {
+                        account: Addr::unchecked("ask_fee_account"),
+                        rate: "0.01".into(),
+                    }),
+                    bid_fee: Some(FeeInfo {
+                        account: Addr::unchecked("bid_fee_account"),
+                        rate: "0.02".into(),
+                    }),
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                     price_precision: Uint128::new(2),
@@ -1587,10 +1611,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -1699,10 +1721,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -1811,10 +1831,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -1960,10 +1978,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2041,10 +2057,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2136,10 +2150,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2193,10 +2205,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2244,10 +2254,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2295,10 +2303,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2348,10 +2354,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2396,10 +2400,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2446,7 +2448,7 @@ mod tests {
                     response.attributes[2],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(response.attributes[3], attr("fee_size", "None"));
+                assert_eq!(response.attributes[3], attr("fee", "None"));
                 assert_eq!(response.attributes[4], attr("price", "2.5"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("quote_size", "250"));
@@ -2462,7 +2464,7 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
-            fee_size,
+            fee_size: _,
             quote,
             quote_size,
             price,
@@ -2479,8 +2481,7 @@ mod tests {
                                 filled: Uint128::zero(),
                                 size
                             },
-                            fee_size: None,
-                            fee_filled: None,
+                            fee: None,
                             id,
                             owner: bidder_info.sender,
                             price,
@@ -2514,10 +2515,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2589,7 +2588,7 @@ mod tests {
                     response.attributes[2],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[3], attr("fee_size", "None"));
+                assert_eq!(response.attributes[3], attr("fee", "None"));
                 assert_eq!(response.attributes[4], attr("price", "2"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("quote_size", "1000"));
@@ -2617,7 +2616,7 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
-            fee_size,
+            fee_size: _,
             price,
             quote,
             quote_size,
@@ -2636,8 +2635,7 @@ mod tests {
                                 filled: Uint128::zero(),
                                 size
                             },
-                            fee_size,
-                            fee_filled: None,
+                            fee: None,
                             price,
                             quote: Quote {
                                 denom: quote,
@@ -2669,10 +2667,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: Some("0.1".into()),
-                bid_fee_account: Some(Addr::unchecked("bid_fee_acct")),
+                ask_fee: None,
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".into(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2719,7 +2718,20 @@ mod tests {
                     response.attributes[2],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(response.attributes[3], attr("fee_size", "25"));
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Fee {
+                                denom: "quote_1".into(),
+                                filled: Uint128::zero(),
+                                size: Uint128::new(25),
+                            }
+                        )
+                    )
+                );
                 assert_eq!(response.attributes[4], attr("price", "2.5"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("quote_size", "250"));
@@ -2752,8 +2764,11 @@ mod tests {
                                 filled: Uint128::zero(),
                                 size
                             },
-                            fee_size: Some(Uint128::new(25)),
-                            fee_filled: Some(Uint128::zero()),
+                            fee: Some(Fee {
+                                denom: quote.to_owned(),
+                                filled: Uint128::zero(),
+                                size: fee_size.unwrap(),
+                            }),
                             id,
                             owner: bidder_info.sender,
                             price,
@@ -2787,10 +2802,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: Some("0.1".into()),
-                bid_fee_account: Some(Addr::unchecked("bid_fee_acct")),
+                ask_fee: None,
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_acct"),
+                    rate: "0.1".into(),
+                }),
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2862,7 +2878,20 @@ mod tests {
                     response.attributes[2],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[3], attr("fee_size", "100"));
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Fee {
+                                denom: "quote_1".into(),
+                                filled: Uint128::zero(),
+                                size: Uint128::new(100),
+                            }
+                        )
+                    )
+                );
                 assert_eq!(response.attributes[4], attr("price", "2"));
                 assert_eq!(response.attributes[5], attr("quote", "quote_1"));
                 assert_eq!(response.attributes[6], attr("quote_size", "1000"));
@@ -2872,7 +2901,7 @@ mod tests {
                 assert_eq!(
                     response.messages[0].msg,
                     transfer_marker_coins(
-                        1000,
+                        1100,
                         "quote_1",
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked("bidder")
@@ -2909,8 +2938,11 @@ mod tests {
                                 filled: Uint128::zero(),
                                 size
                             },
-                            fee_size: None,
-                            fee_filled: None,
+                            fee: Some(Fee {
+                                denom: "quote_1".to_string(),
+                                filled: Uint128::zero(),
+                                size: fee_size.unwrap(),
+                            }),
                             price,
                             quote: Quote {
                                 denom: quote,
@@ -2942,10 +2974,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -3025,10 +3055,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3108,8 +3136,7 @@ mod tests {
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
                         },
-                        fee_size: None,
-                        fee_filled: None,
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
@@ -3140,10 +3167,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3198,10 +3223,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3251,10 +3274,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3304,10 +3325,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3357,10 +3376,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3410,10 +3427,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -3465,10 +3480,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3544,10 +3557,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3656,10 +3667,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3747,10 +3756,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3911,10 +3918,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3954,10 +3959,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3998,10 +4001,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4055,10 +4056,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4098,10 +4097,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4113,21 +4110,20 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                owner: Addr::unchecked("bidder"),
                 base: Base {
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -4186,10 +4182,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4234,21 +4228,20 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                owner: Addr::unchecked("bidder"),
                 base: Base {
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -4306,10 +4299,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4349,10 +4340,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4393,10 +4382,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4409,21 +4396,20 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                owner: Addr::unchecked("not_bidder"),
                 base: Base {
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("not_bidder"),
+                price: "2".into(),
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -4458,10 +4444,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4501,10 +4485,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4583,10 +4565,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4666,10 +4646,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4767,10 +4745,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4847,10 +4823,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4966,10 +4940,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5060,10 +5032,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5226,10 +5196,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5269,10 +5237,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5313,10 +5279,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5370,10 +5334,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5413,10 +5375,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5428,21 +5388,20 @@ mod tests {
         store_test_bid(
             &mut deps.storage,
             &BidOrderV2 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                owner: Addr::unchecked("bidder"),
                 base: Base {
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -5504,10 +5463,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5526,14 +5483,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -5596,10 +5552,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5618,14 +5572,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -5684,14 +5637,13 @@ mod tests {
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
                         },
-                        fee_size: None,
+                        fee: None,
                         quote: Quote {
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
                         },
                         price: "2".into(),
-                        fee_filled: None,
                     }
                 )
             }
@@ -5714,10 +5666,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5736,14 +5686,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -5774,21 +5723,20 @@ mod tests {
                 assert_eq!(
                     stored_order,
                     BidOrderV2 {
-                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                        owner: Addr::unchecked("bidder"),
                         base: Base {
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
                         },
-                        fee_size: None,
+                        fee: None,
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        price: "2".into(),
                         quote: Quote {
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
                         },
-                        price: "2".into(),
-                        fee_filled: None,
                     }
                 )
             }
@@ -5811,10 +5759,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5866,14 +5812,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -5938,10 +5883,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5981,10 +5924,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6025,10 +5966,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6048,14 +5987,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -6090,10 +6028,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6135,10 +6071,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6171,14 +6105,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -6261,10 +6194,14 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: Some("0.001".into()),
-                ask_fee_account: Some(Addr::unchecked("ask_fee_account")),
-                bid_fee_rate: Some("0.002".into()),
-                bid_fee_account: Some(Addr::unchecked("bid_fee_account")),
+                ask_fee: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.001".into(),
+                }),
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.002".into(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6297,14 +6234,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 price: "1".into(),
-                fee_filled: None,
             },
         );
 
@@ -6373,7 +6309,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_with_fees_round_down() {
+    fn execute_with_ask_fees_round_down() {
         // setup
         let mut deps = mock_dependencies(&[]);
         let mock_env = mock_env();
@@ -6387,10 +6323,14 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: Some("0.01".into()),
-                ask_fee_account: Some(Addr::unchecked("fee_account")),
-                bid_fee_rate: Some("0.01".into()),
-                bid_fee_account: Some(Addr::unchecked("fee_account")),
+                ask_fee: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.02".into(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(0),
@@ -6423,14 +6363,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
                 },
                 price: "1".into(),
-                fee_filled: None,
             },
         );
 
@@ -6486,7 +6425,7 @@ mod tests {
                 assert_eq!(
                     execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "fee_account".into(),
+                        to_address: "ask_fee_account".into(),
                         amount: coins(1, "quote_1"),
                     })
                 );
@@ -6521,10 +6460,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6557,14 +6494,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(20),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -6662,10 +6598,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6698,14 +6632,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -6767,21 +6700,20 @@ mod tests {
                 assert_eq!(
                     stored_order,
                     BidOrderV2 {
-                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                        owner: Addr::unchecked("bidder"),
                         base: Base {
                             denom: "base_1".into(),
                             filled: Uint128::new(50),
                             size: Uint128::new(100),
                         },
-                        fee_size: None,
+                        fee: None,
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        price: "2".into(),
                         quote: Quote {
                             denom: "quote_1".into(),
                             filled: Uint128::new(100),
                             size: Uint128::new(200),
                         },
-                        price: "2".into(),
-                        fee_filled: None,
                     }
                 )
             }
@@ -6809,10 +6741,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6845,14 +6775,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(300),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(600),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -6941,8 +6870,8 @@ mod tests {
                             filled: Uint128::new(100),
                             size: Uint128::new(300),
                         },
-                        fee_size: None,
-                        fee_filled: None,
+                        fee: None,
+
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
@@ -6974,10 +6903,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7015,14 +6942,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(300),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(600),
                 },
                 price: "2".into(),
-                fee_filled: None,
             },
         );
 
@@ -7124,8 +7050,8 @@ mod tests {
                             filled: Uint128::new(100),
                             size: Uint128::new(300),
                         },
-                        fee_size: None,
-                        fee_filled: None,
+                        fee: None,
+
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
@@ -7160,10 +7086,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7196,14 +7120,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(5),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(500),
                 },
                 price: "100.000000000000000000".into(),
-                fee_filled: None,
             },
         );
 
@@ -7298,10 +7221,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7367,14 +7288,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(5),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(500),
                 },
                 price: "100.000000000000000000".into(),
-                fee_filled: None,
             },
         );
 
@@ -7473,10 +7393,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7509,14 +7427,13 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
+                fee: None,
                 quote: Quote {
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
                 },
                 price: "4".into(),
-                fee_filled: None,
             },
         );
 
@@ -7599,10 +7516,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7638,8 +7553,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -7737,10 +7652,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7804,8 +7717,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -7899,10 +7812,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7966,8 +7877,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -8061,10 +7972,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8159,8 +8068,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -8323,10 +8232,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -8362,8 +8269,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -8502,10 +8409,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -8541,8 +8446,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -8742,10 +8647,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -8781,8 +8684,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -8889,10 +8792,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8944,10 +8845,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8991,10 +8890,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9026,8 +8923,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -9080,10 +8977,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9100,8 +8995,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -9149,10 +9044,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9208,10 +9101,8 @@ mod tests {
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
@@ -9256,10 +9147,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9290,8 +9179,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -9341,10 +9230,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9375,8 +9262,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -9438,10 +9325,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9472,8 +9357,8 @@ mod tests {
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
-                fee_size: None,
-                fee_filled: None,
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -9535,10 +9420,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9649,10 +9532,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -9807,10 +9688,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9896,10 +9775,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9983,10 +9860,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -10070,10 +9945,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -10157,10 +10030,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -10253,10 +10124,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -10373,10 +10242,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -10459,10 +10326,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -10499,10 +10364,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -10561,10 +10424,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
+                ask_fee: None,
+                bid_fee: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -10579,8 +10440,7 @@ mod tests {
                 filled: Uint128::zero(),
                 size: Uint128::new(100),
             },
-            fee_size: None,
-            fee_filled: None,
+            fee: None,
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
