@@ -82,8 +82,8 @@ pub struct ContractInfoV3 {
     pub supported_quote_denoms: Vec<String>,
     pub approvers: Vec<Addr>,
     pub executors: Vec<Addr>,
-    pub ask_fee: Option<FeeInfo>,
-    pub bid_fee: Option<FeeInfo>,
+    pub ask_fee_info: Option<FeeInfo>,
+    pub bid_fee_info: Option<FeeInfo>,
     pub ask_required_attributes: Vec<String>,
     pub bid_required_attributes: Vec<String>,
     pub price_precision: Uint128,
@@ -101,8 +101,8 @@ impl From<ContractInfo> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: vec![],
             executors: contract_info.executors,
-            ask_fee: None,
-            bid_fee: None,
+            ask_fee_info: None,
+            bid_fee_info: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -122,8 +122,8 @@ impl From<ContractInfoV1> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: contract_info.approvers,
             executors: contract_info.executors,
-            ask_fee: None,
-            bid_fee: None,
+            ask_fee_info: None,
+            bid_fee_info: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -143,11 +143,11 @@ impl From<ContractInfoV2> for ContractInfoV3 {
             supported_quote_denoms: contract_info.supported_quote_denoms,
             approvers: contract_info.approvers,
             executors: contract_info.executors,
-            ask_fee: match (contract_info.fee_account, contract_info.fee_rate) {
+            ask_fee_info: match (contract_info.fee_account, contract_info.fee_rate) {
                 (Some(account), Some(rate)) => Some(FeeInfo { account, rate }),
                 (_, _) => None,
             },
-            bid_fee: None,
+            bid_fee_info: None,
             ask_required_attributes: contract_info.ask_required_attributes,
             bid_required_attributes: contract_info.bid_required_attributes,
             price_precision: contract_info.price_precision,
@@ -231,7 +231,7 @@ pub fn migrate_contract_info(
 
     match (&msg.ask_fee_account, &msg.ask_fee_rate) {
         (Some(account), Some(rate)) => {
-            contract_info.ask_fee = match (account.as_str(), rate.as_str()) {
+            contract_info.ask_fee_info = match (account.as_str(), rate.as_str()) {
                 ("", "") => None,
                 (_, _) => {
                     Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
@@ -250,7 +250,7 @@ pub fn migrate_contract_info(
 
     match (&msg.bid_fee_account, &msg.bid_fee_rate) {
         (Some(account), Some(rate)) => {
-            contract_info.bid_fee = match (account.as_str(), rate.as_str()) {
+            contract_info.bid_fee_info = match (account.as_str(), rate.as_str()) {
                 ("", "") => None,
                 (_, _) => {
                     Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
@@ -316,8 +316,8 @@ mod tests {
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee: None,
-                bid_fee: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 price_precision: Uint128::new(3),
@@ -411,8 +411,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: None,
-            bid_fee: None,
+            ask_fee_info: None,
+            bid_fee_info: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -475,11 +475,11 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: Some(FeeInfo {
+            ask_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("ask_fee_account"),
                 rate: "0.01".into(),
             }),
-            bid_fee: Some(FeeInfo {
+            bid_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("bid_fee_account"),
                 rate: "0.02".into(),
             }),
@@ -550,11 +550,11 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: Some(FeeInfo {
+            ask_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("ask_fee_account"),
                 rate: "0.01".into(),
             }),
-            bid_fee: Some(FeeInfo {
+            bid_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("bid_fee_account"),
                 rate: "0.02".into(),
             }),
@@ -625,8 +625,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: None,
-            bid_fee: None,
+            ask_fee_info: None,
+            bid_fee_info: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -696,11 +696,11 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: Some(FeeInfo {
+            ask_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("ask_fee_account"),
                 rate: "0.01".into(),
             }),
-            bid_fee: Some(FeeInfo {
+            bid_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("bid_fee_account"),
                 rate: "0.02".into(),
             }),
@@ -773,8 +773,8 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: None,
-            bid_fee: None,
+            ask_fee_info: None,
+            bid_fee_info: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -809,11 +809,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee: Some(FeeInfo {
+                ask_fee_info: Some(FeeInfo {
                     account: Addr::unchecked("ask_fee_account"),
                     rate: "0.01".into(),
                 }),
-                bid_fee: Some(FeeInfo {
+                bid_fee_info: Some(FeeInfo {
                     account: Addr::unchecked("bid_fee_account"),
                     rate: "0.02".into(),
                 }),
@@ -849,11 +849,11 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: Some(FeeInfo {
+            ask_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("ask_fee_account"),
                 rate: "0.01".into(),
             }),
-            bid_fee: Some(FeeInfo {
+            bid_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("bid_fee_account"),
                 rate: "0.02".into(),
             }),
@@ -891,11 +891,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee: Some(FeeInfo {
+                ask_fee_info: Some(FeeInfo {
                     account: Addr::unchecked("ask_fee_account"),
                     rate: "0.01".into(),
                 }),
-                bid_fee: Some(FeeInfo {
+                bid_fee_info: Some(FeeInfo {
                     account: Addr::unchecked("bid_fee_account"),
                     rate: "0.02".into(),
                 }),
@@ -931,11 +931,11 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec![Addr::unchecked("approver_3"), Addr::unchecked("approver_4")],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-            ask_fee: Some(FeeInfo {
+            ask_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("new_ask_fee_account"),
                 rate: "0.03".into(),
             }),
-            bid_fee: Some(FeeInfo {
+            bid_fee_info: Some(FeeInfo {
                 account: Addr::unchecked("new_bid_fee_account"),
                 rate: "0.04".into(),
             }),
