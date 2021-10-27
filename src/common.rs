@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Base {
+    pub canceled: Uint128,
     pub denom: String,
     pub filled: Uint128,
     pub size: Uint128,
@@ -11,6 +12,7 @@ pub struct Base {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Quote {
+    pub canceled: Uint128,
     pub denom: String,
     pub filled: Uint128,
     pub size: Uint128,
@@ -18,6 +20,7 @@ pub struct Quote {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Fee {
+    pub canceled: Uint128,
     pub denom: String,
     pub filled: Uint128,
     pub size: Uint128,

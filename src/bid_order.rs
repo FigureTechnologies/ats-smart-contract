@@ -48,6 +48,7 @@ impl From<BidOrder> for BidOrderV2 {
     fn from(bid_order: BidOrder) -> Self {
         BidOrderV2 {
             base: Base {
+                canceled: Uint128::zero(),
                 denom: bid_order.base,
                 filled: Uint128::zero(),
                 size: bid_order.size,
@@ -57,6 +58,7 @@ impl From<BidOrder> for BidOrderV2 {
             owner: bid_order.owner,
             price: bid_order.price,
             quote: Quote {
+                canceled: Uint128::zero(),
                 denom: bid_order.quote.denom,
                 filled: Uint128::zero(),
                 size: bid_order.quote.amount,
@@ -70,6 +72,7 @@ impl From<BidOrderV1> for BidOrderV2 {
     fn from(bid_order: BidOrderV1) -> Self {
         BidOrderV2 {
             base: Base {
+                canceled: Uint128::zero(),
                 denom: bid_order.base,
                 filled: Uint128::zero(),
                 size: bid_order.size,
@@ -79,6 +82,7 @@ impl From<BidOrderV1> for BidOrderV2 {
             owner: bid_order.owner,
             price: bid_order.price,
             quote: Quote {
+                canceled: Uint128::zero(),
                 denom: bid_order.quote,
                 filled: Uint128::zero(),
                 size: bid_order.quote_size,
@@ -230,6 +234,7 @@ mod tests {
             migrated_bid,
             BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100)
@@ -239,6 +244,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(1000),
@@ -299,6 +305,7 @@ mod tests {
             migrated_bid,
             BidOrderV2 {
                 base: Base {
+                    canceled: Default::default(),
                     denom: "base_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -308,6 +315,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(1000),

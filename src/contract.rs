@@ -186,11 +186,13 @@ pub fn execute(
             &info,
             BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: base,
                     filled: Uint128::zero(),
                     size,
                 },
                 fee: fee_size.map(|fee_size| Fee {
+                    canceled: Uint128::zero(),
                     denom: quote.to_owned(),
                     filled: Uint128::zero(),
                     size: fee_size,
@@ -199,6 +201,7 @@ pub fn execute(
                 owner: info.sender.to_owned(),
                 price,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: quote,
                     filled: Uint128::zero(),
                     size: quote_size,
@@ -2566,6 +2569,7 @@ mod tests {
                         stored_order,
                         BidOrderV2 {
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
@@ -2575,6 +2579,7 @@ mod tests {
                             owner: bidder_info.sender,
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -2720,6 +2725,7 @@ mod tests {
                             id,
                             owner: bidder_info.sender,
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
@@ -2727,6 +2733,7 @@ mod tests {
                             fee: None,
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -2814,6 +2821,7 @@ mod tests {
                         format!(
                             "{:?}",
                             Fee {
+                                canceled: Uint128::zero(),
                                 denom: "quote_1".into(),
                                 filled: Uint128::zero(),
                                 size: Uint128::new(25),
@@ -2849,11 +2857,13 @@ mod tests {
                         stored_order,
                         BidOrderV2 {
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
                             },
                             fee: Some(Fee {
+                                canceled: Uint128::zero(),
                                 denom: quote.to_owned(),
                                 filled: Uint128::zero(),
                                 size: fee_size.unwrap(),
@@ -2862,6 +2872,7 @@ mod tests {
                             owner: bidder_info.sender,
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -2949,6 +2960,7 @@ mod tests {
                         format!(
                             "{:?}",
                             Fee {
+                                canceled: Uint128::zero(),
                                 denom: "quote_1".into(),
                                 filled: Uint128::zero(),
                                 size: Uint128::new(1),
@@ -2984,11 +2996,13 @@ mod tests {
                         stored_order,
                         BidOrderV2 {
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
                             },
                             fee: Some(Fee {
+                                canceled: Uint128::zero(),
                                 denom: quote.to_owned(),
                                 filled: Uint128::zero(),
                                 size: fee_size.unwrap(),
@@ -2997,6 +3011,7 @@ mod tests {
                             owner: bidder_info.sender,
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -3084,6 +3099,7 @@ mod tests {
                         format!(
                             "{:?}",
                             Fee {
+                                canceled: Uint128::zero(),
                                 denom: "quote_1".into(),
                                 filled: Uint128::zero(),
                                 size: Uint128::new(2),
@@ -3119,11 +3135,13 @@ mod tests {
                         stored_order,
                         BidOrderV2 {
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
                             },
                             fee: Some(Fee {
+                                canceled: Uint128::zero(),
                                 denom: quote.to_owned(),
                                 filled: Uint128::zero(),
                                 size: fee_size.unwrap(),
@@ -3132,6 +3150,7 @@ mod tests {
                             owner: bidder_info.sender,
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -3244,6 +3263,7 @@ mod tests {
                         format!(
                             "{:?}",
                             Fee {
+                                canceled: Uint128::zero(),
                                 denom: "quote_1".into(),
                                 filled: Uint128::zero(),
                                 size: Uint128::new(100),
@@ -3293,17 +3313,20 @@ mod tests {
                             id,
                             owner: bidder_info.sender,
                             base: Base {
+                                canceled: Uint128::zero(),
                                 denom: base,
                                 filled: Uint128::zero(),
                                 size
                             },
                             fee: Some(Fee {
+                                canceled: Uint128::zero(),
                                 denom: "quote_1".to_string(),
                                 filled: Uint128::zero(),
                                 size: fee_size.unwrap(),
                             }),
                             price,
                             quote: Quote {
+                                canceled: Uint128::zero(),
                                 denom: quote,
                                 filled: Uint128::zero(),
                                 size: quote_size,
@@ -3491,6 +3514,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
@@ -3500,6 +3524,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(250),
@@ -4470,6 +4495,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -4479,6 +4505,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -4588,6 +4615,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -4597,6 +4625,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -4675,11 +4704,13 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(20),
@@ -4688,6 +4719,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -4800,11 +4832,13 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(20),
@@ -4813,6 +4847,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -4972,6 +5007,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -4981,6 +5017,7 @@ mod tests {
                 owner: Addr::unchecked("not_bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -6042,6 +6079,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -6051,6 +6089,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -6132,12 +6171,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -6221,12 +6262,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -6286,12 +6329,14 @@ mod tests {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
                         },
                         fee: None,
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
@@ -6338,16 +6383,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -6407,16 +6455,19 @@ mod tests {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(50),
                         },
                         fee: Some(Fee {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".to_string(),
                             filled: Uint128::zero(),
                             size: Uint128::new(5),
                         }),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(50),
@@ -6463,16 +6514,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -6532,16 +6586,19 @@ mod tests {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(45),
                         },
                         fee: Some(Fee {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".to_string(),
                             filled: Uint128::zero(),
                             size: Uint128::new(5),
                         }),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(45),
@@ -6588,16 +6645,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -6657,16 +6717,19 @@ mod tests {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(44),
                         },
                         fee: Some(Fee {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".to_string(),
                             filled: Uint128::zero(),
                             size: Uint128::new(4),
                         }),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(44),
@@ -6710,12 +6773,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -6752,6 +6817,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
@@ -6761,6 +6827,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
@@ -6803,12 +6870,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -6845,6 +6914,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(100),
@@ -6854,6 +6924,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
@@ -6929,12 +7000,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -7104,12 +7177,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -7222,12 +7297,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -7348,12 +7425,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
@@ -7482,12 +7561,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(150),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(150),
@@ -7616,16 +7697,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(1),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
@@ -7754,12 +7838,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(149),
@@ -7880,16 +7966,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(150),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(2),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(150),
@@ -8015,12 +8104,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(20),
@@ -8153,12 +8244,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -8226,6 +8319,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::new(50),
                             size: Uint128::new(100),
@@ -8235,6 +8329,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::new(100),
                             size: Uint128::new(200),
@@ -8296,12 +8391,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(300),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(600),
@@ -8391,6 +8488,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::new(100),
                             size: Uint128::new(300),
@@ -8401,6 +8499,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::new(200),
                             size: Uint128::new(600),
@@ -8463,12 +8562,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(300),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(600),
@@ -8571,6 +8672,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::new(100),
                             size: Uint128::new(300),
@@ -8581,6 +8683,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "2".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::new(200),
                             size: Uint128::new(600),
@@ -8641,12 +8744,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(5),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(500),
@@ -8776,12 +8881,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(500),
@@ -8865,6 +8972,7 @@ mod tests {
                     stored_order,
                     BidOrderV2 {
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::new(5),
                             size: Uint128::new(10),
@@ -8875,6 +8983,7 @@ mod tests {
                         owner: Addr::unchecked("bidder"),
                         price: "100.000000000000000000".into(),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::new(10),
                             size: Uint128::new(500),
@@ -8938,16 +9047,19 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(10),
                 },
                 fee: Some(Fee {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".to_string(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 }),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(1000),
@@ -9041,16 +9153,19 @@ mod tests {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Base {
+                            canceled: Uint128::zero(),
                             denom: "base_1".into(),
                             filled: Uint128::new(5),
                             size: Uint128::new(10),
                         },
                         fee: Some(Fee {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".to_string(),
                             filled: Uint128::new(1),
                             size: Uint128::new(50),
                         }),
                         quote: Quote {
+                            canceled: Uint128::zero(),
                             denom: "quote_1".into(),
                             filled: Uint128::zero(),
                             size: Uint128::new(200),
@@ -9145,12 +9260,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(5),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(500),
@@ -9284,12 +9401,14 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
                 },
                 fee: None,
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -9410,6 +9529,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -9420,6 +9540,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -9574,6 +9695,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -9584,6 +9706,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -9734,6 +9857,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -9744,6 +9868,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -9925,6 +10050,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -9935,6 +10061,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -10126,6 +10253,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -10136,6 +10264,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -10303,6 +10432,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -10313,6 +10443,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -10541,6 +10672,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -10551,6 +10683,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -10780,6 +10913,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -10790,6 +10924,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -10852,6 +10987,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -10862,6 +10998,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -11036,6 +11173,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(200),
@@ -11046,6 +11184,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -11119,6 +11258,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -11129,6 +11269,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -11214,6 +11355,7 @@ mod tests {
             &mut deps.storage,
             &BidOrderV2 {
                 base: Base {
+                    canceled: Uint128::zero(),
                     denom: "base_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(100),
@@ -11224,6 +11366,7 @@ mod tests {
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
                 quote: Quote {
+                    canceled: Uint128::zero(),
                     denom: "quote_1".into(),
                     filled: Uint128::zero(),
                     size: Uint128::new(400),
@@ -12297,6 +12440,7 @@ mod tests {
         // store valid bid order
         let bid_order = BidOrderV2 {
             base: Base {
+                canceled: Uint128::zero(),
                 denom: "base_1".into(),
                 filled: Uint128::zero(),
                 size: Uint128::new(100),
@@ -12306,6 +12450,7 @@ mod tests {
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
             quote: Quote {
+                canceled: Uint128::zero(),
                 denom: "quote_1".into(),
                 filled: Uint128::zero(),
                 size: Uint128::new(100),
