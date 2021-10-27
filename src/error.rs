@@ -17,6 +17,9 @@ pub enum ContractError {
     #[error("Bid order not found")]
     BidOrderNotFound,
 
+    #[error("Bid order does not have sufficient fee funds")]
+    BidOrderFeeInsufficientFunds,
+
     #[error("Cannot send funds when canceling order")]
     CancelWithFunds,
 
