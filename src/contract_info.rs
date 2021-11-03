@@ -316,8 +316,14 @@ mod tests {
                 supported_quote_denoms: vec!["quo_base_1".into(), "quo_base_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                ask_fee_info: None,
-                bid_fee_info: None,
+                ask_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_acct"),
+                    rate: "0.00".to_string(),
+                }),
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_acct"),
+                    rate: "0.02".to_string(),
+                }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 price_precision: Uint128::new(3),
@@ -345,6 +351,20 @@ mod tests {
         assert_eq!(
             contract_info.executors,
             vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")]
+        );
+        assert_eq!(
+            contract_info.ask_fee_info,
+            Some(FeeInfo {
+                account: Addr::unchecked("ask_fee_acct"),
+                rate: "0.00".to_string(),
+            })
+        );
+        assert_eq!(
+            contract_info.bid_fee_info,
+            Some(FeeInfo {
+                account: Addr::unchecked("bid_fee_acct"),
+                rate: "0.02".to_string(),
+            })
         );
         assert_eq!(
             contract_info.ask_required_attributes,

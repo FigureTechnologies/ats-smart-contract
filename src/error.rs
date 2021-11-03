@@ -16,6 +16,9 @@ pub enum ContractError {
 
     #[error("Bid order not found")]
     BidOrderNotFound,
+    
+    #[error("Bid fee account missing")]
+    BidFeeAccountMissing,
 
     #[error("Bid order does not have sufficient fee funds")]
     BidOrderFeeInsufficientFunds,
@@ -55,6 +58,9 @@ pub enum ContractError {
 
     #[error("One quote required in order")]
     QuoteQuantity,
+
+    #[error("Order should not have fees")]
+    SentFees,
 
     #[error("Sent funds does not match order")]
     SentFundsOrderMismatch,

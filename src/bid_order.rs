@@ -4,8 +4,8 @@ use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use cosmwasm_std::{Addr, Api, Coin, Order, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
-use rust_decimal::prelude::FromPrimitive;
-use rust_decimal::Decimal;
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::{Decimal, RoundingStrategy};
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,45 @@ pub struct BidOrderV2 {
 }
 
 impl BidOrderV2 {
+    pub fn calculate_fee(
+        &self,
+        gross_quote_proceeds: Uint128,
+    ) -> Result<Option<Coin>, ContractError> {
+        match &self.fee {
+            Some(bid_order_fee) => {
+                // calculate expected ratio of quote remaining after this transaction
+                let expected_quote_ratio =
+                    self.get_quote_ratio(self.get_remaining_quote() - gross_quote_proceeds);
+
+                // calculate expected remaining fee
+                let expected_remaining_fee = expected_quote_ratio
+                    .checked_mul(Decimal::from(bid_order_fee.amount.u128()))
+                    .ok_or(ContractError::TotalOverflow)?
+                    .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                    .to_u128()
+                    .ok_or(ContractError::TotalOverflow)?;
+
+                // the bid fee due is the difference between the expected remaining fee and the current remaining fee
+                let bid_fee = self
+                    .get_remaining_fee()
+                    .checked_sub(Uint128::new(expected_remaining_fee))
+                    .map_err(|_| ContractError::BidOrderFeeInsufficientFunds)?;
+
+                let bid_fee = Coin {
+                    denom: bid_order_fee.denom.to_owned(),
+                    amount: bid_fee,
+                };
+
+                if bid_fee.amount.gt(&Uint128::zero()) {
+                    Ok(Some(bid_fee))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Returns the remaining amount of base in the order
     pub fn get_remaining_base(&self) -> Uint128 {
         self.base.amount

@@ -494,29 +494,44 @@ fn create_bid(
     }
 
     // if bid fee exists, calculate and compare to sent fee_size
-    if let Some(bid_fee_info) = contract_info.bid_fee_info {
-        let calculated_fee_size = Decimal::from_str(&bid_fee_info.rate)
-            .map_err(|_| ContractError::InvalidFields {
-                fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
-            })?
-            .checked_mul(total)
-            .ok_or(ContractError::TotalOverflow)?
-            .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-            .to_u128()
-            .ok_or(ContractError::TotalOverflow)?;
+    match contract_info.bid_fee_info {
+        Some(bid_fee_info) => {
+            let bid_fee_rate = Decimal::from_str(&bid_fee_info.rate).map_err(|_| {
+                ContractError::InvalidFields {
+                    fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
+                }
+            })?;
 
-        match &mut bid_order.fee {
-            Some(fee) => {
-                if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
+            // if the bid fee rate is 0, there should not be any sent fees
+            if bid_fee_rate.eq(&Decimal::zero()) && bid_order.fee.is_some() {
+                return Err(ContractError::SentFees);
+            }
+
+            let calculated_fee_size = bid_fee_rate
+                .checked_mul(total)
+                .ok_or(ContractError::TotalOverflow)?
+                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                .to_u128()
+                .ok_or(ContractError::TotalOverflow)?;
+
+            match &mut bid_order.fee {
+                Some(fee) => {
+                    if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
+                        return Err(ContractError::InvalidFeeSize {
+                            fee_rate: bid_fee_info.rate,
+                        });
+                    }
+                }
+                _ => {
                     return Err(ContractError::InvalidFeeSize {
                         fee_rate: bid_fee_info.rate,
-                    });
+                    })
                 }
             }
-            _ => {
-                return Err(ContractError::InvalidFeeSize {
-                    fee_rate: bid_fee_info.rate,
-                })
+        }
+        None => {
+            if let Some(_) = bid_order.fee {
+                return Err(ContractError::SentFees);
             }
         }
     }
@@ -1272,67 +1287,39 @@ fn execute_match(
     response = response.add_attribute("ask_fee", format!("{:?}", ask_fee));
 
     // calculate bid fees and create message if applicable
-    let bid_fee = match contract_info.bid_fee_info {
-        Some(bid_fee_info) => {
-            // the bid order was created when fees were required
-            match &bid_order.fee {
-                Some(bid_order_fee) => {
-                    let gross_proceeds = Uint128::new(
-                        gross_proceeds
-                            .to_u128()
-                            .ok_or(ContractError::TotalOverflow)?,
-                    );
-
-                    // calculate expected ratio of quote remaining after this transaction
-                    let expected_quote_ratio =
-                        bid_order.get_quote_ratio(bid_order.get_remaining_quote() - gross_proceeds);
-
-                    // calculate expected remaining fee
-                    let expected_remaining_fee = expected_quote_ratio
-                        .checked_mul(Decimal::from(bid_order_fee.amount.u128()))
-                        .ok_or(ContractError::TotalOverflow)?
-                        .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-                        .to_u128()
-                        .ok_or(ContractError::TotalOverflow)?;
-
-                    // the bid fee due is the difference between the expected remaining fee and the current remaining fee
-                    let bid_fee = bid_order
-                        .get_remaining_fee()
-                        .checked_sub(Uint128::new(expected_remaining_fee))
-                        .map_err(|_| ContractError::BidOrderFeeInsufficientFunds)?;
-
-                    let bid_fee = Coin {
-                        denom: bid_order_fee.denom.to_owned(),
-                        amount: bid_fee,
-                    };
-
-                    if bid_fee.amount.gt(&Uint128::zero()) {
-                        match is_quote_restricted_marker {
-                            true => {
-                                response = response.add_message(transfer_marker_coins(
-                                    bid_fee.amount.to_owned().u128(),
-                                    bid_fee.denom.to_owned(),
-                                    bid_fee_info.account,
-                                    env.contract.address.to_owned(),
-                                )?);
-                            }
-                            false => {
-                                response = response.add_message(BankMsg::Send {
-                                    to_address: bid_fee_info.account.to_string(),
-                                    amount: vec![bid_fee.to_owned()],
-                                });
-                            }
-                        };
-                        Some(bid_fee)
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            }
-        }
+    let bid_fee = match &bid_order.fee {
+        Some(_) => bid_order.calculate_fee(Uint128::new(
+            gross_proceeds
+                .to_u128()
+                .ok_or(ContractError::TotalOverflow)?,
+        ))?,
         None => None,
     };
+
+    match &bid_fee {
+        Some(bid_fee) => match contract_info.bid_fee_info {
+            Some(bid_fee_info) => {
+                match is_quote_restricted_marker {
+                    true => {
+                        response = response.add_message(transfer_marker_coins(
+                            bid_fee.amount.to_owned().u128(),
+                            bid_fee.denom.to_owned(),
+                            bid_fee_info.account,
+                            env.contract.address.to_owned(),
+                        )?);
+                    }
+                    false => {
+                        response = response.add_message(BankMsg::Send {
+                            to_address: bid_fee_info.account.to_string(),
+                            amount: vec![bid_fee.to_owned()],
+                        });
+                    }
+                };
+            }
+            None => return Err(ContractError::BidFeeAccountMissing),
+        },
+        None => (),
+    }
 
     // add fill event to bid order events
     bid_order.events.push(Event {
@@ -8986,7 +8973,7 @@ mod tests {
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
-    // remaining quote balance if remaining order size = 0
+    // partial quote and partial fee
     #[test]
     fn execute_price_overlap_use_ask_with_bid_fees() {
         // setup
