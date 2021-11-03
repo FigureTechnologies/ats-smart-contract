@@ -16,7 +16,7 @@ pub enum ContractError {
 
     #[error("Bid order not found")]
     BidOrderNotFound,
-    
+
     #[error("Bid fee account missing")]
     BidFeeAccountMissing,
 
