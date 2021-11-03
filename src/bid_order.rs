@@ -1,9 +1,11 @@
-use crate::common::{Base, Fee, Quote};
+use crate::common::{Action, Event};
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use cosmwasm_std::{Addr, Api, Coin, Order, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -33,35 +35,107 @@ pub struct BidOrderV1 {
     pub size: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BidOrderV2 {
-    pub base: Base,
-    pub fee: Option<Fee>,
+    pub base: Coin,
+    pub events: Vec<Event>,
+    pub fee: Option<Coin>,
     pub id: String,
     pub owner: Addr,
     pub price: String,
-    pub quote: Quote,
+    pub quote: Coin,
+}
+
+impl BidOrderV2 {
+    /// Returns the remaining amount of base in the order
+    pub fn get_remaining_base(&self) -> Uint128 {
+        self.base.amount
+            - self
+                .events
+                .iter()
+                .map(|event| match &event.action {
+                    Action::Fill { base, .. } => base.amount,
+                    Action::Reject { base, .. } => base.amount,
+                    _ => Uint128::zero(),
+                })
+                .sum::<Uint128>()
+    }
+
+    /// Calculates the ratio of an amount to the bid order base amount
+    pub fn get_base_ratio(&self, amount: Uint128) -> Decimal {
+        Decimal::from_u128(amount.u128())
+            .unwrap()
+            .checked_div(Decimal::from_u128(self.base.amount.u128()).unwrap())
+            .unwrap()
+    }
+
+    /// Returns the remaining amount of fee in the order
+    pub fn get_remaining_fee(&self) -> Uint128 {
+        match &self.fee {
+            None => Uint128::zero(),
+            Some(fee) => {
+                fee.amount
+                    - self
+                        .events
+                        .iter()
+                        .map(|event| match &event.action {
+                            Action::Fill { fee, .. } => match fee {
+                                None => Uint128::zero(),
+                                Some(fee) => fee.amount,
+                            },
+                            Action::Refund { fee, .. } => match fee {
+                                None => Uint128::zero(),
+                                Some(fee) => fee.amount,
+                            },
+                            Action::Reject { fee, .. } => match fee {
+                                None => Uint128::zero(),
+                                Some(fee) => fee.amount,
+                            },
+                        })
+                        .sum::<Uint128>()
+            }
+        }
+    }
+
+    /// Calculates the ratio of an amount to the bid order quote amount
+    pub fn get_quote_ratio(&self, amount: Uint128) -> Decimal {
+        Decimal::from_u128(amount.u128())
+            .unwrap()
+            .checked_div(Decimal::from_u128(self.quote.amount.u128()).unwrap())
+            .unwrap()
+    }
+
+    /// Returns the remaining amount of quote in the order
+    pub fn get_remaining_quote(&self) -> Uint128 {
+        self.quote.amount
+            - self
+                .events
+                .iter()
+                .map(|event| match &event.action {
+                    Action::Fill { quote, .. } => quote.amount,
+                    Action::Refund { quote, .. } => quote.amount,
+                    Action::Reject { quote, .. } => quote.amount,
+                })
+                .sum::<Uint128>()
+    }
 }
 
 #[allow(deprecated)]
 impl From<BidOrder> for BidOrderV2 {
     fn from(bid_order: BidOrder) -> Self {
         BidOrderV2 {
-            base: Base {
-                canceled: Uint128::zero(),
+            base: Coin {
+                amount: bid_order.size,
                 denom: bid_order.base,
-                filled: Uint128::zero(),
-                size: bid_order.size,
             },
+            events: vec![],
             fee: None,
             id: bid_order.id,
             owner: bid_order.owner,
             price: bid_order.price,
-            quote: Quote {
-                canceled: Uint128::zero(),
+            quote: Coin {
+                amount: bid_order.quote.amount,
                 denom: bid_order.quote.denom,
-                filled: Uint128::zero(),
-                size: bid_order.quote.amount,
             },
         }
     }
@@ -71,22 +145,19 @@ impl From<BidOrder> for BidOrderV2 {
 impl From<BidOrderV1> for BidOrderV2 {
     fn from(bid_order: BidOrderV1) -> Self {
         BidOrderV2 {
-            base: Base {
-                canceled: Uint128::zero(),
+            base: Coin {
+                amount: bid_order.size,
                 denom: bid_order.base,
-                filled: Uint128::zero(),
-                size: bid_order.size,
             },
             id: bid_order.id,
             fee: None,
             owner: bid_order.owner,
             price: bid_order.price,
-            quote: Quote {
-                canceled: Uint128::zero(),
+            quote: Coin {
+                amount: bid_order.quote_size,
                 denom: bid_order.quote,
-                filled: Uint128::zero(),
-                size: bid_order.quote_size,
             },
+            events: vec![],
         }
     }
 }
@@ -164,15 +235,17 @@ mod tests {
     use crate::bid_order::{
         get_bid_storage_read, migrate_bid_orders, BidOrderV1, BidOrderV2, NAMESPACE_ORDER_BID,
     };
-    use crate::common::{Base, Quote};
+    use crate::common::{Action, Event};
     use crate::contract_info::set_legacy_contract_info;
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
     use crate::version_info::{set_version_info, VersionInfoV1};
     use crate::{bid_order, contract_info};
-    use cosmwasm_std::{coin, Addr, Uint128};
+    use cosmwasm_std::{coin, Addr, Coin, Uint128};
     use cosmwasm_storage::{bucket, Bucket};
     use provwasm_mocks::mock_dependencies;
+    use rust_decimal::prelude::FromStr;
+    use rust_decimal::Decimal;
 
     #[test]
     #[allow(deprecated)]
@@ -233,21 +306,18 @@ mod tests {
         assert_eq!(
             migrated_bid,
             BidOrderV2 {
-                base: Base {
-                    canceled: Uint128::zero(),
+                base: Coin {
+                    amount: Uint128::new(100),
                     denom: "base_1".to_string(),
-                    filled: Uint128::zero(),
-                    size: Uint128::new(100)
                 },
+                events: vec![],
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
-                quote: Quote {
-                    canceled: Uint128::zero(),
+                quote: Coin {
+                    amount: Uint128::new(1000),
                     denom: "quote_1".to_string(),
-                    filled: Uint128::zero(),
-                    size: Uint128::new(1000),
                 },
             }
         );
@@ -304,23 +374,98 @@ mod tests {
         assert_eq!(
             migrated_bid,
             BidOrderV2 {
-                base: Base {
-                    canceled: Default::default(),
+                base: Coin {
+                    amount: Uint128::new(100),
                     denom: "base_1".to_string(),
-                    filled: Uint128::zero(),
-                    size: Uint128::new(100),
                 },
+                events: vec![],
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
                 price: "10".to_string(),
-                quote: Quote {
-                    canceled: Uint128::zero(),
+                quote: Coin {
+                    amount: Uint128::new(1000),
                     denom: "quote_1".to_string(),
-                    filled: Uint128::zero(),
-                    size: Uint128::new(1000),
                 },
             }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    pub fn get_functions() -> Result<(), ContractError> {
+        let bid_order = BidOrderV2 {
+            base: Coin {
+                amount: Uint128::new(100),
+                denom: "base_1".to_string(),
+            },
+            events: vec![
+                Event {
+                    action: Action::Fill {
+                        base: Coin {
+                            denom: "base_1".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Some(Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(2),
+                        }),
+                        price: "2".to_string(),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(20),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Refund {
+                        fee: Some(Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(8),
+                        }),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(80),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Reject {
+                        base: Coin {
+                            denom: "base_1".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Default::default(),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(100),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+            ],
+            fee: None,
+            id: "id".to_string(),
+            owner: Addr::unchecked("bidder"),
+            price: "10".to_string(),
+            quote: Coin {
+                amount: Uint128::new(1000),
+                denom: "quote_1".to_string(),
+            },
+        };
+
+        assert_eq!(bid_order.get_remaining_base(), Uint128::new(80));
+        assert_eq!(
+            bid_order.get_base_ratio(bid_order.get_remaining_base()),
+            Decimal::from_str("0.8").unwrap()
+        );
+        assert_eq!(bid_order.get_remaining_quote(), Uint128::new(800));
+        assert_eq!(
+            bid_order.get_quote_ratio(bid_order.get_remaining_quote()),
+            Decimal::from_str("0.8").unwrap()
         );
 
         Ok(())
