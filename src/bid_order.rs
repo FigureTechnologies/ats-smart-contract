@@ -47,15 +47,12 @@ pub struct BidOrderV2 {
 }
 
 impl BidOrderV2 {
-    pub fn calculate_fee(
-        &self,
-        gross_quote_proceeds: Uint128,
-    ) -> Result<Option<Coin>, ContractError> {
+    pub fn calculate_fee(&self, gross_proceeds: Uint128) -> Result<Option<Coin>, ContractError> {
         match &self.fee {
             Some(bid_order_fee) => {
                 // calculate expected ratio of quote remaining after this transaction
                 let expected_quote_ratio =
-                    self.get_quote_ratio(self.get_remaining_quote() - gross_quote_proceeds);
+                    self.get_quote_ratio(self.get_remaining_quote() - gross_proceeds);
 
                 // calculate expected remaining fee
                 let expected_remaining_fee = expected_quote_ratio

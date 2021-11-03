@@ -1177,18 +1177,18 @@ fn execute_match(
         return Err(ContractError::InvalidExecuteSize);
     }
 
-    // calculate gross proceeds, (price * size), error if overflows
-    let gross_proceeds = execute_price
+    // calculate gross proceeds using execute price, (price * size), error if overflows
+    let actual_gross_proceeds = execute_price
         .checked_mul(Decimal::from(execute_size.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
     // error if gross proceeds is not an integer
-    if gross_proceeds.fract().ne(&Decimal::zero()) {
+    if actual_gross_proceeds.fract().ne(&Decimal::zero()) {
         return Err(ContractError::NonIntegerTotal);
     }
 
     let mut net_proceeds = Uint128::new(
-        gross_proceeds
+        actual_gross_proceeds
             .to_u128()
             .ok_or(ContractError::TotalOverflow)?,
     );
@@ -1239,7 +1239,7 @@ fn execute_match(
                 .map_err(|_| ContractError::InvalidFields {
                     fields: vec![String::from("ContractInfo.ask_fee_info.rate")],
                 })?
-                .checked_mul(gross_proceeds)
+                .checked_mul(actual_gross_proceeds)
                 .ok_or(ContractError::TotalOverflow)?
                 .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
                 .to_u128()
@@ -1286,17 +1286,18 @@ fn execute_match(
 
     response = response.add_attribute("ask_fee", format!("{:?}", ask_fee));
 
-    // calculate bid fees and create message if applicable
-    let bid_fee = match &bid_order.fee {
+    // get bid fees and create message if applicable
+    let actual_bid_fee = match &bid_order.fee {
         Some(_) => bid_order.calculate_fee(Uint128::new(
-            gross_proceeds
+            actual_gross_proceeds
                 .to_u128()
                 .ok_or(ContractError::TotalOverflow)?,
         ))?,
         None => None,
     };
 
-    match &bid_fee {
+    // add bid fee message
+    match &actual_bid_fee {
         Some(bid_fee) => match contract_info.bid_fee_info {
             Some(bid_fee_info) => {
                 match is_quote_restricted_marker {
@@ -1321,28 +1322,7 @@ fn execute_match(
         None => (),
     }
 
-    // add fill event to bid order events
-    bid_order.events.push(Event {
-        action: Action::Fill {
-            base: Coin {
-                denom: bid_order.base.denom.to_owned(),
-                amount: execute_size,
-            },
-            fee: bid_fee.to_owned(),
-            price,
-            quote: Coin {
-                denom: bid_order.quote.denom.to_owned(),
-                amount: Uint128::new(
-                    gross_proceeds
-                        .to_u128()
-                        .ok_or(ContractError::TotalOverflow)?,
-                ),
-            },
-        },
-        block_info: env.block.into(),
-    });
-
-    response = response.add_attribute("bid_fee", format!("{:?}", bid_fee));
+    response = response.add_attribute("bid_fee", format!("{:?}", actual_bid_fee));
 
     // add 'send quote to asker' and 'send base to bidder' messages
     match &ask_order.class {
@@ -1452,35 +1432,138 @@ fn execute_match(
         }
     };
 
-    // calculate refund to bidder if execute price < bid price
+    // determine refunds to bidder
     if execute_price.lt(&bid_price) {
-        let bidder_refund = bid_price
-            .checked_sub(execute_price)
-            .unwrap()
+        // calculate gross proceeds using bid price, (price * size), error if overflows
+        let original_gross_proceeds = bid_price
             .checked_mul(Decimal::from(execute_size.u128()))
-            .unwrap();
+            .ok_or(ContractError::TotalOverflow)?;
 
-        if !bidder_refund.is_zero() {
+        // error if gross proceeds is not an integer
+        if original_gross_proceeds.fract().ne(&Decimal::zero()) {
+            return Err(ContractError::NonIntegerTotal);
+        }
+
+        // calculate refund
+        let bid_quote_refund = original_gross_proceeds
+            .checked_sub(actual_gross_proceeds)
+            .ok_or(ContractError::TotalOverflow)?
+            .to_u128()
+            .ok_or(ContractError::NonIntegerTotal)?;
+
+        // calculate fee based on original gross proceeds
+        let bid_fee_refund = {
+            let original_bid_fee = bid_order.calculate_fee(Uint128::new(
+                original_gross_proceeds
+                    .to_u128()
+                    .ok_or(ContractError::TotalOverflow)?,
+            ))?;
+
+            match (&actual_bid_fee, original_bid_fee) {
+                (Some(actual_bid_fee), Some(mut original_bid_fee)) => {
+                    let refund_amount = original_bid_fee.amount - actual_bid_fee.amount;
+
+                    if refund_amount.gt(&Uint128::zero()) {
+                        original_bid_fee.amount = refund_amount;
+                        Some(original_bid_fee)
+                    } else {
+                        None
+                    }
+                }
+                (_, _) => None,
+            }
+        };
+
+        if bid_quote_refund.gt(&0u128) {
             match is_quote_restricted_marker {
                 true => {
+                    // add the quote refund
                     response = response.add_message(transfer_marker_coins(
-                        bidder_refund.to_u128().unwrap(),
+                        bid_quote_refund,
                         bid_order.quote.denom.to_owned(),
                         bid_order.owner.to_owned(),
-                        env.contract.address,
+                        env.contract.address.to_owned(),
                     )?);
+                    // add the fee refund
+                    if let Some(fee_refund) = &bid_fee_refund {
+                        response = response.add_message(transfer_marker_coins(
+                            fee_refund.amount.u128(),
+                            fee_refund.denom.to_owned(),
+                            bid_order.owner.to_owned(),
+                            env.contract.address,
+                        )?);
+                    }
                 }
                 false => {
                     response = response.add_message(BankMsg::Send {
                         to_address: bid_order.owner.to_string(),
                         amount: vec![Coin {
                             denom: bid_order.quote.denom.clone(),
-                            amount: bidder_refund.to_u128().unwrap().into(),
+                            amount: bid_quote_refund.into(),
                         }],
                     });
+                    if let Some(fee_refund) = &bid_fee_refund {
+                        response = response.add_message(BankMsg::Send {
+                            to_address: bid_order.owner.to_string(),
+                            amount: vec![fee_refund.to_owned()],
+                        });
+                    }
                 }
             }
         }
+
+        // add fill event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Fill {
+                base: Coin {
+                    denom: bid_order.base.denom.to_owned(),
+                    amount: execute_size,
+                },
+                fee: actual_bid_fee.to_owned(),
+                price,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(
+                        actual_gross_proceeds
+                            .to_u128()
+                            .ok_or(ContractError::TotalOverflow)?,
+                    ),
+                },
+            },
+            block_info: env.block.to_owned().into(),
+        });
+        // add refund event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Refund {
+                fee: bid_fee_refund,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(bid_quote_refund),
+                },
+            },
+            block_info: env.block.into(),
+        });
+    } else {
+        // add fill event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Fill {
+                base: Coin {
+                    denom: bid_order.base.denom.to_owned(),
+                    amount: execute_size,
+                },
+                fee: actual_bid_fee,
+                price,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(
+                        actual_gross_proceeds
+                            .to_u128()
+                            .ok_or(ContractError::TotalOverflow)?,
+                    ),
+                },
+            },
+            block_info: env.block.into(),
+        });
     }
 
     // finally update or remove the orders from storage
@@ -7469,7 +7552,10 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "1"));
+                assert_eq!(
+                    execute_response.attributes[7],
+                    attr("ask_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
                 assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
 
                 assert_eq!(execute_response.messages.len(), 3);
@@ -7604,7 +7690,10 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "150"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "2"));
+                assert_eq!(
+                    execute_response.attributes[7],
+                    attr("ask_fee", format!("{:?}", Some(coin(2, "quote_1"))))
+                );
                 assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
 
                 assert_eq!(execute_response.messages.len(), 3);
@@ -7743,7 +7832,10 @@ mod tests {
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
                 assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "1"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -8009,7 +8101,10 @@ mod tests {
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "150"));
                 assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "2"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(2, "quote_1"))))
+                );
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -8312,7 +8407,21 @@ mod tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(50)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -8478,7 +8587,21 @@ mod tests {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(200)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -8658,7 +8781,21 @@ mod tests {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(200)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -8819,7 +8956,6 @@ mod tests {
     fn execute_price_overlap_use_ask_with_partial_bid() {
         // setup
         let mut deps = mock_dependencies(&[]);
-        let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -8883,7 +9019,7 @@ mod tests {
 
         let execute_response = execute(
             deps.as_mut(),
-            mock_env,
+            mock_env(),
             mock_info("exec_1", &[]),
             execute_msg,
         );
@@ -8954,7 +9090,33 @@ mod tests {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        events: vec![
+                            Event {
+                                action: Action::Fill {
+                                    base: Coin {
+                                        denom: "base_1".to_string(),
+                                        amount: Uint128::new(5),
+                                    },
+                                    fee: None,
+                                    price: "2.000000000000000000".to_string(),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(10),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            },
+                            Event {
+                                action: Action::Refund {
+                                    fee: None,
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(490),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            }
+                        ],
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -8978,7 +9140,6 @@ mod tests {
     fn execute_price_overlap_use_ask_with_bid_fees() {
         // setup
         let mut deps = mock_dependencies(&[]);
-        let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -9048,7 +9209,7 @@ mod tests {
 
         let execute_response = execute(
             deps.as_mut(),
-            mock_env,
+            mock_env(),
             mock_info("exec_1", &[]),
             execute_msg,
         );
@@ -9075,9 +9236,12 @@ mod tests {
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
                 assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
 
-                assert_eq!(execute_response.messages.len(), 4);
+                assert_eq!(execute_response.messages.len(), 5);
                 assert_eq!(
                     execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
@@ -9103,7 +9267,14 @@ mod tests {
                     execute_response.messages[3].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".into(),
-                        amount: vec![coin(490 + 49, "quote_1")],
+                        amount: vec![coin(490, "quote_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[4].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(49, "quote_1")],
                     })
                 );
             }
@@ -9128,14 +9299,46 @@ mod tests {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        events: vec![
+                            Event {
+                                action: Action::Fill {
+                                    base: Coin {
+                                        denom: "base_1".to_string(),
+                                        amount: Uint128::new(5),
+                                    },
+                                    fee: Some(Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(1),
+                                    }),
+                                    price: "2.000000000000000000".to_string(),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(10),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            },
+                            Event {
+                                action: Action::Refund {
+                                    fee: Some(Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(49),
+                                    }),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(490),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            }
+                        ],
                         fee: Some(Coin {
-                            amount: Uint128::new(50),
+                            amount: Uint128::new(100),
                             denom: "quote_1".to_string(),
                         }),
                         quote: Coin {
                             denom: "quote_1".into(),
-                            amount: Uint128::new(200),
+                            amount: Uint128::new(1000),
                         },
                         price: "100.000000000000000000".into(),
                     }
