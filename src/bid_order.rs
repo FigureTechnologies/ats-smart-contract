@@ -35,7 +35,7 @@ pub struct BidOrderV1 {
     pub size: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
     pub base: Coin,
     pub events: Vec<Event>,
