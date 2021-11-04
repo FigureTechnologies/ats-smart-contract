@@ -1,7 +1,7 @@
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Api, Coin, Order, Storage, Uint128};
+use cosmwasm_std::{Addr, Api, Coin, Order, Pair, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
@@ -75,21 +75,18 @@ pub fn migrate_ask_orders(
     let upgrade_req = VersionReq::parse("<0.15.0")?;
 
     if upgrade_req.matches(&current_version) {
-        let legacy_ask_storage: Bucket<AskOrder> = bucket(store, NAMESPACE_ORDER_ASK);
+        let existing_ask_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_ASK)
+            .range(None, None, Order::Ascending)
+            .map(|kv_bid: StdResult<Pair<AskOrder>>| {
+                let (ask_key, _) = kv_bid.unwrap();
+                ask_key
+            })
+            .collect();
 
-        let migrated_ask_orders: Vec<Result<(Vec<u8>, AskOrderV1), ContractError>> =
-            legacy_ask_storage
-                .range(None, None, Order::Ascending)
-                .map(|kv_ask| -> Result<(Vec<u8>, AskOrderV1), ContractError> {
-                    let (ask_key, ask) = kv_ask?;
-                    Ok((ask_key, ask.into()))
-                })
-                .collect();
-
-        let mut ask_storage = get_ask_storage(store);
-        for migrated_ask_order in migrated_ask_orders {
-            let (ask_key, ask) = migrated_ask_order?;
-            ask_storage.save(&ask_key, &ask)?
+        for existing_ask_order_id in existing_ask_order_ids {
+            let existing_ask_order: AskOrder =
+                bucket_read(store, NAMESPACE_ORDER_ASK).load(&existing_ask_order_id)?;
+            get_ask_storage(store).save(&existing_ask_order_id, &existing_ask_order.into())?
         }
     }
 

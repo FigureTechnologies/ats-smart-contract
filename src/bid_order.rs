@@ -2,7 +2,7 @@ use crate::common::{Action, Event};
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Api, Coin, Order, Storage, Uint128};
+use cosmwasm_std::{Addr, Api, Coin, Order, Pair, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
@@ -211,41 +211,35 @@ pub fn migrate_bid_orders(
     let upgrade_req = VersionReq::parse("<0.15.0")?;
 
     if upgrade_req.matches(&current_version) {
-        let legacy_bid_storage: Bucket<BidOrder> = bucket(store, NAMESPACE_ORDER_BID);
+        let existing_bid_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_BID)
+            .range(None, None, Order::Ascending)
+            .map(|kv_bid: StdResult<Pair<BidOrder>>| {
+                let (bid_key, _) = kv_bid.unwrap();
+                bid_key
+            })
+            .collect();
 
-        let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV2), ContractError>> =
-            legacy_bid_storage
-                .range(None, None, Order::Ascending)
-                .map(|kv_bid| -> Result<(Vec<u8>, BidOrderV2), ContractError> {
-                    let (bid_key, bid) = kv_bid?;
-                    Ok((bid_key, bid.into()))
-                })
-                .collect();
-
-        let mut bid_storage = get_bid_storage(store);
-        for migrated_bid_order in migrated_bid_orders {
-            let (bid_key, bid) = migrated_bid_order?;
-            bid_storage.save(&bid_key, &bid)?
+        for existing_bid_order_id in existing_bid_order_ids {
+            let existing_bid_order: BidOrder =
+                bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_id)?;
+            get_bid_storage(store).save(&existing_bid_order_id, &existing_bid_order.into())?
         }
     }
 
     // migration from 0.15.2 - 0.16.1 => 0.16.2
     if VersionReq::parse(">=0.15.1, <0.16.2")?.matches(&current_version) {
-        let bid_order_v1_storage: Bucket<BidOrderV1> = bucket(store, NAMESPACE_ORDER_BID);
+        let existing_bid_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_BID)
+            .range(None, None, Order::Ascending)
+            .map(|kv_bid: StdResult<Pair<BidOrderV1>>| {
+                let (bid_key, _) = kv_bid.unwrap();
+                bid_key
+            })
+            .collect();
 
-        let migrated_bid_orders: Vec<Result<(Vec<u8>, BidOrderV2), ContractError>> =
-            bid_order_v1_storage
-                .range(None, None, Order::Ascending)
-                .map(|kv_bid| -> Result<(Vec<u8>, BidOrderV2), ContractError> {
-                    let (bid_key, bid) = kv_bid?;
-                    Ok((bid_key, bid.into()))
-                })
-                .collect();
-
-        let mut bid_storage = get_bid_storage(store);
-        for migrated_bid_order in migrated_bid_orders {
-            let (bid_key, bid) = migrated_bid_order?;
-            bid_storage.save(&bid_key, &bid)?
+        for existing_bid_order_id in existing_bid_order_ids {
+            let existing_bid_order: BidOrderV1 =
+                bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_id)?;
+            get_bid_storage(store).save(&existing_bid_order_id, &existing_bid_order.into())?
         }
     }
 
