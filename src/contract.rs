@@ -63,7 +63,7 @@ pub fn instantiate(
                 })?;
 
                 Some(FeeInfo {
-                    account: deps.api.addr_validate(&account)?,
+                    account: deps.api.addr_validate(account)?,
                     rate: rate.to_string(),
                 })
             }
@@ -81,7 +81,7 @@ pub fn instantiate(
                 })?;
 
                 Some(FeeInfo {
-                    account: deps.api.addr_validate(&account)?,
+                    account: deps.api.addr_validate(account)?,
                     rate: rate.to_string(),
                 })
             }
@@ -530,7 +530,7 @@ fn create_bid(
             }
         }
         None => {
-            if let Some(_) = bid_order.fee {
+            if bid_order.fee.is_some() {
                 return Err(ContractError::SentFees);
             }
         }
@@ -1519,7 +1519,7 @@ fn execute_match(
                     denom: bid_order.base.denom.to_owned(),
                     amount: execute_size,
                 },
-                fee: actual_bid_fee.to_owned(),
+                fee: actual_bid_fee,
                 price,
                 quote: Coin {
                     denom: bid_order.quote.denom.to_owned(),

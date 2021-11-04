@@ -222,7 +222,7 @@ pub fn migrate_contract_info(
             // Validate and convert approvers to addresses
             let mut new_approvers: Vec<Addr> = Vec::new();
             for approver_str in approvers {
-                let address = api.addr_validate(&approver_str)?;
+                let address = api.addr_validate(approver_str)?;
                 new_approvers.push(address);
             }
 
@@ -240,7 +240,7 @@ pub fn migrate_contract_info(
                     })?;
 
                     Some(FeeInfo {
-                        account: api.addr_validate(&account)?,
+                        account: api.addr_validate(account)?,
                         rate: rate.to_string(),
                     })
                 }
@@ -259,7 +259,7 @@ pub fn migrate_contract_info(
                     })?;
 
                     Some(FeeInfo {
-                        account: api.addr_validate(&account)?,
+                        account: api.addr_validate(account)?,
                         rate: rate.to_string(),
                     })
                 }
