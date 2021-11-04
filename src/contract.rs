@@ -1586,22 +1586,29 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(
+    mut deps: DepsMut,
+    env: Env,
+    msg: MigrateMsg,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
     msg.validate()?;
 
+    // build response
+    let mut response: Response<ProvenanceMsg> = Response::new();
+
     // migrate contract_info
-    migrate_contract_info(deps.storage, deps.api, &msg)?;
+    migrate_contract_info(deps.branch(), &msg)?;
 
     // migrate ask orders
-    migrate_ask_orders(deps.storage, deps.api, &msg)?;
+    migrate_ask_orders(deps.branch(), &msg)?;
 
     // migrate bid orders
-    migrate_bid_orders(deps.storage, deps.api, &msg)?;
+    response = migrate_bid_orders(deps.branch(), env, &msg, response)?;
 
     // lastly, migrate version_info
-    migrate_version_info(deps.storage)?;
+    migrate_version_info(deps.branch())?;
 
-    Ok(Response::default())
+    Ok(response)
 }
 
 // smart contract query entrypoint

@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Api, Storage, Uint128};
+use cosmwasm_std::{Addr, DepsMut, Storage, Uint128};
 use cw_storage_plus::Item;
 use rust_decimal::prelude::FromStr;
 use rust_decimal::Decimal;
@@ -186,10 +186,11 @@ pub fn set_legacy_contract_info(
 }
 
 pub fn migrate_contract_info(
-    store: &mut dyn Storage,
-    api: &dyn Api,
+    deps: DepsMut,
     msg: &MigrateMsg,
 ) -> Result<ContractInfoV3, ContractError> {
+    let store = deps.storage;
+    let api = deps.api;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
 
@@ -407,8 +408,7 @@ mod tests {
 
         // migrate without approvers
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: None,
@@ -471,8 +471,7 @@ mod tests {
 
         // migrate with approvers, fee, fee_account
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: Some(vec!["approver_1".into(), "approver_2".into()]),
                 ask_fee_rate: Some("0.01".into()),
@@ -547,8 +546,7 @@ mod tests {
 
         // migrate with fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: Some("0.01".into()),
@@ -622,8 +620,7 @@ mod tests {
 
         // migrate without fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: None,
@@ -693,8 +690,7 @@ mod tests {
 
         // migrate with fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: Some("0.01".into()),
@@ -770,8 +766,7 @@ mod tests {
 
         // migrate without fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: None,
@@ -846,8 +841,7 @@ mod tests {
 
         // migrate without fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: None,
@@ -928,8 +922,7 @@ mod tests {
 
         // migrate with new fees
         migrate_contract_info(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: Some(vec!["approver_3".into(), "approver_4".into()]),
                 ask_fee_rate: Some("0.03".into()),

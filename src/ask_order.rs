@@ -1,7 +1,7 @@
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Api, Coin, Order, Pair, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Coin, DepsMut, Order, Pair, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
@@ -63,11 +63,8 @@ impl From<AskOrder> for AskOrderV1 {
 }
 
 #[allow(deprecated)]
-pub fn migrate_ask_orders(
-    store: &mut dyn Storage,
-    _api: &dyn Api,
-    _msg: &MigrateMsg,
-) -> Result<(), ContractError> {
+pub fn migrate_ask_orders(deps: DepsMut, _msg: &MigrateMsg) -> Result<(), ContractError> {
+    let store = deps.storage;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
 
@@ -162,8 +159,7 @@ mod tests {
         )?;
 
         migrate_ask_orders(
-            &mut deps.storage,
-            &deps.api,
+            deps.as_mut(),
             &MigrateMsg {
                 approvers: None,
                 ask_fee_rate: None,
