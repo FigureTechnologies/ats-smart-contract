@@ -17,6 +17,12 @@ pub enum ContractError {
     #[error("Bid order not found")]
     BidOrderNotFound,
 
+    #[error("Bid fee account missing")]
+    BidFeeAccountMissing,
+
+    #[error("Bid order does not have sufficient fee funds")]
+    BidOrderFeeInsufficientFunds,
+
     #[error("Cannot send funds when canceling order")]
     CancelWithFunds,
 
@@ -25,6 +31,9 @@ pub enum ContractError {
 
     #[error("Cannot send funds when expiring order")]
     ExpireWithFunds,
+
+    #[error("Fee size is not: {fee_rate:?}% of total")]
+    InvalidFeeSize { fee_rate: String },
 
     #[error("Inconvertible base denomination")]
     InconvertibleBaseDenom,
@@ -49,6 +58,9 @@ pub enum ContractError {
 
     #[error("One quote required in order")]
     QuoteQuantity,
+
+    #[error("Order should not have fees")]
+    SentFees,
 
     #[error("Sent funds does not match order")]
     SentFundsOrderMismatch,

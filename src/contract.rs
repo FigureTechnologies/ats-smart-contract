@@ -11,9 +11,10 @@ use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
 };
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV1};
+use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV2};
+use crate::common::{Action, Event, FeeInfo};
 use crate::contract_info::{
-    get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV2,
+    get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
@@ -22,11 +23,11 @@ use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
 };
-use rust_decimal::prelude::{FromStr, ToPrimitive, Zero};
+use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::ops::{Mul, SubAssign};
+use std::ops::Mul;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -52,13 +53,44 @@ pub fn instantiate(
         executors.push(address);
     }
 
-    let (fee_rate, fee_account) = match (msg.fee_rate, msg.fee_account) {
-        (Some(rate), Some(account)) => (Some(rate), Some(deps.api.addr_validate(&account)?)),
-        (_, _) => (None, None),
+    // validate and set ask fee
+    let ask_fee = match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+        (Some(account), Some(rate)) => match (account.as_str(), rate.as_str()) {
+            ("", "") => None,
+            (_, _) => {
+                Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("ask_fee_rate")],
+                })?;
+
+                Some(FeeInfo {
+                    account: deps.api.addr_validate(account)?,
+                    rate: rate.to_string(),
+                })
+            }
+        },
+        (_, _) => None,
+    };
+
+    // validate and set bid fee
+    let bid_fee = match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+        (Some(account), Some(rate)) => match (account.as_str(), rate.as_str()) {
+            ("", "") => None,
+            (_, _) => {
+                Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("bid_fee_rate")],
+                })?;
+
+                Some(FeeInfo {
+                    account: deps.api.addr_validate(account)?,
+                    rate: rate.to_string(),
+                })
+            }
+        },
+        (_, _) => None,
     };
 
     // set contract info
-    let contract_info = ContractInfoV2 {
+    let contract_info = ContractInfoV3 {
         name: msg.name,
         bind_name: msg.bind_name,
         base_denom: msg.base_denom,
@@ -66,8 +98,8 @@ pub fn instantiate(
         supported_quote_denoms: msg.supported_quote_denoms,
         approvers,
         executors,
-        fee_rate,
-        fee_account,
+        ask_fee_info: ask_fee,
+        bid_fee_info: bid_fee,
         ask_required_attributes: msg.ask_required_attributes,
         bid_required_attributes: msg.bid_required_attributes,
         price_precision: msg.price_precision,
@@ -143,6 +175,7 @@ pub fn execute(
         ExecuteMsg::CreateBid {
             id,
             base,
+            fee,
             price,
             quote,
             quote_size,
@@ -151,14 +184,20 @@ pub fn execute(
             deps,
             env,
             &info,
-            BidOrderV1 {
-                base,
+            BidOrderV2 {
+                base: Coin {
+                    amount: size,
+                    denom: base,
+                },
+                events: vec![],
+                fee,
                 id,
                 owner: info.sender.to_owned(),
                 price,
-                quote,
-                quote_size,
-                size,
+                quote: Coin {
+                    amount: quote_size,
+                    denom: quote,
+                },
             },
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
@@ -415,7 +454,7 @@ fn create_bid(
     deps: DepsMut,
     env: Env,
     info: &MessageInfo,
-    bid_order: BidOrderV1,
+    mut bid_order: BidOrderV2,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
@@ -438,7 +477,7 @@ fn create_bid(
     }
 
     // error if order size is not multiple of size_increment
-    if (bid_order.size.u128() % contract_info.size_increment.u128()).ne(&0) {
+    if (bid_order.base.amount.u128() % contract_info.size_increment.u128()).ne(&0) {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("size")],
         });
@@ -446,7 +485,7 @@ fn create_bid(
 
     // calculate quote total (price * size), error if overflows
     let total = bid_price
-        .checked_mul(Decimal::from(bid_order.size.u128()))
+        .checked_mul(Decimal::from(bid_order.base.amount.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
     // error if total is not an integer
@@ -454,21 +493,59 @@ fn create_bid(
         return Err(ContractError::NonIntegerTotal);
     }
 
-    // error if total is not equal to sent funds
-    if bid_order.quote_size.u128().ne(&total.to_u128().unwrap()) {
-        return Err(ContractError::SentFundsOrderMismatch);
+    // if bid fee exists, calculate and compare to sent fee_size
+    match contract_info.bid_fee_info {
+        Some(bid_fee_info) => {
+            let bid_fee_rate = Decimal::from_str(&bid_fee_info.rate).map_err(|_| {
+                ContractError::InvalidFields {
+                    fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
+                }
+            })?;
+
+            // if the bid fee rate is 0, there should not be any sent fees
+            if bid_fee_rate.eq(&Decimal::zero()) && bid_order.fee.is_some() {
+                return Err(ContractError::SentFees);
+            }
+
+            let calculated_fee_size = bid_fee_rate
+                .checked_mul(total)
+                .ok_or(ContractError::TotalOverflow)?
+                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                .to_u128()
+                .ok_or(ContractError::TotalOverflow)?;
+
+            match &mut bid_order.fee {
+                Some(fee) => {
+                    if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
+                        return Err(ContractError::InvalidFeeSize {
+                            fee_rate: bid_fee_info.rate,
+                        });
+                    }
+                }
+                _ => {
+                    return Err(ContractError::InvalidFeeSize {
+                        fee_rate: bid_fee_info.rate,
+                    })
+                }
+            }
+        }
+        None => {
+            if bid_order.fee.is_some() {
+                return Err(ContractError::SentFees);
+            }
+        }
     }
 
     // error if order quote is not supported quote denom
     if !&contract_info
         .supported_quote_denoms
-        .contains(&bid_order.quote)
+        .contains(&bid_order.quote.denom)
     {
         return Err(ContractError::UnsupportedQuoteDenom);
     }
 
     // error if order base denom not equal to contract base denom
-    if bid_order.base.ne(&contract_info.base_denom) {
+    if bid_order.base.denom.ne(&contract_info.base_denom) {
         return Err(ContractError::InconvertibleBaseDenom);
     }
 
@@ -491,9 +568,9 @@ fn create_bid(
         }
     }
 
-    // is ask base a marker
+    // is bid quote a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
@@ -511,8 +588,11 @@ fn create_bid(
         // sent funds must match order if not a restricted marker
         false => {
             if info.funds.ne(&coins(
-                bid_order.quote_size.u128(),
-                bid_order.quote.to_owned(),
+                match &bid_order.fee {
+                    Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
+                    _ => total.to_u128().unwrap(),
+                },
+                bid_order.quote.denom.to_owned(),
             )) {
                 return Err(ContractError::SentFundsOrderMismatch);
             }
@@ -531,18 +611,28 @@ fn create_bid(
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", "create_bid"),
+        attr("base", &bid_order.base.denom),
         attr("id", &bid_order.id),
-        attr("base", &bid_order.base),
-        attr("quote", &bid_order.quote),
-        attr("quote_size", &bid_order.quote_size.to_string()),
+        attr(
+            "fee",
+            match &bid_order.fee {
+                Some(fee) => format!("{:?}", fee),
+                _ => "None".into(),
+            },
+        ),
         attr("price", &bid_order.price),
-        attr("size", &bid_order.size.to_string()),
+        attr("quote", &bid_order.quote.denom),
+        attr("quote_size", &bid_order.quote.amount.to_string()),
+        attr("size", &bid_order.base.amount.to_string()),
     ]);
 
     if is_quote_restricted_marker {
         response = response.add_message(transfer_marker_coins(
-            bid_order.quote_size.into(),
-            bid_order.quote.to_owned(),
+            match bid_order.fee {
+                Some(fees) => (bid_order.quote.amount + fees.amount).into(),
+                _ => bid_order.quote.amount.into(),
+            },
+            bid_order.quote.denom.to_owned(),
             env.contract.address,
             bid_order.owner,
         )?);
@@ -662,11 +752,11 @@ fn cancel_bid(
     }
 
     let bid_storage = get_bid_storage_read(deps.storage);
-    let BidOrderV1 {
+    let BidOrderV2 {
         id,
         owner,
         quote,
-        quote_size,
+        fee,
         ..
     } = bid_storage
         .load(id.as_bytes())
@@ -675,26 +765,33 @@ fn cancel_bid(
         return Err(ContractError::Unauthorized);
     }
 
-    // remove the ask order from storage
+    // remove the bid order from storage
     let mut bid_storage = get_bid_storage(deps.storage);
     bid_storage.remove(id.as_bytes());
 
     // is bid quote a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
         })
     );
 
+    let return_size = match fee {
+        Some(fee) => (quote.amount + fee.amount),
+        _ => quote.amount,
+    };
+
     // 'send quote back to owner' message
     Ok(Response::new()
         .add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(quote_size.into(), quote, owner, env.contract.address)?,
+            true => {
+                transfer_marker_coins(return_size.u128(), quote.denom, owner, env.contract.address)?
+            }
             false => BankMsg::Send {
                 to_address: owner.to_string(),
-                amount: vec![coin(quote_size.u128(), quote)],
+                amount: vec![coin(return_size.u128(), quote.denom)],
             }
             .into(),
         })
@@ -747,7 +844,12 @@ fn reverse_ask(
     }
 
     // subtract the cancel size from the order size
-    ask_order.size.sub_assign(effective_cancel_size);
+    ask_order.size = ask_order
+        .size
+        .checked_sub(effective_cancel_size)
+        .map_err(|_| ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        })?;
 
     // is ask base a marker
     let is_quote_restricted_marker = matches!(
@@ -861,22 +963,9 @@ fn reverse_bid(
 
     // determine the effective cancel size
     let effective_cancel_size = match cancel_size {
-        None => bid_order.size,
+        None => bid_order.base.amount,
         Some(cancel_size) => cancel_size,
     };
-
-    // calculate cancelled quote size (price * effective_cancel_size), error if overflows
-    let effective_cancel_quote_size = Decimal::from_str(&bid_order.price)
-        .map_err(|_| ContractError::InvalidFields {
-            fields: vec![String::from("price")],
-        })?
-        .checked_mul(Decimal::from(effective_cancel_size.u128()))
-        .ok_or(ContractError::TotalOverflow)?;
-
-    // error if cancelled quote total is not an integer
-    if effective_cancel_quote_size.fract().ne(&Decimal::zero()) {
-        return Err(ContractError::NonIntegerTotal);
-    }
 
     // error if cancel size is not multiple of size_increment
     if (effective_cancel_size.u128() % contract_info.size_increment.u128()).ne(&0) {
@@ -885,37 +974,94 @@ fn reverse_bid(
         });
     }
 
-    // subtract the cancel size from the order size
-    bid_order.size.sub_assign(effective_cancel_size);
+    // error if cancel size is greater than available base size
+    if bid_order.get_remaining_base().lt(&effective_cancel_size) {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("size")],
+        });
+    }
 
-    // subtract the cancel quote size from the order quote size
-    bid_order
-        .quote_size
-        .sub_assign(Uint128::new(effective_cancel_quote_size.to_u128().unwrap()));
+    // calculate canceled quote size (price * effective_cancel_size), error if overflows
+    let effective_cancel_quote_size = Decimal::from_str(&bid_order.price)
+        .unwrap()
+        .mul(Decimal::from(effective_cancel_size.u128()));
+
+    // error if canceled quote total is not an integer
+    if effective_cancel_quote_size.fract().ne(&Decimal::zero()) {
+        return Err(ContractError::NonIntegerTotal);
+    }
+
+    let effective_cancel_quote_size = Uint128::new(effective_cancel_quote_size.to_u128().unwrap());
+
+    // calculate canceled fee size
+    let effective_cancel_fee_size = match &bid_order.fee {
+        Some(bid_fee) => {
+            let quote_remaining_ratio = bid_order
+                .get_quote_ratio(bid_order.get_remaining_quote() - effective_cancel_quote_size);
+
+            // fees required for remaining quote
+            let required_remaining_fees = Decimal::from_u128(bid_fee.amount.u128())
+                .unwrap()
+                .mul(quote_remaining_ratio)
+                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                .to_u128()
+                .unwrap();
+
+            // available fees - fees required = canceled/returned fees
+            let effective_cancel_fee_size = bid_order
+                .get_remaining_fee()
+                .checked_sub(required_remaining_fees.into())
+                .map_err(|_| ContractError::InvalidFields {
+                    fields: vec![String::from("size")],
+                })?;
+
+            Some(Coin {
+                amount: effective_cancel_fee_size,
+                denom: bid_order.quote.denom.to_owned(),
+            })
+        }
+        _ => None,
+    };
 
     // is bid quote a marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.to_owned()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.to_owned()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
         })
     );
 
+    // add event to order
+    bid_order.events.push(Event {
+        action: Action::Reject {
+            base: Coin {
+                amount: effective_cancel_size,
+                denom: bid_order.base.denom.to_owned(),
+            },
+            fee: effective_cancel_fee_size.to_owned(),
+            quote: Coin {
+                amount: effective_cancel_quote_size,
+                denom: bid_order.quote.denom.to_owned(),
+            },
+        },
+        block_info: env.block.into(),
+    });
+
     // 'send quote back to owner' message
     let mut response = Response::new()
         .add_message(match is_quote_restricted_marker {
             true => transfer_marker_coins(
-                effective_cancel_quote_size.to_u128().unwrap(),
-                bid_order.quote.to_owned(),
+                effective_cancel_quote_size.u128(),
+                bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
-                env.contract.address,
+                env.contract.address.to_owned(),
             )?,
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(
-                    effective_cancel_quote_size.to_u128().unwrap(),
-                    bid_order.quote.to_owned(),
+                    effective_cancel_quote_size.u128(),
+                    bid_order.quote.denom.to_owned(),
                 )],
             }
             .into(),
@@ -926,10 +1072,27 @@ fn reverse_bid(
             attr("reverse_size", effective_cancel_size),
         ]);
 
+    // add 'send fee back to owner' message
+    if let Some(fee) = effective_cancel_fee_size {
+        response = response.add_message(match is_quote_restricted_marker {
+            true => transfer_marker_coins(
+                fee.amount.u128(),
+                bid_order.quote.denom.to_owned(),
+                bid_order.owner.to_owned(),
+                env.contract.address,
+            )?,
+            false => BankMsg::Send {
+                to_address: bid_order.owner.to_string(),
+                amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
+            }
+            .into(),
+        });
+    }
+
     let mut bid_storage = get_bid_storage(deps.storage);
 
     // remove the bid order from storage if remaining size is 0, otherwise, store updated order
-    match bid_order.size.is_zero() {
+    match bid_order.get_remaining_base().is_zero() {
         true => {
             bid_storage.remove(bid_order.id.as_bytes());
             response = response.add_attributes(vec![attr("order_open", "false")]);
@@ -1010,44 +1173,36 @@ fn execute_match(
 
     // at least one side of the order will always execute fully, both sides if order sizes equal
     // so the provided execute match size must be either the ask or bid size (or both if equal)
-    if execute_size.gt(&ask_order.size) || execute_size.gt(&bid_order.size) {
+    if execute_size.gt(&ask_order.size) || execute_size.gt(&bid_order.get_remaining_base()) {
         return Err(ContractError::InvalidExecuteSize);
     }
 
-    // calculate total (price * size), error if overflows
-    let total = execute_price
+    // calculate gross proceeds using execute price, (price * size), error if overflows
+    let actual_gross_proceeds = execute_price
         .checked_mul(Decimal::from(execute_size.u128()))
         .ok_or(ContractError::TotalOverflow)?;
 
-    // error if total is not an integer
-    if total.fract().ne(&Decimal::zero()) {
+    // error if gross proceeds is not an integer
+    if actual_gross_proceeds.fract().ne(&Decimal::zero()) {
         return Err(ContractError::NonIntegerTotal);
     }
 
-    let mut quote_total = Uint128::new(total.to_u128().ok_or(ContractError::TotalOverflow)?);
+    let mut net_proceeds = Uint128::new(
+        actual_gross_proceeds
+            .to_u128()
+            .ok_or(ContractError::TotalOverflow)?,
+    );
 
-    ask_order.size = Uint128::new(ask_order.size.u128() - execute_size.u128());
-
-    let ask_order_class = &mut ask_order.class;
+    ask_order.size -= execute_size;
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready { converted_base, .. },
-    } = ask_order_class
+    } = &mut ask_order.class
     {
         converted_base.amount = ask_order.size;
     }
 
-    bid_order.size = Uint128::new(bid_order.size.u128() - execute_size.u128());
-    bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - quote_total.u128());
-
-    // calculate refund to bidder if bid order is completed but quote funds remain
-    let mut bidder_refund = Uint128::new(0);
-    if bid_order.size.is_zero() && !bid_order.quote_size.is_zero() {
-        bidder_refund = bid_order.quote_size;
-        bid_order.quote_size = Uint128::new(bid_order.quote_size.u128() - bidder_refund.u128());
-    }
-
-    // is ask base a restricted marker
+    // is base a restricted marker
     let is_base_restricted_marker = matches!(
         ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
         Ok(Marker {
@@ -1056,179 +1211,220 @@ fn execute_match(
         })
     );
 
-    // is bid quote a restricted marker
+    // is quote a restricted marker
     let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.clone()),
+        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
         Ok(Marker {
             marker_type: MarkerType::Restricted,
             ..
         })
     );
 
-    // calculate fees after subtracting quote from bidder account
-    let (fee_message, fee_total) = match (contract_info.fee_rate, contract_info.fee_account) {
-        (Some(fee_rate), Some(fee_account)) => {
-            match Decimal::from_str(&fee_rate)
+    let mut response = Response::new();
+    response = response.add_attributes(vec![
+        attr("action", "execute"),
+        attr("ask_id", &ask_id),
+        attr("bid_id", &bid_id),
+        attr("base", &bid_order.base.denom),
+        attr("quote", &ask_order.quote),
+        attr("price", &execute_price.to_string()),
+        attr("size", &execute_size.to_string()),
+    ]);
+
+    // calculate ask fees and create message if applicable
+    let ask_fee = match contract_info.ask_fee_info {
+        // calculate ask fee using total
+        Some(ask_fee_info) => {
+            match Decimal::from_str(&ask_fee_info.rate)
                 .map_err(|_| ContractError::InvalidFields {
-                    fields: vec![String::from("fee_rate")],
+                    fields: vec![String::from("ContractInfo.ask_fee_info.rate")],
                 })?
-                .checked_mul(total)
+                .checked_mul(actual_gross_proceeds)
                 .ok_or(ContractError::TotalOverflow)?
                 .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
                 .to_u128()
                 .ok_or(ContractError::TotalOverflow)?
             {
-                0u128 => (None, None),
+                0u128 => None,
                 fee_total => {
-                    quote_total =
-                        quote_total
+                    let ask_fee = Coin {
+                        denom: bid_order.quote.denom.to_owned(),
+                        amount: Uint128::new(fee_total),
+                    };
+
+                    match is_quote_restricted_marker {
+                        true => {
+                            response = response.add_message(transfer_marker_coins(
+                                fee_total,
+                                bid_order.quote.denom.to_owned(),
+                                ask_fee_info.account,
+                                env.contract.address.to_owned(),
+                            )?);
+                        }
+                        false => {
+                            response = response.add_message(BankMsg::Send {
+                                to_address: ask_fee_info.account.to_string(),
+                                amount: vec![ask_fee.to_owned()],
+                            });
+                        }
+                    }
+
+                    // subtract the fees and assign to net proceeds
+                    net_proceeds =
+                        net_proceeds
                             .checked_sub(Uint128::new(fee_total))
                             .map_err(|error| {
                                 ContractError::Std(StdError::Overflow { source: error })
                             })?;
 
-                    match is_quote_restricted_marker {
-                        true => (
-                            Some(transfer_marker_coins(
-                                fee_total,
-                                bid_order.quote.to_owned(),
-                                fee_account,
-                                env.contract.address.to_owned(),
-                            )?),
-                            Some(fee_total),
-                        ),
-                        false => (
-                            Some(
-                                BankMsg::Send {
-                                    to_address: fee_account.to_string(),
-                                    amount: vec![Coin {
-                                        denom: bid_order.quote.to_owned(),
-                                        amount: Uint128::new(fee_total),
-                                    }],
-                                }
-                                .into(),
-                            ),
-                            Some(fee_total),
-                        ),
-                    }
+                    Some(ask_fee)
                 }
             }
         }
-        (_, _) => (None, None),
+        None => None,
     };
 
-    // 'send quote to asker' and 'send base to bidder' messages
-    let mut response = match &ask_order_class {
-        AskOrderClass::Basic => Response::new()
-            .add_messages(vec![
+    response = response.add_attribute("ask_fee", format!("{:?}", ask_fee));
+
+    // get bid fees and create message if applicable
+    let actual_bid_fee = match &bid_order.fee {
+        Some(_) => bid_order.calculate_fee(Uint128::new(
+            actual_gross_proceeds
+                .to_u128()
+                .ok_or(ContractError::TotalOverflow)?,
+        ))?,
+        None => None,
+    };
+
+    // add bid fee message
+    match &actual_bid_fee {
+        Some(bid_fee) => match contract_info.bid_fee_info {
+            Some(bid_fee_info) => {
                 match is_quote_restricted_marker {
-                    true => transfer_marker_coins(
-                        quote_total.into(),
-                        bid_order.quote.to_owned(),
+                    true => {
+                        response = response.add_message(transfer_marker_coins(
+                            bid_fee.amount.to_owned().u128(),
+                            bid_fee.denom.to_owned(),
+                            bid_fee_info.account,
+                            env.contract.address.to_owned(),
+                        )?);
+                    }
+                    false => {
+                        response = response.add_message(BankMsg::Send {
+                            to_address: bid_fee_info.account.to_string(),
+                            amount: vec![bid_fee.to_owned()],
+                        });
+                    }
+                };
+            }
+            None => return Err(ContractError::BidFeeAccountMissing),
+        },
+        None => (),
+    }
+
+    response = response.add_attribute("bid_fee", format!("{:?}", actual_bid_fee));
+
+    // add 'send quote to asker' and 'send base to bidder' messages
+    match &ask_order.class {
+        AskOrderClass::Basic => {
+            match is_quote_restricted_marker {
+                true => {
+                    response = response.add_message(transfer_marker_coins(
+                        net_proceeds.into(),
+                        bid_order.quote.denom.to_owned(),
                         ask_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                    )?,
-                    false => BankMsg::Send {
+                    )?);
+                }
+                false => {
+                    response = response.add_message(BankMsg::Send {
                         to_address: ask_order.owner.to_string(),
                         amount: vec![Coin {
-                            denom: bid_order.quote.to_owned(),
-                            amount: quote_total,
+                            denom: bid_order.quote.denom.to_owned(),
+                            amount: net_proceeds,
                         }],
-                    }
-                    .into(),
-                },
-                match is_base_restricted_marker {
-                    true => transfer_marker_coins(
+                    });
+                }
+            }
+            match is_base_restricted_marker {
+                true => {
+                    response = response.add_message(transfer_marker_coins(
                         execute_size.into(),
                         ask_order.base.to_owned(),
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                    )?,
-                    false => BankMsg::Send {
+                    )?);
+                }
+                false => {
+                    response = response.add_message(BankMsg::Send {
                         to_address: bid_order.owner.to_string(),
                         amount: vec![Coin {
                             denom: ask_order.base.clone(),
                             amount: execute_size,
                         }],
-                    }
-                    .into(),
-                },
-            ])
-            .add_attributes(vec![
-                attr("action", "execute"),
-                attr("ask_id", &ask_id),
-                attr("bid_id", &bid_id),
-                attr("base", &bid_order.base),
-                attr("quote", &ask_order.quote),
-                attr("price", &execute_price.to_string()),
-                attr("size", &execute_size.to_string()),
-            ]),
+                    });
+                }
+            }
+        }
         AskOrderClass::Convertible {
             status:
                 AskOrderStatus::Ready {
                     approver,
                     converted_base,
                 },
-        } => Response::new()
-            .add_messages(vec![
-                match is_base_restricted_marker {
-                    true => transfer_marker_coins(
-                        execute_size.into(),
-                        ask_order.base.to_owned(),
-                        approver.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?,
-                    false => BankMsg::Send {
-                        to_address: approver.to_string(),
-                        amount: vec![Coin {
-                            denom: ask_order.base.clone(),
-                            amount: execute_size,
-                        }],
-                    }
-                    .into(),
-                },
-                match is_quote_restricted_marker {
-                    true => transfer_marker_coins(
-                        quote_total.into(),
-                        bid_order.quote.clone(),
-                        approver.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?,
-                    false => BankMsg::Send {
-                        to_address: approver.to_string(),
-                        amount: vec![Coin {
-                            denom: bid_order.quote.clone(),
-                            amount: quote_total,
-                        }],
-                    }
-                    .into(),
-                },
-                match is_base_restricted_marker {
-                    true => transfer_marker_coins(
+        } => {
+            match is_base_restricted_marker {
+                true => {
+                    response = response.add_message(transfer_marker_coins(
                         execute_size.into(),
                         converted_base.to_owned().denom,
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                    )?,
-                    false => BankMsg::Send {
+                    )?);
+                    response = response.add_message(transfer_marker_coins(
+                        execute_size.into(),
+                        ask_order.base.to_owned(),
+                        approver.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?);
+                }
+                false => {
+                    response = response.add_message(BankMsg::Send {
                         to_address: bid_order.owner.to_owned().into(),
                         amount: vec![Coin {
                             denom: converted_base.to_owned().denom,
                             amount: execute_size,
                         }],
-                    }
-                    .into(),
-                },
-            ])
-            .add_attributes(vec![
-                attr("action", "execute"),
-                attr("ask_id", &ask_id),
-                attr("bid_id", &bid_id),
-                attr("base", &bid_order.base),
-                attr("quote", &ask_order.quote),
-                attr("price", &execute_price.to_string()),
-                attr("size", &execute_size.to_string()),
-            ]),
+                    });
+                    response = response.add_message(BankMsg::Send {
+                        to_address: approver.to_string(),
+                        amount: vec![Coin {
+                            denom: ask_order.base.clone(),
+                            amount: execute_size,
+                        }],
+                    });
+                }
+            }
+            match is_quote_restricted_marker {
+                true => {
+                    response = response.add_message(transfer_marker_coins(
+                        net_proceeds.into(),
+                        bid_order.quote.denom.clone(),
+                        approver.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?);
+                }
+                false => {
+                    response = response.add_message(BankMsg::Send {
+                        to_address: approver.to_string(),
+                        amount: vec![Coin {
+                            denom: bid_order.quote.denom.clone(),
+                            amount: net_proceeds,
+                        }],
+                    });
+                }
+            }
+        }
         AskOrderClass::Convertible { status } => {
             return Err(ContractError::AskOrderNotReady {
                 current_status: format!("{:?}", status),
@@ -1236,28 +1432,138 @@ fn execute_match(
         }
     };
 
-    if !bidder_refund.is_zero() {
-        response = response.add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(
-                bidder_refund.into(),
-                bid_order.quote.clone(),
-                bid_order.owner.to_owned(),
-                env.contract.address,
-            )?,
-            false => BankMsg::Send {
-                to_address: bid_order.owner.to_string(),
-                amount: vec![Coin {
-                    denom: bid_order.quote.clone(),
-                    amount: bidder_refund,
-                }],
-            }
-            .into(),
-        })
-    }
+    // determine refunds to bidder
+    if execute_price.lt(&bid_price) {
+        // calculate gross proceeds using bid price, (price * size), error if overflows
+        let original_gross_proceeds = bid_price
+            .checked_mul(Decimal::from(execute_size.u128()))
+            .ok_or(ContractError::TotalOverflow)?;
 
-    if let (Some(message), Some(fee_total)) = (fee_message, fee_total) {
-        response = response.add_message(message);
-        response = response.add_attribute("fee", fee_total.to_string());
+        // error if gross proceeds is not an integer
+        if original_gross_proceeds.fract().ne(&Decimal::zero()) {
+            return Err(ContractError::NonIntegerTotal);
+        }
+
+        // calculate refund
+        let bid_quote_refund = original_gross_proceeds
+            .checked_sub(actual_gross_proceeds)
+            .ok_or(ContractError::TotalOverflow)?
+            .to_u128()
+            .ok_or(ContractError::NonIntegerTotal)?;
+
+        // calculate fee based on original gross proceeds
+        let bid_fee_refund = {
+            let original_bid_fee = bid_order.calculate_fee(Uint128::new(
+                original_gross_proceeds
+                    .to_u128()
+                    .ok_or(ContractError::TotalOverflow)?,
+            ))?;
+
+            match (&actual_bid_fee, original_bid_fee) {
+                (Some(actual_bid_fee), Some(mut original_bid_fee)) => {
+                    let refund_amount = original_bid_fee.amount - actual_bid_fee.amount;
+
+                    if refund_amount.gt(&Uint128::zero()) {
+                        original_bid_fee.amount = refund_amount;
+                        Some(original_bid_fee)
+                    } else {
+                        None
+                    }
+                }
+                (_, _) => None,
+            }
+        };
+
+        if bid_quote_refund.gt(&0u128) {
+            match is_quote_restricted_marker {
+                true => {
+                    // add the quote refund
+                    response = response.add_message(transfer_marker_coins(
+                        bid_quote_refund,
+                        bid_order.quote.denom.to_owned(),
+                        bid_order.owner.to_owned(),
+                        env.contract.address.to_owned(),
+                    )?);
+                    // add the fee refund
+                    if let Some(fee_refund) = &bid_fee_refund {
+                        response = response.add_message(transfer_marker_coins(
+                            fee_refund.amount.u128(),
+                            fee_refund.denom.to_owned(),
+                            bid_order.owner.to_owned(),
+                            env.contract.address,
+                        )?);
+                    }
+                }
+                false => {
+                    response = response.add_message(BankMsg::Send {
+                        to_address: bid_order.owner.to_string(),
+                        amount: vec![Coin {
+                            denom: bid_order.quote.denom.clone(),
+                            amount: bid_quote_refund.into(),
+                        }],
+                    });
+                    if let Some(fee_refund) = &bid_fee_refund {
+                        response = response.add_message(BankMsg::Send {
+                            to_address: bid_order.owner.to_string(),
+                            amount: vec![fee_refund.to_owned()],
+                        });
+                    }
+                }
+            }
+        }
+
+        // add fill event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Fill {
+                base: Coin {
+                    denom: bid_order.base.denom.to_owned(),
+                    amount: execute_size,
+                },
+                fee: actual_bid_fee,
+                price,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(
+                        actual_gross_proceeds
+                            .to_u128()
+                            .ok_or(ContractError::TotalOverflow)?,
+                    ),
+                },
+            },
+            block_info: env.block.to_owned().into(),
+        });
+        // add refund event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Refund {
+                fee: bid_fee_refund,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(bid_quote_refund),
+                },
+            },
+            block_info: env.block.into(),
+        });
+    } else {
+        // add fill event to bid order events
+        bid_order.events.push(Event {
+            action: Action::Fill {
+                base: Coin {
+                    denom: bid_order.base.denom.to_owned(),
+                    amount: execute_size,
+                },
+                fee: actual_bid_fee,
+                price,
+                quote: Coin {
+                    denom: bid_order.quote.denom.to_owned(),
+                    amount: Uint128::new(
+                        actual_gross_proceeds
+                            .to_u128()
+                            .ok_or(ContractError::TotalOverflow)?,
+                    ),
+                },
+            },
+            block_info: env.block.into(),
+        });
     }
 
     // finally update or remove the orders from storage
@@ -1268,7 +1574,7 @@ fn execute_match(
             .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
     }
 
-    if bid_order.size.is_zero() && bid_order.quote_size.is_zero() {
+    if bid_order.get_remaining_base().eq(&Uint128::zero()) {
         get_bid_storage(deps.storage).remove(bid_id.as_bytes());
     } else {
         get_bid_storage(deps.storage)
@@ -1280,22 +1586,29 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(
+    mut deps: DepsMut,
+    env: Env,
+    msg: MigrateMsg,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
     msg.validate()?;
 
-    // migrate ask orders
-    migrate_ask_orders(deps.storage, deps.api, &msg)?;
-
-    // migrate bid orders
-    migrate_bid_orders(deps.storage, deps.api, &msg)?;
+    // build response
+    let mut response: Response<ProvenanceMsg> = Response::new();
 
     // migrate contract_info
-    migrate_contract_info(deps.storage, deps.api, &msg)?;
+    migrate_contract_info(deps.branch(), &msg)?;
+
+    // migrate ask orders
+    migrate_ask_orders(deps.branch(), &msg)?;
+
+    // migrate bid orders
+    response = migrate_bid_orders(deps.branch(), env, &msg, response)?;
 
     // lastly, migrate version_info
-    migrate_version_info(deps.storage)?;
+    migrate_version_info(deps.branch())?;
 
-    Ok(Response::default())
+    Ok(response)
 }
 
 // smart contract query entrypoint
@@ -1346,8 +1659,10 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec!["approver_1".into(), "approver_2".into()],
             executors: vec!["exec_1".into(), "exec_2".into()],
-            fee_rate: Some("0.01".into()),
-            fee_account: Some("fee_account".into()),
+            ask_fee_rate: Some("0.01".into()),
+            ask_fee_account: Some("ask_fee_account".into()),
+            bid_fee_rate: Some("0.02".into()),
+            bid_fee_account: Some("bid_fee_account".into()),
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -1373,7 +1688,7 @@ mod tests {
                         version: "2.0.0".to_string(),
                     })
                 );
-                let expected_contract_info = ContractInfoV2 {
+                let expected_contract_info = ContractInfoV3 {
                     name: "contract_name".into(),
                     bind_name: "contract_bind_name".into(),
                     base_denom: "base_denom".into(),
@@ -1381,8 +1696,14 @@ mod tests {
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                     approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                     executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                    fee_rate: Some("0.01".into()),
-                    fee_account: Some(Addr::unchecked("fee_account")),
+                    ask_fee_info: Some(FeeInfo {
+                        account: Addr::unchecked("ask_fee_account"),
+                        rate: "0.01".into(),
+                    }),
+                    bid_fee_info: Some(FeeInfo {
+                        account: Addr::unchecked("bid_fee_account"),
+                        rate: "0.02".into(),
+                    }),
                     ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                     bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                     price_precision: Uint128::new(2),
@@ -1426,8 +1747,10 @@ mod tests {
             supported_quote_denoms: vec![],
             approvers: vec![],
             executors: vec![],
-            fee_rate: None,
-            fee_account: None,
+            ask_fee_rate: None,
+            ask_fee_account: None,
+            bid_fee_rate: None,
+            bid_fee_account: None,
             ask_required_attributes: vec![],
             bid_required_attributes: vec![],
             price_precision: Uint128::new(2),
@@ -1466,8 +1789,10 @@ mod tests {
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
             approvers: vec!["approver_1".into(), "approver_2".into()],
             executors: vec!["exec_1".into(), "exec_2".into()],
-            fee_rate: None,
-            fee_account: None,
+            ask_fee_rate: None,
+            ask_fee_account: None,
+            bid_fee_rate: None,
+            bid_fee_account: None,
             ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
             bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
             price_precision: Uint128::new(2),
@@ -1492,7 +1817,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -1500,8 +1825,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -1602,7 +1927,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -1610,8 +1935,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -1712,7 +2037,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -1720,8 +2045,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -1859,7 +2184,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -1867,8 +2192,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -1938,7 +2263,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -1946,8 +2271,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2031,7 +2356,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2039,8 +2364,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2086,7 +2411,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2094,8 +2419,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2135,7 +2460,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2143,8 +2468,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2184,7 +2509,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2192,8 +2517,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2235,7 +2560,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2243,8 +2568,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2281,7 +2606,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -2289,8 +2614,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2310,9 +2635,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee: None,
+            price: "2.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(250),
-            price: "2.5".into(),
             size: Uint128::new(100),
         };
 
@@ -2329,17 +2655,18 @@ mod tests {
         // verify execute create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
                 assert_eq!(
-                    response.attributes[1],
+                    response.attributes[2],
                     attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("quote_size", "250"));
-                assert_eq!(response.attributes[5], attr("price", "2.5"));
-                assert_eq!(response.attributes[6], attr("size", "100"));
+                assert_eq!(response.attributes[3], attr("fee", "None"));
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "250"));
+                assert_eq!(response.attributes[7], attr("size", "100"));
             }
             Err(error) => {
                 panic!("failed to create bid: {:?}", error)
@@ -2351,6 +2678,7 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
+            fee,
             quote,
             quote_size,
             price,
@@ -2361,14 +2689,20 @@ mod tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV1 {
-                            base,
+                        BidOrderV2 {
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
                             id,
                             owner: bidder_info.sender,
                             price,
-                            quote,
-                            quote_size,
-                            size,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
                         }
                     )
                 }
@@ -2382,11 +2716,11 @@ mod tests {
     }
 
     #[test]
-    fn create_bid_with_restricted_marker() {
+    fn create_bid_with_restricted_marker_valid_data() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -2394,8 +2728,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2440,9 +2774,10 @@ mod tests {
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
+            fee: None,
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(1000),
-            price: "2".into(),
             size: Uint128::new(500),
         };
 
@@ -2459,17 +2794,18 @@ mod tests {
         // verify create bid response
         match create_bid_response {
             Ok(response) => {
-                assert_eq!(response.attributes.len(), 7);
+                assert_eq!(response.attributes.len(), 8);
                 assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
                 assert_eq!(
-                    response.attributes[1],
+                    response.attributes[2],
                     attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
                 );
-                assert_eq!(response.attributes[2], attr("base", "base_1"));
-                assert_eq!(response.attributes[3], attr("quote", "quote_1"));
-                assert_eq!(response.attributes[4], attr("quote_size", "1000"));
-                assert_eq!(response.attributes[5], attr("price", "2"));
-                assert_eq!(response.attributes[6], attr("size", "500"));
+                assert_eq!(response.attributes[3], attr("fee", "None"));
+                assert_eq!(response.attributes[4], attr("price", "2"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "1000"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
 
                 assert_eq!(response.messages.len(), 1);
                 assert_eq!(
@@ -2493,9 +2829,10 @@ mod tests {
         if let ExecuteMsg::CreateBid {
             id,
             base,
+            fee,
+            price,
             quote,
             quote_size,
-            price,
             size,
         } = create_bid_msg
         {
@@ -2503,14 +2840,20 @@ mod tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV1 {
+                        BidOrderV2 {
                             id,
                             owner: bidder_info.sender,
-                            base,
-                            quote,
-                            quote_size,
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
                             price,
-                            size,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
                         }
                     )
                 }
@@ -2524,11 +2867,407 @@ mod tests {
     }
 
     #[test]
-    fn create_bid_with_restricted_marker_with_funds() {
+    fn create_bid_with_fees_valid_data() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".into(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        deps.querier.with_attributes(
+            "bidder",
+            &[
+                ("bid_tag_1", "bid_tag_1_value", "String"),
+                ("bid_tag_2", "bid_tag_2_value", "String"),
+            ],
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            base: "base_1".into(),
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            fee: Some(Coin {
+                amount: Uint128::new(25),
+                denom: "quote_1".into(),
+            }),
+            price: "2.5".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+
+        let bidder_info = mock_info("bidder", &coins(275, "quote_1"));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Coin {
+                                amount: Uint128::new(25),
+                                denom: "quote_1".into(),
+                            }
+                        )
+                    )
+                );
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "250"));
+                assert_eq!(response.attributes[7], attr("size", "100"));
+            }
+            Err(error) => {
+                panic!("failed to create bid: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            base,
+            fee,
+            id,
+            quote,
+            quote_size,
+            price,
+            size,
+        } = create_bid_msg
+        {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
+                            id,
+                            owner: bidder_info.sender,
+                            price,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_fees_round_down_valid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        deps.querier.with_attributes(
+            "bidder",
+            &[
+                ("bid_tag_1", "bid_tag_1_value", "String"),
+                ("bid_tag_2", "bid_tag_2_value", "String"),
+            ],
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            base: "base_1".into(),
+            fee: Some(Coin {
+                amount: Uint128::new(1),
+                denom: "quote_1".into(),
+            }),
+            price: "1".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(149),
+            size: Uint128::new(149),
+        };
+
+        let bidder_info = mock_info("bidder", &coins(150, "quote_1"));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Coin {
+                                amount: Uint128::new(1),
+                                denom: "quote_1".into(),
+                            }
+                        )
+                    )
+                );
+                assert_eq!(response.attributes[4], attr("price", "1"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "149"));
+                assert_eq!(response.attributes[7], attr("size", "149"));
+            }
+            Err(error) => {
+                panic!("failed to create bid: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            id,
+            base,
+            fee,
+            quote,
+            quote_size,
+            price,
+            size,
+        } = create_bid_msg
+        {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
+                            id,
+                            owner: bidder_info.sender,
+                            price,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_fees_round_up_valid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        deps.querier.with_attributes(
+            "bidder",
+            &[
+                ("bid_tag_1", "bid_tag_1_value", "String"),
+                ("bid_tag_2", "bid_tag_2_value", "String"),
+            ],
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            base: "base_1".into(),
+            fee: Some(Coin {
+                amount: Uint128::new(2),
+                denom: "quote_1".into(),
+            }),
+            price: "1".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(150),
+            size: Uint128::new(150),
+        };
+
+        let bidder_info = mock_info("bidder", &coins(152, "quote_1"));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Coin {
+                                amount: Uint128::new(2),
+                                denom: "quote_1".into(),
+                            }
+                        )
+                    )
+                );
+                assert_eq!(response.attributes[4], attr("price", "1"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "150"));
+                assert_eq!(response.attributes[7], attr("size", "150"));
+            }
+            Err(error) => {
+                panic!("failed to create bid: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            base,
+            fee,
+            id,
+            quote,
+            quote_size,
+            price,
+            size,
+        } = create_bid_msg
+        {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
+                            id,
+                            owner: bidder_info.sender,
+                            price,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_restricted_marker_with_fees_valid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -2536,8 +3275,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_acct"),
+                    rate: "0.1".into(),
+                }),
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2580,11 +3322,178 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
             base: "base_1".to_string(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            fee: Some(Coin {
+                amount: Uint128::new(100),
+                denom: "quote_1".into(),
+            }),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(1000),
+            size: Uint128::new(500),
+        };
+
+        let bidder_info = mock_info("bidder", &[]);
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", "base_1"));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    response.attributes[3],
+                    attr(
+                        "fee",
+                        format!(
+                            "{:?}",
+                            Coin {
+                                amount: Uint128::new(100),
+                                denom: "quote_1".into(),
+                            }
+                        )
+                    )
+                );
+                assert_eq!(response.attributes[4], attr("price", "2"));
+                assert_eq!(response.attributes[5], attr("quote", "quote_1"));
+                assert_eq!(response.attributes[6], attr("quote_size", "1000"));
+                assert_eq!(response.attributes[7], attr("size", "500"));
+
+                assert_eq!(response.messages.len(), 1);
+                assert_eq!(
+                    response.messages[0].msg,
+                    transfer_marker_coins(
+                        1100,
+                        "quote_1",
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked("bidder")
+                    )
+                    .unwrap()
+                );
+            }
+            Err(error) => {
+                panic!("failed to create ask: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let ask_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            base,
+            fee,
+            id,
+            price,
+            quote,
+            quote_size,
+            size,
+        } = create_bid_msg
+        {
+            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            id,
+                            owner: bidder_info.sender,
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
+                            price,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
+
+    #[test]
+    fn create_bid_with_restricted_marker_with_funds() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            base: "base_1".to_string(),
+            fee: None,
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(10),
-            price: "2".into(),
             size: Uint128::new(500),
         };
 
@@ -2608,7 +3517,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -2616,8 +3525,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2635,11 +3544,12 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(250),
-            price: "2.5".into(),
             size: Uint128::new(100),
         };
 
@@ -2658,11 +3568,12 @@ mod tests {
 
         // create bid data using existing id
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_1".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "4.5".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(900),
-            price: "4.5".into(),
             size: Uint128::new(200),
         };
 
@@ -2689,14 +3600,20 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
-                        base: "base_1".into(),
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![],
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         price: "2.5".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(250),
-                        size: Uint128::new(100),
+                        quote: Coin {
+                            amount: Uint128::new(250),
+                            denom: "quote_1".into(),
+                        },
                     }
                 )
             }
@@ -2711,7 +3628,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2719,8 +3636,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2730,11 +3647,12 @@ mod tests {
 
         // create bid missing id
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "".into(),
             base: "".into(),
+            fee: None,
+            id: "".into(),
+            price: "".into(),
             quote: "".into(),
             quote_size: Uint128::new(0),
-            price: "".into(),
             size: Uint128::new(0),
         };
 
@@ -2766,7 +3684,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2774,8 +3692,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2785,11 +3703,12 @@ mod tests {
 
         // create bid with invalid base
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "notbasedenom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2".into(),
             quote: "quote_2".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2816,7 +3735,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2824,8 +3743,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2835,11 +3754,12 @@ mod tests {
 
         // create bid
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2".into(),
             quote: "unsupported".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2866,7 +3786,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2874,10 +3794,10 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
                 size_increment: Uint128::new(100),
             },
@@ -2885,11 +3805,12 @@ mod tests {
 
         // create bid
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(100),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2916,7 +3837,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2924,8 +3845,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -2935,11 +3856,12 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(200),
-            price: "2".into(),
             size: Uint128::new(100),
         };
 
@@ -2966,7 +3888,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -2974,8 +3896,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -2985,11 +3907,12 @@ mod tests {
 
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             base: "base_denom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2.123".into(),
             quote: "quote_1".into(),
             quote_size: Uint128::new(200),
-            price: "2.123".into(),
             size: Uint128::new(100),
         };
 
@@ -3018,7 +3941,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3026,8 +3949,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3095,7 +4018,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3103,8 +4026,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3205,7 +4128,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3213,8 +4136,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3294,7 +4217,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3302,8 +4225,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3456,7 +4379,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3464,8 +4387,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3497,7 +4420,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3505,8 +4428,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3539,7 +4462,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3547,8 +4470,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3594,7 +4517,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3602,8 +4525,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3635,7 +4558,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3643,8 +4566,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3655,14 +4578,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -3713,7 +4642,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3721,8 +4650,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3766,14 +4695,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -3819,11 +4754,11 @@ mod tests {
     }
 
     #[test]
-    fn cancel_bid_invalid_data() {
+    fn cancel_bid_with_fees_valid() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3831,8 +4766,220 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    denom: "quote_1".to_string(),
+                    amount: Uint128::new(20),
+                }),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
+            },
+        );
+
+        // cancel bid order
+        let bidder_info = mock_info("bidder", &[]);
+
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let cancel_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            cancel_bid_msg,
+        );
+
+        match cancel_bid_response {
+            Ok(cancel_bid_response) => {
+                assert_eq!(cancel_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    cancel_bid_response.attributes[0],
+                    attr("action", "cancel_bid")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(cancel_bid_response.messages.len(), 1);
+                assert_eq!(
+                    cancel_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: bidder_info.sender.to_string(),
+                        amount: coins(220, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn cancel_bid_restricted_marker_with_fees() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        let marker_json = b"{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
+
+        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(20),
+                    denom: "quote_1".to_string(),
+                }),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
+            },
+        );
+
+        // cancel bid order
+        let bidder_info = mock_info("bidder", &[]);
+
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let cancel_bid_response = execute(deps.as_mut(), mock_env(), bidder_info, cancel_bid_msg);
+
+        match cancel_bid_response {
+            Ok(cancel_bid_response) => {
+                assert_eq!(cancel_bid_response.attributes.len(), 2);
+                assert_eq!(
+                    cancel_bid_response.attributes[0],
+                    attr("action", "cancel_bid")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+
+                assert_eq!(cancel_bid_response.messages.len(), 1);
+                assert_eq!(
+                    cancel_bid_response.messages[0].msg,
+                    transfer_marker_coins(
+                        220,
+                        "quote_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage.load("bid_id".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn cancel_bid_invalid_data() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3864,7 +5011,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3872,8 +5019,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3906,7 +5053,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3914,8 +5061,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -3927,14 +5074,20 @@ mod tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("not_bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(100),
                 price: "2".into(),
-                size: Uint128::new(200),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -3961,7 +5114,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -3969,8 +5122,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4002,7 +5155,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4010,8 +5163,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4082,7 +5235,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4090,8 +5243,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4163,7 +5316,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4171,8 +5324,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4262,7 +5415,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4270,8 +5423,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4336,11 +5489,11 @@ mod tests {
     }
 
     #[test]
-    fn expire_ask_restricted_marker() {
+    fn reject_partial_ask_cancel_size_greater_than_order_size() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4348,8 +5501,86 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // expire ask order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_ask_msg = ExecuteMsg::RejectAsk {
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".to_string(),
+            size: Some(Uint128::new(150)),
+        };
+        let reject_ask_response = execute(deps.as_mut(), mock_env(), exec_info, reject_ask_msg);
+
+        match reject_ask_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"size".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        // verify ask order unchanged
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    AskOrderV1 {
+                        base: "base_1".into(),
+                        class: AskOrderClass::Basic,
+                        id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                        owner: Addr::unchecked("asker"),
+                        price: "2".into(),
+                        quote: "quote_1".into(),
+                        size: Uint128::new(100)
+                    }
+                )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn expire_ask_restricted_marker() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4457,7 +5688,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4465,8 +5696,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4549,7 +5780,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4557,8 +5788,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4713,7 +5944,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4721,8 +5952,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4754,7 +5985,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4762,8 +5993,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4796,7 +6027,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4804,8 +6035,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4851,7 +6082,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4859,8 +6090,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4892,7 +6123,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4900,8 +6131,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4912,14 +6143,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
                 price: "2".into(),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -4973,7 +6210,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -4981,8 +6218,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -4993,14 +6230,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -5055,7 +6298,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5063,8 +6306,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5075,14 +6318,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(200),
             },
         );
 
@@ -5133,14 +6382,465 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(200),
+                        base: Coin {
+                            amount: Uint128::new(200),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Reject {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                                fee: None,
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(200)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: None,
+                        quote: Coin {
+                            amount: Uint128::new(400),
+                            denom: "quote_1".into(),
+                        },
                         price: "2".into(),
-                        size: Uint128::new(100),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_partial_bid_with_fees_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(10),
+                    denom: "quote_1".to_string(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+            size: Some(Uint128::new(50)),
+        };
+
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(reject_bid_response) => {
+                assert_eq!(reject_bid_response.attributes.len(), 4);
+                assert_eq!(
+                    reject_bid_response.attributes[0],
+                    attr("action", "reject_bid")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "50")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "true")
+                );
+                assert_eq!(reject_bid_response.messages.len(), 2);
+                assert_eq!(
+                    reject_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(50, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    reject_bid_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(5, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Reject {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(50)
+                                },
+                                fee: Some(Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(5)
+                                }),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(50)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: Some(Coin {
+                            amount: Uint128::new(10),
+                            denom: "quote_1".to_string(),
+                        }),
+                        quote: Coin {
+                            amount: Uint128::new(100),
+                            denom: "quote_1".into(),
+                        },
+                        price: "1".into(),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_partial_bid_with_fees_round_down() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(10),
+                    denom: "quote_1".to_string(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+            size: Some(Uint128::new(55)),
+        };
+
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(reject_bid_response) => {
+                assert_eq!(reject_bid_response.attributes.len(), 4);
+                assert_eq!(
+                    reject_bid_response.attributes[0],
+                    attr("action", "reject_bid")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "55")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "true")
+                );
+                assert_eq!(reject_bid_response.messages.len(), 2);
+                assert_eq!(
+                    reject_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(55, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    reject_bid_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(5, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        owner: Addr::unchecked("bidder"),
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Reject {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(55)
+                                },
+                                fee: Some(Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(5)
+                                }),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(55)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: Some(Coin {
+                            amount: Uint128::new(10),
+                            denom: "quote_1".to_string(),
+                        }),
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        quote: Coin {
+                            amount: Uint128::new(100),
+                            denom: "quote_1".into(),
+                        },
+                        price: "1".into(),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_partial_bid_with_fees_round_up() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(10),
+                    denom: "quote_1".to_string(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+            size: Some(Uint128::new(56)),
+        };
+
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(reject_bid_response) => {
+                assert_eq!(reject_bid_response.attributes.len(), 4);
+                assert_eq!(
+                    reject_bid_response.attributes[0],
+                    attr("action", "reject_bid")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "56")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "true")
+                );
+                assert_eq!(reject_bid_response.messages.len(), 2);
+                assert_eq!(
+                    reject_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(56, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    reject_bid_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(6, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Reject {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(56)
+                                },
+                                fee: Some(Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(6)
+                                }),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(56)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: Some(Coin {
+                            amount: Uint128::new(10),
+                            denom: "quote_1".to_string(),
+                        }),
+                        quote: Coin {
+                            amount: Uint128::new(100),
+                            denom: "quote_1".into(),
+                        },
+                        price: "1".into(),
                     }
                 )
             }
@@ -5155,7 +6855,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5163,8 +6863,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5175,14 +6875,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -5206,20 +6912,117 @@ mod tests {
             },
         }
 
-        // verify bid order update
+        // verify bid order not updated
         let bid_storage = get_bid_storage_read(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![],
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(200),
                         price: "2".into(),
-                        size: Uint128::new(100),
+                        quote: Coin {
+                            amount: Uint128::new(200),
+                            denom: "quote_1".into(),
+                        },
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn reject_bid_cancel_size_greater_than_order_size() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
+                price: "2".into(),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let reject_bid_msg = ExecuteMsg::RejectBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+            size: Some(Uint128::new(150)),
+        };
+
+        let reject_bid_response = execute(deps.as_mut(), mock_env(), exec_info, reject_bid_msg);
+
+        match reject_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"size".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        // verify bid order not updated
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![],
+                        fee: None,
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        price: "2".into(),
+                        quote: Coin {
+                            amount: Uint128::new(200),
+                            denom: "quote_1".into(),
+                        },
                     }
                 )
             }
@@ -5234,7 +7037,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5242,8 +7045,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5287,14 +7090,20 @@ mod tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -5351,7 +7160,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5359,8 +7168,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5392,7 +7201,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5400,8 +7209,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5434,7 +7243,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5442,8 +7251,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5455,14 +7264,20 @@ mod tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(100),
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(200),
             },
         );
 
@@ -5489,7 +7304,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5497,8 +7312,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5532,7 +7347,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5540,8 +7355,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5566,14 +7381,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -5596,7 +7417,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -5610,6 +7431,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -5642,13 +7466,13 @@ mod tests {
     }
 
     #[test]
-    fn execute_with_fees_total_zero() {
+    fn execute_with_ask_fees_round_down() {
         // setup
         let mut deps = mock_dependencies(&[]);
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5656,124 +7480,11 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: Some("0.001".into()),
-                fee_account: Some(Addr::unchecked("fee_account")),
-                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
-                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
-                price_precision: Uint128::new(2),
-                size_increment: Uint128::new(100),
-            },
-        );
-
-        // store valid ask order
-        store_test_ask(
-            &mut deps.storage,
-            &AskOrderV1 {
-                base: "base_1".into(),
-                class: AskOrderClass::Basic,
-                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-                owner: Addr::unchecked("asker"),
-                price: "1".into(),
-                quote: "quote_1".into(),
-                size: Uint128::new(100),
-            },
-        );
-
-        // store valid bid order
-        store_test_bid(
-            &mut deps.storage,
-            &BidOrderV1 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-                owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(100),
-                price: "1".into(),
-                size: Uint128::new(100),
-            },
-        );
-
-        // execute on matched ask order and bid order
-        let execute_msg = ExecuteMsg::ExecuteMatch {
-            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
-            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
-            price: "1".into(),
-            size: Uint128::new(100),
-        };
-
-        let execute_response = execute(
-            deps.as_mut(),
-            mock_env,
-            mock_info("exec_1", &[]),
-            execute_msg,
-        );
-
-        // validate execute response
-        match execute_response {
-            Err(error) => panic!("unexpected error: {:?}", error),
-            Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
-                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
-                assert_eq!(
-                    execute_response.attributes[1],
-                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
-                );
-                assert_eq!(
-                    execute_response.attributes[2],
-                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
-                );
-                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
-                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
-                assert_eq!(execute_response.attributes[5], attr("price", "1"));
-                assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.messages.len(), 2);
-                assert_eq!(
-                    execute_response.messages[0].msg,
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "asker".into(),
-                        amount: coins(100, "quote_1"),
-                    })
-                );
-                assert_eq!(
-                    execute_response.messages[1].msg,
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "bidder".into(),
-                        amount: coins(100, "base_1"),
-                    })
-                );
-            }
-        }
-
-        // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
-            .is_err());
-
-        // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
-        assert!(bid_storage
-            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
-            .is_err());
-    }
-
-    #[test]
-    fn execute_with_fees_round_down() {
-        // setup
-        let mut deps = mock_dependencies(&[]);
-        let mock_env = mock_env();
-        setup_test_base(
-            &mut deps.storage,
-            &ContractInfoV2 {
-                name: "contract_name".into(),
-                bind_name: "contract_bind_name".into(),
-                base_denom: "base_denom".into(),
-                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
-                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: Some("0.01".into()),
-                fee_account: Some(Addr::unchecked("fee_account")),
+                ask_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(0),
@@ -5798,14 +7509,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(149),
+                base: Coin {
+                    amount: Uint128::new(149),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(149),
+                    denom: "quote_1".into(),
+                },
                 price: "1".into(),
-                size: Uint128::new(149),
             },
         );
 
@@ -5828,7 +7545,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 8);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -5842,13 +7559,432 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
-                assert_eq!(execute_response.attributes[7], attr("fee", "1"));
+                assert_eq!(
+                    execute_response.attributes[7],
+                    attr("ask_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "ask_fee_account".into(),
+                        amount: coins(1, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
                         to_address: "asker".into(),
                         amount: coins(148, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: coins(149, "base_1"),
+                    })
+                );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
+    fn execute_with_ask_fees_round_up() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("ask_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                bid_fee_info: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "1".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(150),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(150),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(150),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "1".into(),
+            size: Uint128::new(150),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "1"));
+                assert_eq!(execute_response.attributes[6], attr("size", "150"));
+                assert_eq!(
+                    execute_response.attributes[7],
+                    attr("ask_fee", format!("{:?}", Some(coin(2, "quote_1"))))
+                );
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
+                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "ask_fee_account".into(),
+                        amount: coins(2, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(148, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: coins(150, "base_1"),
+                    })
+                );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
+    fn execute_with_bid_fees_round_down() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "1".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(149),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(149),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(1),
+                    denom: "quote_1".into(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(149),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "1".into(),
+            size: Uint128::new(149),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "1"));
+                assert_eq!(execute_response.attributes[6], attr("size", "149"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
+
+                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bid_fee_account".into(),
+                        amount: coins(1, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(149, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: coins(149, "base_1"),
+                    })
+                );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
+    fn execute_with_bid_fees_not_applicable() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "1".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(149),
+            },
+        );
+
+        // store valid bid order without fees
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(149),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(149),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "1".into(),
+            size: Uint128::new(149),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "1"));
+                assert_eq!(execute_response.attributes[6], attr("size", "149"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
+                assert_eq!(execute_response.messages.len(), 2);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(149, "quote_1"),
                     })
                 );
                 assert_eq!(
@@ -5858,11 +7994,145 @@ mod tests {
                         amount: coins(149, "base_1"),
                     })
                 );
+            }
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_err());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
+    fn execute_with_bid_fees_round_up() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.01".into(),
+                }),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "1".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(150),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(150),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(2),
+                    denom: "quote_1".into(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(150),
+                    denom: "quote_1".into(),
+                },
+                price: "1".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "1".into(),
+            size: Uint128::new(150),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(execute_response.attributes[5], attr("price", "1"));
+                assert_eq!(execute_response.attributes[6], attr("size", "150"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(2, "quote_1"))))
+                );
+
+                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bid_fee_account".into(),
+                        amount: coins(2, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(150, "quote_1"),
+                    })
+                );
                 assert_eq!(
                     execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "fee_account".into(),
-                        amount: coins(1, "quote_1"),
+                        to_address: "bidder".into(),
+                        amount: coins(150, "base_1"),
                     })
                 );
             }
@@ -5888,7 +8158,7 @@ mod tests {
             cosmwasm_std::testing::mock_dependencies(&[coin(30, "base_1"), coin(20, "quote_1")]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -5896,8 +8166,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -5922,14 +8192,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(20),
+                base: Coin {
+                    amount: Uint128::new(10),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(20),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(10),
             },
         );
 
@@ -5952,7 +8228,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -5966,6 +8242,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "10"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6019,7 +8298,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6027,8 +8306,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6053,14 +8332,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(200),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -6083,7 +8368,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6097,6 +8382,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "50"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6121,14 +8409,34 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(100),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(50)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(100),
                         price: "2".into(),
-                        size: Uint128::new(50),
+                        quote: Coin {
+                            amount: Uint128::new(200),
+                            denom: "quote_1".into(),
+                        },
                     }
                 )
             }
@@ -6148,7 +8456,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6156,8 +8464,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6182,14 +8490,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(600),
+                base: Coin {
+                    amount: Uint128::new(300),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(600),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(300),
             },
         );
 
@@ -6212,7 +8526,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6226,6 +8540,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6272,14 +8589,34 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(300),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(200)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128::new(200),
+                        quote: Coin {
+                            amount: Uint128::new(600),
+                            denom: "quote_1".into(),
+                        },
                     }
                 )
             }
@@ -6295,7 +8632,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6303,8 +8640,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6334,14 +8671,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            &BidOrderV2 {
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(600),
+                base: Coin {
+                    amount: Uint128::new(300),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                quote: Coin {
+                    amount: Uint128::new(600),
+                    denom: "quote_1".into(),
+                },
                 price: "2".into(),
-                size: Uint128::new(300),
             },
         );
 
@@ -6364,7 +8707,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6378,26 +8721,29 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "approver_2".into(),
-                        amount: vec![coin(100, "con_base_1")],
+                        to_address: "bidder".into(),
+                        amount: coins(100, "base_1"),
                     })
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_2".into(),
-                        amount: vec![coin(200, "quote_1")],
+                        amount: vec![coin(100, "con_base_1")],
                     })
                 );
                 assert_eq!(
                     execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "bidder".into(),
-                        amount: coins(100, "base_1"),
+                        to_address: "approver_2".into(),
+                        amount: vec![coin(200, "quote_1")],
                     })
                 );
             }
@@ -6437,14 +8783,34 @@ mod tests {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV1 {
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(300),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![Event {
+                            action: Action::Fill {
+                                base: Coin {
+                                    denom: "base_1".to_string(),
+                                    amount: Uint128::new(100)
+                                },
+                                fee: None,
+                                price: "2".to_string(),
+                                quote: Coin {
+                                    denom: "quote_1".to_string(),
+                                    amount: Uint128::new(200)
+                                },
+                            },
+                            block_info: mock_env().block.into(),
+                        }],
+                        fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
-                        base: "base_1".into(),
-                        quote: "quote_1".into(),
-                        quote_size: Uint128::new(400),
                         price: "2".into(),
-                        size: Uint128::new(200),
+                        quote: Coin {
+                            amount: Uint128::new(600),
+                            denom: "quote_1".into(),
+                        },
                     }
                 )
             }
@@ -6455,7 +8821,7 @@ mod tests {
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
-    // remaining quote balance if remaining order size = 0
+    // difference
     #[test]
     fn execute_price_overlap_use_ask() {
         // setup
@@ -6463,7 +8829,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6471,8 +8837,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6497,14 +8863,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            &BidOrderV2 {
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(500),
+                base: Coin {
+                    amount: Uint128::new(5),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                quote: Coin {
+                    amount: Uint128::new(500),
+                    denom: "quote_1".into(),
+                },
                 price: "100.000000000000000000".into(),
-                size: Uint128::new(5),
             },
         );
 
@@ -6527,7 +8899,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6544,6 +8916,9 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6583,6 +8958,406 @@ mod tests {
     }
 
     // since using ask price, and ask.price < bid.price, bidder should be refunded
+    // difference
+    #[test]
+    fn execute_price_overlap_use_ask_with_partial_bid() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2.000000000000000000".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(777),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(10),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                quote: Coin {
+                    amount: Uint128::new(500),
+                    denom: "quote_1".into(),
+                },
+                price: "100.000000000000000000".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2.000000000000000000".into(),
+            size: Uint128::new(5),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(
+                    execute_response.attributes[5],
+                    attr("price", "2.000000000000000000")
+                );
+                assert_eq!(execute_response.attributes[6], attr("size", "5"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
+                assert_eq!(execute_response.messages.len(), 3);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(10, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(5, "base_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(490, "quote_1")],
+                    })
+                );
+            }
+        }
+
+        // verify ask order IS NOT removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
+
+        // verify bid order update
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        base: Coin {
+                            amount: Uint128::new(10),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![
+                            Event {
+                                action: Action::Fill {
+                                    base: Coin {
+                                        denom: "base_1".to_string(),
+                                        amount: Uint128::new(5),
+                                    },
+                                    fee: None,
+                                    price: "2.000000000000000000".to_string(),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(10),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            },
+                            Event {
+                                action: Action::Refund {
+                                    fee: None,
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(490),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            }
+                        ],
+                        fee: None,
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        price: "100.000000000000000000".into(),
+                        quote: Coin {
+                            amount: Uint128::new(500),
+                            denom: "quote_1".into(),
+                        },
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    // since using ask price, and ask.price < bid.price, bidder should be refunded
+    // partial quote and partial fee
+    #[test]
+    fn execute_price_overlap_use_ask_with_bid_fees() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2.000000000000000000".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(777),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(10),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".to_string(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(1000),
+                    denom: "quote_1".into(),
+                },
+                price: "100.000000000000000000".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2.000000000000000000".into(),
+            size: Uint128::new(5),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(execute_response) => {
+                assert_eq!(execute_response.attributes.len(), 9);
+                assert_eq!(execute_response.attributes[0], attr("action", "execute"));
+                assert_eq!(
+                    execute_response.attributes[1],
+                    attr("ask_id", "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367")
+                );
+                assert_eq!(
+                    execute_response.attributes[2],
+                    attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
+                assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
+                assert_eq!(
+                    execute_response.attributes[5],
+                    attr("price", "2.000000000000000000")
+                );
+                assert_eq!(execute_response.attributes[6], attr("size", "5"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(
+                    execute_response.attributes[8],
+                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
+                );
+
+                assert_eq!(execute_response.messages.len(), 5);
+                assert_eq!(
+                    execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bid_fee_account".into(),
+                        amount: vec![coin(1, "quote_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "asker".into(),
+                        amount: coins(10, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[2].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(5, "base_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[3].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(490, "quote_1")],
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[4].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(49, "quote_1")],
+                    })
+                );
+            }
+        }
+
+        // verify ask order IS NOT removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(
+                    stored_order,
+                    BidOrderV2 {
+                        id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                        owner: Addr::unchecked("bidder"),
+                        base: Coin {
+                            amount: Uint128::new(10),
+                            denom: "base_1".into(),
+                        },
+                        events: vec![
+                            Event {
+                                action: Action::Fill {
+                                    base: Coin {
+                                        denom: "base_1".to_string(),
+                                        amount: Uint128::new(5),
+                                    },
+                                    fee: Some(Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(1),
+                                    }),
+                                    price: "2.000000000000000000".to_string(),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(10),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            },
+                            Event {
+                                action: Action::Refund {
+                                    fee: Some(Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(49),
+                                    }),
+                                    quote: Coin {
+                                        denom: "quote_1".to_string(),
+                                        amount: Uint128::new(490),
+                                    },
+                                },
+                                block_info: mock_env().block.into(),
+                            }
+                        ],
+                        fee: Some(Coin {
+                            amount: Uint128::new(100),
+                            denom: "quote_1".to_string(),
+                        }),
+                        quote: Coin {
+                            denom: "quote_1".into(),
+                            amount: Uint128::new(1000),
+                        },
+                        price: "100.000000000000000000".into(),
+                    }
+                )
+            }
+            _ => {
+                panic!("bid order was not found in storage")
+            }
+        }
+    }
+
+    // since using ask price, and ask.price < bid.price, bidder should be refunded
     // remaining quote balance if remaining order size = 0
     #[test]
     fn execute_price_overlap_use_ask_and_quote_restricted() {
@@ -6591,7 +9366,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6599,8 +9374,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6658,14 +9433,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(500),
+                base: Coin {
+                    amount: Uint128::new(5),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(500),
+                    denom: "quote_1".into(),
+                },
                 price: "100.000000000000000000".into(),
-                size: Uint128::new(5),
             },
         );
 
@@ -6688,7 +9469,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6705,6 +9486,9 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6756,7 +9540,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6764,8 +9548,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6790,14 +9574,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
+            &BidOrderV2 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
-                base: "base_1".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
                 price: "4".into(),
-                size: Uint128::new(100),
             },
         );
 
@@ -6820,7 +9610,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6834,6 +9624,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -6872,7 +9665,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -6880,8 +9673,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -6911,14 +9704,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_denom".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -6941,7 +9740,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -6951,30 +9750,33 @@ mod tests {
                     execute_response.attributes[2],
                     attr("bid_id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
                 );
-                assert_eq!(execute_response.attributes[3], attr("base", "base_denom"));
+                assert_eq!(execute_response.attributes[3], attr("base", "base_1"));
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "approver_1".into(),
-                        amount: vec![coin(100, "con_base_1")]
+                        to_address: "bidder".into(),
+                        amount: coins(100, "base_denom"),
                     })
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
-                        amount: vec![coin(400, "quote_1")]
+                        amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
                     execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "bidder".into(),
-                        amount: coins(100, "base_denom"),
+                        to_address: "approver_1".into(),
+                        amount: vec![coin(400, "quote_1")]
                     })
                 );
             }
@@ -7000,7 +9802,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7008,8 +9810,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7067,14 +9869,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -7097,7 +9906,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -7111,6 +9920,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -7152,7 +9964,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7160,8 +9972,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7219,14 +10031,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -7249,7 +10068,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -7263,6 +10082,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -7304,7 +10126,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7312,8 +10134,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -7402,14 +10224,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -7432,7 +10261,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -7446,6 +10275,9 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
                     execute_response.messages[0].msg,
@@ -7556,7 +10388,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7564,8 +10396,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -7595,14 +10427,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -7625,7 +10464,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -7639,10 +10478,22 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -7652,21 +10503,11 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1].msg,
+                    execute_response.messages[2].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(400, "quote_1")]
                     })
-                );
-                assert_eq!(
-                    execute_response.messages[2].msg,
-                    transfer_marker_coins(
-                        100,
-                        "base_1",
-                        Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
-                    )
-                    .unwrap()
                 );
             }
         }
@@ -7725,7 +10566,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7733,8 +10574,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -7764,14 +10605,20 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -7794,7 +10641,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -7808,17 +10655,26 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".into(),
+                        amount: vec![coin(100, "base_1")]
+                    })
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "approver_1".into(),
                         amount: vec![coin(100, "con_base_1")]
                     })
                 );
                 assert_eq!(
-                    execute_response.messages[1].msg,
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
@@ -7826,13 +10682,6 @@ mod tests {
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
                     .unwrap()
-                );
-                assert_eq!(
-                    execute_response.messages[2].msg,
-                    CosmosMsg::Bank(BankMsg::Send {
-                        to_address: "bidder".into(),
-                        amount: vec![coin(100, "base_1")]
-                    })
                 );
             }
         }
@@ -7955,7 +10804,7 @@ mod tests {
 
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -7963,8 +10812,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -7994,14 +10843,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8024,7 +10880,7 @@ mod tests {
         match execute_response {
             Err(error) => panic!("unexpected error: {:?}", error),
             Ok(execute_response) => {
-                assert_eq!(execute_response.attributes.len(), 7);
+                assert_eq!(execute_response.attributes.len(), 9);
                 assert_eq!(execute_response.attributes[0], attr("action", "execute"));
                 assert_eq!(
                     execute_response.attributes[1],
@@ -8038,10 +10894,22 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
                     execute_response.messages[0].msg,
+                    transfer_marker_coins(
+                        100,
+                        "base_1",
+                        Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                    )
+                    .unwrap()
+                );
+                assert_eq!(
+                    execute_response.messages[1].msg,
                     transfer_marker_coins(
                         100,
                         "con_base_1",
@@ -8051,21 +10919,11 @@ mod tests {
                     .unwrap()
                 );
                 assert_eq!(
-                    execute_response.messages[1].msg,
+                    execute_response.messages[2].msg,
                     transfer_marker_coins(
                         400,
                         "quote_1",
                         Addr::unchecked("approver_1"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
-                    )
-                    .unwrap()
-                );
-                assert_eq!(
-                    execute_response.messages[2].msg,
-                    transfer_marker_coins(
-                        100,
-                        "base_1",
-                        Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
                     .unwrap()
@@ -8092,7 +10950,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8100,8 +10958,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8145,7 +11003,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8153,8 +11011,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8190,7 +11048,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8198,8 +11056,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8225,14 +11083,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(200),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8269,7 +11134,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8277,8 +11142,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8289,14 +11154,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(100),
-                size: Uint128::new(200),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8328,7 +11200,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8336,8 +11208,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8386,15 +11258,15 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 supported_quote_denoms: vec![],
@@ -8431,7 +11303,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8439,8 +11311,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8465,14 +11337,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(200),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(100),
-                size: Uint128::new(200),
+                quote: Coin {
+                    amount: Uint128::new(100),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8506,7 +11385,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8514,8 +11393,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8540,14 +11419,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8593,7 +11479,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8601,8 +11487,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8627,14 +11513,21 @@ mod tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV1 {
-                base: "base_1".into(),
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
-                quote: "quote_1".into(),
-                quote_size: Uint128::new(400),
-                size: Uint128::new(100),
+                quote: Coin {
+                    amount: Uint128::new(400),
+                    denom: "quote_1".into(),
+                },
             },
         );
 
@@ -8680,7 +11573,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8688,8 +11581,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -8792,7 +11685,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_1".into(),
@@ -8800,8 +11693,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -8948,7 +11841,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -8956,8 +11849,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9035,7 +11928,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9043,8 +11936,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9120,7 +12013,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9128,8 +12021,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9205,7 +12098,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9213,8 +12106,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -9290,7 +12183,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9298,8 +12191,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -9384,7 +12277,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9392,8 +12285,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -9502,7 +12395,7 @@ mod tests {
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9510,8 +12403,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec![],
                 bid_required_attributes: vec![],
                 price_precision: Uint128::new(2),
@@ -9586,7 +12479,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9594,8 +12487,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9624,7 +12517,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9632,8 +12525,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9684,7 +12577,7 @@ mod tests {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
-            &ContractInfoV2 {
+            &ContractInfoV3 {
                 name: "contract_name".into(),
                 bind_name: "contract_bind_name".into(),
                 base_denom: "base_denom".into(),
@@ -9692,8 +12585,8 @@ mod tests {
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
                 approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
                 executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                fee_rate: None,
-                fee_account: None,
+                ask_fee_info: None,
+                bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
@@ -9702,14 +12595,20 @@ mod tests {
         );
 
         // store valid bid order
-        let bid_order = BidOrderV1 {
-            base: "base_1".into(),
+        let bid_order = BidOrderV2 {
+            base: Coin {
+                amount: Uint128::new(100),
+                denom: "base_1".into(),
+            },
+            events: vec![],
+            fee: None,
             id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
             owner: Addr::unchecked("bidder"),
             price: "2".into(),
-            quote: "quote_1".into(),
-            quote_size: Uint128::new(100),
-            size: Uint128::new(100),
+            quote: Coin {
+                amount: Uint128::new(100),
+                denom: "quote_1".into(),
+            },
         };
 
         let mut bid_storage = get_bid_storage(&mut deps.storage);
@@ -9729,7 +12628,7 @@ mod tests {
         assert_eq!(query_bid_response, to_binary(&bid_order));
     }
 
-    fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV2) {
+    fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
         if let Err(error) = set_contract_info(storage, contract_info) {
             panic!("unexpected error: {:?}", error)
         }
@@ -9742,7 +12641,7 @@ mod tests {
         };
     }
 
-    fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV1) {
+    fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV2) {
         let mut bid_storage = get_bid_storage(storage);
         if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
             panic!("unexpected error: {:?}", error);

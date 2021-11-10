@@ -1,6 +1,6 @@
 use crate::contract_info::get_legacy_contract_info;
 use crate::error::ContractError;
-use cosmwasm_std::Storage;
+use cosmwasm_std::{DepsMut, Storage};
 use cw_storage_plus::Item;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,13 +45,13 @@ pub fn get_version_info(store: &dyn Storage) -> Result<VersionInfoV1, ContractEr
     }
 }
 
-pub fn migrate_version_info(store: &mut dyn Storage) -> Result<VersionInfoV1, ContractError> {
+pub fn migrate_version_info(deps: DepsMut) -> Result<VersionInfoV1, ContractError> {
     let version_info = VersionInfoV1 {
         definition: CRATE_NAME.to_string(),
         version: PACKAGE_VERSION.to_string(),
     };
 
-    set_version_info(store, &version_info)?;
+    set_version_info(deps.storage, &version_info)?;
 
     Ok(version_info)
 }
