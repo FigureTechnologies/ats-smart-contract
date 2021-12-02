@@ -194,21 +194,21 @@ pub fn migrate_contract_info(
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
 
-    // migration from pre 0.15.0
+    // migration from pre 0.15.0 to latest
     if VersionReq::parse("<0.15.0")?.matches(&current_version) {
         let contract_info_v3: ContractInfoV3 = CONTRACT_INFO.load(store)?.into();
 
         set_contract_info(store, &contract_info_v3)?;
     }
 
-    // migration from 0.15.0 - 0.15.1 => 0.16.1
+    // migration from 0.15.0 - 0.15.1 => latest
     if VersionReq::parse(">=0.15.0, <0.15.2")?.matches(&current_version) {
         let contract_info_v3: ContractInfoV3 = CONTRACT_INFO_V1.load(store)?.into();
 
         set_contract_info(store, &contract_info_v3)?;
     }
 
-    // migration from 0.15.2 - 0.16.0 => 0.16.1
+    // migration from 0.15.2 - 0.16.2 => latest
     if VersionReq::parse(">=0.15.3, <0.16.2")?.matches(&current_version) {
         let contract_info_v3: ContractInfoV3 = CONTRACT_INFO_V2.load(store)?.into();
 
