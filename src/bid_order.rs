@@ -233,7 +233,7 @@ pub fn migrate_bid_orders(
         }
     }
 
-    // migration from 0.15.2 - 0.16.1 => 0.16.2
+    // migration from 0.15.2 - 0.16.1 => latest
     if VersionReq::parse(">=0.15.1, <0.16.2")?.matches(&current_version) {
         let existing_bid_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_BID)
             .range(None, None, Order::Ascending)

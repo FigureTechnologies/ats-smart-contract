@@ -521,6 +521,9 @@ fn create_bid(
                             fee_rate: bid_fee_info.rate,
                         });
                     }
+                    if fee.denom.ne(&bid_order.quote.denom) {
+                        return Err(ContractError::SentFundsOrderMismatch);
+                    }
                 }
                 _ => {
                     return Err(ContractError::InvalidFeeSize {
@@ -1284,7 +1287,13 @@ fn execute_match(
         None => None,
     };
 
-    response = response.add_attribute("ask_fee", format!("{:?}", ask_fee));
+    response = response.add_attribute(
+        "ask_fee",
+        match ask_fee {
+            None => Uint128::zero(),
+            Some(fee) => fee.amount,
+        },
+    );
 
     // get bid fees and create message if applicable
     let actual_bid_fee = match &bid_order.fee {
@@ -1322,7 +1331,13 @@ fn execute_match(
         None => (),
     }
 
-    response = response.add_attribute("bid_fee", format!("{:?}", actual_bid_fee));
+    response = response.add_attribute(
+        "bid_fee",
+        match &actual_bid_fee {
+            None => Uint128::zero(),
+            Some(fee) => fee.amount,
+        },
+    );
 
     // add 'send quote to asker' and 'send base to bidder' messages
     match &ask_order.class {
@@ -7431,8 +7446,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -7559,11 +7574,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
-                assert_eq!(
-                    execute_response.attributes[7],
-                    attr("ask_fee", format!("{:?}", Some(coin(1, "quote_1"))))
-                );
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "1"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -7697,11 +7709,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "150"));
-                assert_eq!(
-                    execute_response.attributes[7],
-                    attr("ask_fee", format!("{:?}", Some(coin(2, "quote_1"))))
-                );
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "2"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -7838,11 +7847,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(
-                    execute_response.attributes[8],
-                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
-                );
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "1"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -7976,8 +7982,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "149"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -8107,11 +8113,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "1"));
                 assert_eq!(execute_response.attributes[6], attr("size", "150"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(
-                    execute_response.attributes[8],
-                    attr("bid_fee", format!("{:?}", Some(coin(2, "quote_1"))))
-                );
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "2"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -8242,8 +8245,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "10"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -8382,8 +8385,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "50"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -8540,8 +8543,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -8721,8 +8724,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "2"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -8916,8 +8919,8 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -9052,8 +9055,8 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -9242,11 +9245,8 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(
-                    execute_response.attributes[8],
-                    attr("bid_fee", format!("{:?}", Some(coin(1, "quote_1"))))
-                );
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "1"));
 
                 assert_eq!(execute_response.messages.len(), 5);
                 assert_eq!(
@@ -9486,8 +9486,8 @@ mod tests {
                     attr("price", "2.000000000000000000")
                 );
                 assert_eq!(execute_response.attributes[6], attr("size", "5"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -9624,8 +9624,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -9754,8 +9754,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -9920,8 +9920,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -10082,8 +10082,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -10275,8 +10275,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 2);
                 assert_eq!(
@@ -10478,8 +10478,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -10655,8 +10655,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
@@ -10894,8 +10894,8 @@ mod tests {
                 assert_eq!(execute_response.attributes[4], attr("quote", "quote_1"));
                 assert_eq!(execute_response.attributes[5], attr("price", "4"));
                 assert_eq!(execute_response.attributes[6], attr("size", "100"));
-                assert_eq!(execute_response.attributes[7], attr("ask_fee", "None"));
-                assert_eq!(execute_response.attributes[8], attr("bid_fee", "None"));
+                assert_eq!(execute_response.attributes[7], attr("ask_fee", "0"));
+                assert_eq!(execute_response.attributes[8], attr("bid_fee", "0"));
 
                 assert_eq!(execute_response.messages.len(), 3);
                 assert_eq!(
