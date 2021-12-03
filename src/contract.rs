@@ -7387,54 +7387,36 @@ mod tests {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
-                    amount: Uint128::new(6698000000000),
+                    amount: Uint128::new(10000),
                     denom: "base_1".into(),
                 },
                 events: vec![Event {
                     action: Action::Fill {
                         base: Coin {
                             denom: "base_1".to_string(),
-                            amount: Uint128::new(3375000000000)
+                            amount: Uint128::new(2000)
                         },
                         fee: Some(Coin {
                             denom: "quote_1".to_string(),
-                            amount: Uint128::new(233)
+                            amount: Uint128::new(6)
                         }),
-                        price: "0.000000023000000000".to_string(),
+                        price: "0.01".to_string(),
                         quote: Coin {
                             denom: "quote_1".to_string(),
-                            amount: Uint128::new(77625)
+                            amount: Uint128::new(20)
                         },
                     },
                     block_info: mock_env().block.into(),
-                },
-                Event {
-                    action: Action::Fill {
-                        base: Coin {
-                        denom: "base_1".to_string(),
-                        amount: Uint128::new(2127000000000)
-                     },
-                     fee: Some(Coin {
-                         denom: "quote_1".to_string(),
-                         amount: Uint128::new(147)
-                     }),
-                     price: "0.000000023000000000".to_string(),
-                     quote: Coin {
-                         denom: "quote_1".to_string(),
-                         amount: Uint128::new(48921)
-                     },
-                 },
-                 block_info: mock_env().block.into(),
                 }],
                 fee: Some(Coin {
-                    amount: Uint128::new(462),
+                    amount: Uint128::new(30),
                     denom: "quote_1".to_string(),
                 }),
                 quote: Coin {
-                    amount: Uint128::new(154054),
+                    amount: Uint128::new(100),
                     denom: "quote_1".into(),
                 },
-                price: "0.000000023".into(),
+                price: "0.01".into(),
             },
         );
 
