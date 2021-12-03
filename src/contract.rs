@@ -7356,6 +7356,137 @@ mod tests {
     }
 
     #[test]
+    fn expire_partial_filed_bid_with_fees_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.003".to_string(),
+                }),
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(6698000000000),
+                    denom: "base_1".into(),
+                },
+                events: vec![Event {
+                    action: Action::Fill {
+                        base: Coin {
+                            denom: "base_1".to_string(),
+                            amount: Uint128::new(3375000000000)
+                        },
+                        fee: Some(Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(233)
+                        }),
+                        price: "0.000000023000000000".to_string(),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(77625)
+                        },
+                    },
+                    block_info: mock_env().block.into(),
+                },
+                Event {
+                    action: Action::Fill {
+                        base: Coin {
+                        denom: "base_1".to_string(),
+                        amount: Uint128::new(2127000000000)
+                     },
+                     fee: Some(Coin {
+                         denom: "quote_1".to_string(),
+                         amount: Uint128::new(147)
+                     }),
+                     price: "0.000000023000000000".to_string(),
+                     quote: Coin {
+                         denom: "quote_1".to_string(),
+                         amount: Uint128::new(48921)
+                     },
+                 },
+                 block_info: mock_env().block.into(),
+                }],
+                fee: Some(Coin {
+                    amount: Uint128::new(462),
+                    denom: "quote_1".to_string(),
+                }),
+                quote: Coin {
+                    amount: Uint128::new(154054),
+                    denom: "quote_1".into(),
+                },
+                price: "0.000000023".into(),
+            },
+        );
+
+        // expire bid order
+        let exec_info = mock_info("exec_1", &[]);
+
+        let expire_bid_msg = ExecuteMsg::ExpireBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string()
+        };
+
+        let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
+
+        match expire_bid_response {
+            Ok(reject_bid_response) => {
+                assert_eq!(reject_bid_response.attributes.len(), 4);
+                assert_eq!(
+                    reject_bid_response.attributes[0],
+                    attr("action", "reject_bid")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[2],
+                    attr("reverse_size", "1196000000000")
+                );
+                assert_eq!(
+                    reject_bid_response.attributes[3],
+                    attr("order_open", "false")
+                );
+                assert_eq!(reject_bid_response.messages.len(), 2);
+                assert_eq!(
+                    reject_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(27508, "quote_1"),
+                    })
+                );
+                assert_eq!(
+                    reject_bid_response.messages[1].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: "bidder".to_string(),
+                        amount: coins(82, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+    }
+
+    #[test]
     fn execute_valid_data() {
         // setup
         let mut deps = mock_dependencies(&[]);
