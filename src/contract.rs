@@ -966,7 +966,7 @@ fn reverse_bid(
 
     // determine the effective cancel size
     let effective_cancel_size = match cancel_size {
-        None => bid_order.base.amount,
+        None => bid_order.get_remaining_base(),
         Some(cancel_size) => cancel_size,
     };
 
@@ -7356,7 +7356,7 @@ mod tests {
     }
 
     #[test]
-    fn expire_partial_filed_bid_with_fees_valid() {
+    fn expire_partial_filled_bid_with_fees_valid() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
             &mut deps.storage,
@@ -7394,16 +7394,16 @@ mod tests {
                     action: Action::Fill {
                         base: Coin {
                             denom: "base_1".to_string(),
-                            amount: Uint128::new(2000)
+                            amount: Uint128::new(2000),
                         },
                         fee: Some(Coin {
                             denom: "quote_1".to_string(),
-                            amount: Uint128::new(6)
+                            amount: Uint128::new(6),
                         }),
                         price: "0.01".to_string(),
                         quote: Coin {
                             denom: "quote_1".to_string(),
-                            amount: Uint128::new(20)
+                            amount: Uint128::new(20),
                         },
                     },
                     block_info: mock_env().block.into(),
@@ -7424,7 +7424,7 @@ mod tests {
         let exec_info = mock_info("exec_1", &[]);
 
         let expire_bid_msg = ExecuteMsg::ExpireBid {
-            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string()
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
         };
 
         let expire_bid_response = execute(deps.as_mut(), mock_env(), exec_info, expire_bid_msg);
@@ -7434,7 +7434,7 @@ mod tests {
                 assert_eq!(reject_bid_response.attributes.len(), 4);
                 assert_eq!(
                     reject_bid_response.attributes[0],
-                    attr("action", "reject_bid")
+                    attr("action", "expire_bid")
                 );
                 assert_eq!(
                     reject_bid_response.attributes[1],
@@ -7442,7 +7442,7 @@ mod tests {
                 );
                 assert_eq!(
                     reject_bid_response.attributes[2],
-                    attr("reverse_size", "1196000000000")
+                    attr("reverse_size", "8000")
                 );
                 assert_eq!(
                     reject_bid_response.attributes[3],
@@ -7453,14 +7453,14 @@ mod tests {
                     reject_bid_response.messages[0].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
-                        amount: coins(27508, "quote_1"),
+                        amount: coins(80, "quote_1"),
                     })
                 );
                 assert_eq!(
                     reject_bid_response.messages[1].msg,
                     CosmosMsg::Bank(BankMsg::Send {
                         to_address: "bidder".to_string(),
-                        amount: coins(82, "quote_1"),
+                        amount: coins(24, "quote_1"),
                     })
                 );
             }
