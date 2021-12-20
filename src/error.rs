@@ -11,6 +11,9 @@ pub enum ContractError {
     #[error("Ask order not ready: {current_status:?}")]
     AskOrderNotReady { current_status: String },
 
+    #[error("Attributes conflict with orders")]
+    ConflictingAttributes,
+
     #[error("One base required in order")]
     BaseQuantity,
 

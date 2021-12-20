@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::FeeInfo;
 use crate::error::ContractError;
-use crate::msg::MigrateMsg;
+use crate::msg::{MigrateMsg, ModifyContractMsg};
 use crate::version_info::get_version_info;
 use semver::{Version, VersionReq};
 
@@ -227,6 +227,122 @@ pub fn migrate_contract_info(
             }
 
             contract_info.approvers = new_approvers;
+        }
+    }
+
+    match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.ask_fee_info = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("ask_fee_rate")],
+                    })?;
+
+                    Some(FeeInfo {
+                        account: api.addr_validate(account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
+        }
+        (_, _) => (),
+    };
+
+    match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.bid_fee_info = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("ask_fee_rate")],
+                    })?;
+
+                    Some(FeeInfo {
+                        account: api.addr_validate(account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
+        }
+        (_, _) => (),
+    };
+
+    match &msg.ask_required_attributes {
+        None => {}
+        Some(ask_required_attributes) => {
+            contract_info.ask_required_attributes = ask_required_attributes.clone();
+        }
+    }
+
+    match &msg.bid_required_attributes {
+        None => {}
+        Some(bid_required_attributes) => {
+            contract_info.bid_required_attributes = bid_required_attributes.clone();
+        }
+    }
+
+    set_contract_info(store, &contract_info)?;
+
+    get_contract_info(store)
+}
+
+pub fn modify_contract_info(
+    deps: DepsMut,
+    msg: &ModifyContractMsg,
+) -> Result<ContractInfoV3, ContractError> {
+    let store = deps.storage;
+    let api = deps.api;
+    let version_info = get_version_info(store)?;
+    let current_version = Version::parse(&version_info.version)?;
+
+    // migration from pre 0.15.0
+    if VersionReq::parse("<0.15.0")?.matches(&current_version) {
+        let contract_info_v3: ContractInfoV3 = CONTRACT_INFO.load(store)?.into();
+
+        set_contract_info(store, &contract_info_v3)?;
+    }
+
+    // migration from 0.15.0 - 0.15.1 => 0.16.1
+    if VersionReq::parse(">=0.15.0, <0.15.2")?.matches(&current_version) {
+        let contract_info_v3: ContractInfoV3 = CONTRACT_INFO_V1.load(store)?.into();
+
+        set_contract_info(store, &contract_info_v3)?;
+    }
+
+    // migration from 0.15.2 - 0.16.0 => 0.16.1
+    if VersionReq::parse(">=0.15.3, <0.16.2")?.matches(&current_version) {
+        let contract_info_v3: ContractInfoV3 = CONTRACT_INFO_V2.load(store)?.into();
+
+        set_contract_info(store, &contract_info_v3)?;
+    }
+
+    let mut contract_info = get_contract_info(store)?;
+    match &msg.approvers {
+        None => {}
+        Some(approvers) => {
+            // Validate and convert approvers to addresses
+            let mut new_approvers: Vec<Addr> = Vec::new();
+            for approver_str in approvers {
+                let address = api.addr_validate(approver_str)?;
+                new_approvers.push(address);
+            }
+
+            contract_info.approvers = new_approvers;
+        }
+    }
+
+    match &msg.executors {
+        None => {}
+        Some(executors) => {
+            // Validate and convert executors to addresses
+            let mut new_executors: Vec<Addr> = Vec::new();
+            for executor_str in executors {
+                let address = api.addr_validate(executor_str)?;
+                new_executors.push(address);
+            }
+
+            contract_info.executors = new_executors;
         }
     }
 

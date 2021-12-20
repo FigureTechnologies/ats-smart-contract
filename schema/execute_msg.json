@@ -287,6 +287,80 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "modify_contract"
+      ],
+      "properties": {
+        "modify_contract": {
+          "type": "object",
+          "properties": {
+            "approvers": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "ask_fee_account": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ask_fee_rate": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ask_required_attributes": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "bid_fee_account": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bid_fee_rate": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bid_required_attributes": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "executors": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {

@@ -6,7 +6,7 @@ use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 use ats_smart_contract::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1};
 use ats_smart_contract::bid_order::BidOrderV2;
 use ats_smart_contract::contract_info::ContractInfoV3;
-use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, ModifyContractMsg, QueryMsg};
 use ats_smart_contract::version_info::VersionInfoV1;
 
 fn main() {
@@ -24,4 +24,5 @@ fn main() {
     export_schema(&schema_for!(ExecuteMsg), &out_dir);
     export_schema(&schema_for!(InstantiateMsg), &out_dir);
     export_schema(&schema_for!(QueryMsg), &out_dir);
+    export_schema(&schema_for!(ModifyContractMsg), &out_dir);
 }
