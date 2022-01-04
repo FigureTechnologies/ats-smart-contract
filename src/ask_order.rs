@@ -74,8 +74,8 @@ pub fn migrate_ask_orders(deps: DepsMut, _msg: &MigrateMsg) -> Result<(), Contra
     if upgrade_req.matches(&current_version) {
         let existing_ask_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_ASK)
             .range(None, None, Order::Ascending)
-            .map(|kv_bid: StdResult<Pair<AskOrder>>| {
-                let (ask_key, _) = kv_bid.unwrap();
+            .map(|kv_ask: StdResult<Pair<AskOrder>>| {
+                let (ask_key, _) = kv_ask.unwrap();
                 ask_key
             })
             .collect();

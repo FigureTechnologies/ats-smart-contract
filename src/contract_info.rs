@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::FeeInfo;
 use crate::error::ContractError;
-use crate::msg::MigrateMsg;
+use crate::msg::{MigrateMsg, ModifyMsg};
 use crate::version_info::get_version_info;
 use semver::{Version, VersionReq};
 
@@ -255,7 +255,109 @@ pub fn migrate_contract_info(
                 ("", "") => None,
                 (_, _) => {
                     Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("bid_fee_rate")],
+                    })?;
+
+                    Some(FeeInfo {
+                        account: api.addr_validate(account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
+        }
+        (_, _) => (),
+    };
+
+    match &msg.ask_required_attributes {
+        None => {}
+        Some(ask_required_attributes) => {
+            contract_info.ask_required_attributes = ask_required_attributes.clone();
+        }
+    }
+
+    match &msg.bid_required_attributes {
+        None => {}
+        Some(bid_required_attributes) => {
+            contract_info.bid_required_attributes = bid_required_attributes.clone();
+        }
+    }
+
+    set_contract_info(store, &contract_info)?;
+
+    get_contract_info(store)
+}
+
+pub fn modify_contract_info(
+    deps: DepsMut,
+    msg: &ModifyMsg,
+) -> Result<ContractInfoV3, ContractError> {
+    let store = deps.storage;
+    let api = deps.api;
+    let version_info = get_version_info(store)?;
+    let current_version = Version::parse(&version_info.version)?;
+
+    if VersionReq::parse("<0.16.2")?.matches(&current_version) {
+        return Err(ContractError::UnsupportedUpgrade {
+            source_version: "<0.16.2".to_string(),
+            target_version: ">=0.16.2".to_string(),
+        });
+    }
+
+    let mut contract_info = get_contract_info(store)?;
+    match &msg.approvers {
+        None => {}
+        Some(approvers) => {
+            // Validate and convert approvers to addresses
+            let mut new_approvers: Vec<Addr> = Vec::new();
+            for approver_str in approvers {
+                let address = api.addr_validate(approver_str)?;
+                new_approvers.push(address);
+            }
+
+            contract_info.approvers = new_approvers;
+        }
+    }
+
+    match &msg.executors {
+        None => {}
+        Some(executors) => {
+            // Validate and convert executors to addresses
+            let mut new_executors: Vec<Addr> = Vec::new();
+            for executor_str in executors {
+                let address = api.addr_validate(executor_str)?;
+                new_executors.push(address);
+            }
+
+            contract_info.executors = new_executors;
+        }
+    }
+
+    match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.ask_fee_info = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
                         fields: vec![String::from("ask_fee_rate")],
+                    })?;
+
+                    Some(FeeInfo {
+                        account: api.addr_validate(account)?,
+                        rate: rate.to_string(),
+                    })
+                }
+            }
+        }
+        (_, _) => (),
+    };
+
+    match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+        (Some(account), Some(rate)) => {
+            contract_info.bid_fee_info = match (account.as_str(), rate.as_str()) {
+                ("", "") => None,
+                (_, _) => {
+                    Decimal::from_str(rate).map_err(|_| ContractError::InvalidFields {
+                        fields: vec![String::from("bid_fee_rate")],
                     })?;
 
                     Some(FeeInfo {
