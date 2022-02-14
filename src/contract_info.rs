@@ -9,6 +9,7 @@ use crate::common::FeeInfo;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
+use provwasm_std::ProvenanceQuery;
 use semver::{Version, VersionReq};
 
 const CONTRACT_INFO_NAMESPACE: &str = "contract_info";
@@ -186,7 +187,7 @@ pub fn set_legacy_contract_info(
 }
 
 pub fn migrate_contract_info(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     msg: &MigrateMsg,
 ) -> Result<ContractInfoV3, ContractError> {
     let store = deps.storage;

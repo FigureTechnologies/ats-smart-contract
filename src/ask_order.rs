@@ -1,11 +1,13 @@
-use crate::error::ContractError;
-use crate::msg::MigrateMsg;
-use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Coin, DepsMut, Order, Pair, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, Coin, DepsMut, Order, Record, StdResult, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
+use provwasm_std::ProvenanceQuery;
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
+
+use crate::error::ContractError;
+use crate::msg::MigrateMsg;
+use crate::version_info::get_version_info;
 
 pub static NAMESPACE_ORDER_ASK: &[u8] = b"ask";
 
@@ -63,7 +65,10 @@ impl From<AskOrder> for AskOrderV1 {
 }
 
 #[allow(deprecated)]
-pub fn migrate_ask_orders(deps: DepsMut, _msg: &MigrateMsg) -> Result<(), ContractError> {
+pub fn migrate_ask_orders(
+    deps: DepsMut<ProvenanceQuery>,
+    _msg: &MigrateMsg,
+) -> Result<(), ContractError> {
     let store = deps.storage;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
@@ -74,7 +79,7 @@ pub fn migrate_ask_orders(deps: DepsMut, _msg: &MigrateMsg) -> Result<(), Contra
     if upgrade_req.matches(&current_version) {
         let existing_ask_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_ASK)
             .range(None, None, Order::Ascending)
-            .map(|kv_bid: StdResult<Pair<AskOrder>>| {
+            .map(|kv_bid: StdResult<Record<AskOrder>>| {
                 let (ask_key, _) = kv_bid.unwrap();
                 ask_key
             })
@@ -105,6 +110,10 @@ pub fn get_ask_storage_read(storage: &dyn Storage) -> ReadonlyBucket<AskOrderV1>
 
 #[cfg(test)]
 mod tests {
+    use cosmwasm_std::{coin, Addr, Uint128};
+    use cosmwasm_storage::{bucket, Bucket};
+    use provwasm_mocks::mock_dependencies;
+
     #[allow(deprecated)]
     use crate::ask_order::{
         get_ask_storage_read, migrate_ask_orders, AskOrder, AskOrderClass, AskOrderV1,
@@ -114,9 +123,6 @@ mod tests {
     use crate::contract_info::set_legacy_contract_info;
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
-    use cosmwasm_std::{coin, Addr, Uint128};
-    use cosmwasm_storage::{bucket, Bucket};
-    use provwasm_mocks::mock_dependencies;
 
     #[test]
     #[allow(deprecated)]

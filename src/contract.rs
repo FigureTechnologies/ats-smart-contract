@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 use provwasm_std::{
     bind_name, transfer_marker_coins, Marker, MarkerType, NameBinding, ProvenanceMsg,
-    ProvenanceQuerier,
+    ProvenanceQuerier, ProvenanceQuery,
 };
 
 use crate::ask_order::{
@@ -32,7 +32,7 @@ use std::ops::Mul;
 // smart contract initialization entrypoint
 #[entry_point]
 pub fn instantiate(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
@@ -142,7 +142,7 @@ pub fn instantiate(
 // smart contract execute entrypoint
 #[entry_point]
 pub fn execute(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
@@ -224,7 +224,7 @@ pub fn execute(
 }
 
 fn approve_ask(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     id: String,
@@ -314,7 +314,7 @@ fn approve_ask(
 
 // create ask entrypoint
 fn create_ask(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: &MessageInfo,
     mut ask_order: AskOrderV1,
@@ -451,7 +451,7 @@ fn create_ask(
 
 // create bid entrypoint
 fn create_bid(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: &MessageInfo,
     mut bid_order: BidOrderV2,
@@ -646,7 +646,7 @@ fn create_bid(
 
 // cancel ask entrypoint
 fn cancel_ask(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     id: String,
@@ -739,7 +739,7 @@ fn cancel_ask(
 
 // cancel bid entrypoint
 fn cancel_bid(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     id: String,
@@ -803,7 +803,7 @@ fn cancel_bid(
 
 // reverse ask entrypoint
 fn reverse_ask(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     id: String,
@@ -934,7 +934,7 @@ fn reverse_ask(
 
 // reverse bid entrypoint
 fn reverse_bid(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     id: String,
@@ -1111,7 +1111,7 @@ fn reverse_bid(
 
 // match and execute an ask and bid order
 fn execute_match(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: MessageInfo,
     ask_id: String,
@@ -1602,7 +1602,7 @@ fn execute_match(
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
 pub fn migrate(
-    mut deps: DepsMut,
+    mut deps: DepsMut<ProvenanceQuery>,
     env: Env,
     msg: MigrateMsg,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
@@ -1628,7 +1628,7 @@ pub fn migrate(
 
 // smart contract query entrypoint
 #[entry_point]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     msg.validate()?;
 
     match msg {
@@ -8270,8 +8270,7 @@ mod tests {
     #[test]
     fn execute_partial_ask_order() {
         // setup
-        let mut deps =
-            cosmwasm_std::testing::mock_dependencies(&[coin(30, "base_1"), coin(20, "quote_1")]);
+        let mut deps = mock_dependencies(&[coin(30, "base_1"), coin(20, "quote_1")]);
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
