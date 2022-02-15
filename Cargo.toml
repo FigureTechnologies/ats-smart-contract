@@ -1,6 +1,6 @@
 [package]
 name = "ats-smart-contract"
-version = "0.16.3"
+version = "0.17.0"
 authors = ["Ken Talley <ktalley@figure.com>"]
 edition = "2018"
 
@@ -31,7 +31,7 @@ overflow-checks = true
 cosmwasm-std = { version = "1.0.0-beta" }
 cosmwasm-storage = { version = "1.0.0-beta", features = ["iterator"] }
 cw-storage-plus = { version = "0.11.1" }
-provwasm-std = { version = "1.0.0-beta" }
+provwasm-std = { version = "1.0.0-beta2" }
 rust_decimal = { version = "1.14" }
 schemars = "0.8.1"
 semver = "1.0.3"
@@ -42,4 +42,4 @@ uuid = { version= "0.8.2" }
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.0.0-beta" }
-provwasm-mocks = { version = "1.0.0-beta" }
+provwasm-mocks = { version = "1.0.0-beta2" }
