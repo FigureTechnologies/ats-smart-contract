@@ -37,7 +37,7 @@ optimize:
 	$(CONTAINER_RUNTIME) run --rm -v $(CURDIR):/code:Z \
 		--mount type=volume,source=ats-smart-contract_cache,target=/code/target \
 		--mount type=volume,source=ats-smart-contract_registry_cache,target=/usr/local/cargo/registry \
-		cosmwasm/rust-optimizer:0.11.3
+		cosmwasm/rust-optimizer:0.12.5
 
 .PHONY: install
 install: optimize
