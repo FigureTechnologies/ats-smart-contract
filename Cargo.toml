@@ -28,9 +28,9 @@ overflow-checks = true
 #backtraces = ["cosmwasm-std/backtraces"]
 
 [dependencies]
-cosmwasm-std = { version = "1.0.0-beta" }
-cosmwasm-storage = { version = "1.0.0-beta", features = ["iterator"] }
-cw-storage-plus = { version = "0.11.1" }
+cosmwasm-std = { version = "1.0.0-beta5" }
+cosmwasm-storage = { version = "1.0.0-beta5", features = ["iterator"] }
+cw-storage-plus = { version = "0.12.1" }
 provwasm-std = { version = "1.0.0-beta2" }
 rust_decimal = { version = "1.14" }
 schemars = "0.8.1"
@@ -41,5 +41,5 @@ thiserror = { version = "1.0.23" }
 uuid = { version= "0.8.2" }
 
 [dev-dependencies]
-cosmwasm-schema = { version = "1.0.0-beta" }
+cosmwasm-schema = { version = "1.0.0-beta5" }
 provwasm-mocks = { version = "1.0.0-beta2" }
