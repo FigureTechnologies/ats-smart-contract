@@ -3,11 +3,13 @@ use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use cosmwasm_std::{
-    coin, Addr, BankMsg, Coin, CosmosMsg, DepsMut, Env, Order, Pair, QuerierWrapper, Response,
+    coin, Addr, BankMsg, Coin, CosmosMsg, DepsMut, Env, Order, QuerierWrapper, Record, Response,
     StdResult, Storage, Uint128,
 };
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
-use provwasm_std::{transfer_marker_coins, Marker, MarkerType, ProvenanceMsg, ProvenanceQuerier};
+use provwasm_std::{
+    transfer_marker_coins, Marker, MarkerType, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery,
+};
 use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
 use schemars::JsonSchema;
@@ -204,7 +206,7 @@ impl From<BidOrderV1> for BidOrderV2 {
 
 #[allow(deprecated)]
 pub fn migrate_bid_orders(
-    deps: DepsMut,
+    deps: DepsMut<ProvenanceQuery>,
     env: Env,
     _msg: &MigrateMsg,
     mut response: Response<ProvenanceMsg>,
@@ -220,7 +222,7 @@ pub fn migrate_bid_orders(
     if upgrade_req.matches(&current_version) {
         let existing_bid_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_BID)
             .range(None, None, Order::Ascending)
-            .map(|kv_bid: StdResult<Pair<BidOrder>>| {
+            .map(|kv_bid: StdResult<Record<BidOrder>>| {
                 let (bid_key, _) = kv_bid.unwrap();
                 bid_key
             })
@@ -237,7 +239,7 @@ pub fn migrate_bid_orders(
     if VersionReq::parse(">=0.15.1, <0.16.2")?.matches(&current_version) {
         let existing_bid_order_ids: Vec<Vec<u8>> = bucket_read(store, NAMESPACE_ORDER_BID)
             .range(None, None, Order::Ascending)
-            .map(|kv_bid: StdResult<Pair<BidOrderV1>>| {
+            .map(|kv_bid: StdResult<Record<BidOrderV1>>| {
                 let (bid_key, _) = kv_bid.unwrap();
                 bid_key
             })
@@ -273,7 +275,7 @@ pub fn migrate_bid_orders(
 }
 
 fn calculate_migrate_refund(
-    querier: &QuerierWrapper,
+    querier: &QuerierWrapper<ProvenanceQuery>,
     env: &Env,
     mut response: Response<ProvenanceMsg>,
     bid_order: &mut BidOrderV2,
