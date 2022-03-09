@@ -139,6 +139,16 @@ pub enum ExecuteMsg {
         id: String,
         size: Option<Uint128>,
     },
+    ModifyContract {
+        approvers: Option<Vec<String>>,
+        executors: Option<Vec<String>>,
+        ask_fee_rate: Option<String>,
+        ask_fee_account: Option<String>,
+        bid_fee_rate: Option<String>,
+        bid_fee_account: Option<String>,
+        ask_required_attributes: Option<Vec<String>>,
+        bid_required_attributes: Option<Vec<String>>,
+    },
 }
 
 impl Validate for ExecuteMsg {
@@ -282,6 +292,53 @@ impl Validate for ExecuteMsg {
                     if size.lt(&Uint128::new(1)) {
                         invalid_fields.push("size");
                     }
+                }
+            }
+            ExecuteMsg::ModifyContract {
+                approvers,
+                executors,
+                ask_fee_rate,
+                ask_fee_account,
+                bid_fee_rate,
+                bid_fee_account,
+                ask_required_attributes: _,
+                bid_required_attributes: _,
+            } => {
+                match approvers {
+                    Some(vector) => {
+                        if let true = vector.as_slice().is_empty() {
+                            invalid_fields.push("approvers_empty")
+                        }
+                    }
+                    None => (),
+                }
+                match executors {
+                    Some(vector) => {
+                        if let true = vector.as_slice().is_empty() {
+                            invalid_fields.push("executors_empty")
+                        }
+                    }
+                    None => (),
+                }
+                match (ask_fee_rate, ask_fee_account) {
+                    (Some(_), None) => {
+                        invalid_fields.push("ask_fee_account");
+                    }
+                    (None, Some(_)) => {
+                        invalid_fields.push("ask_fee_rate");
+                    }
+                    (Some(_), Some(_)) => (),
+                    (None, None) => (),
+                }
+                match (bid_fee_rate, bid_fee_account) {
+                    (Some(_), None) => {
+                        invalid_fields.push("bid_fee_account");
+                    }
+                    (None, Some(_)) => {
+                        invalid_fields.push("bid_fee_rate");
+                    }
+                    (Some(_), Some(_)) => (),
+                    (None, None) => (),
                 }
             }
         }
