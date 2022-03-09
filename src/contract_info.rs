@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::FeeInfo;
 use crate::error::ContractError;
-use crate::msg::{MigrateMsg, ModifyMsg};
+use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use provwasm_std::ProvenanceQuery;
 use semver::{Version, VersionReq};
@@ -290,7 +290,14 @@ pub fn migrate_contract_info(
 
 pub fn modify_contract_info(
     deps: DepsMut<ProvenanceQuery>,
-    msg: &ModifyMsg,
+    approvers: Option<Vec<String>>,
+    executors: Option<Vec<String>>,
+    ask_fee_rate: Option<String>,
+    ask_fee_account: Option<String>,
+    bid_fee_rate: Option<String>,
+    bid_fee_account: Option<String>,
+    ask_required_attributes: Option<Vec<String>>,
+    bid_required_attributes: Option<Vec<String>>,
 ) -> Result<ContractInfoV3, ContractError> {
     let store = deps.storage;
     let api = deps.api;
@@ -305,7 +312,7 @@ pub fn modify_contract_info(
     }
 
     let mut contract_info = get_contract_info(store)?;
-    match &msg.approvers {
+    match &approvers {
         None => {}
         Some(approvers) => {
             let mut new_approvers: Vec<Addr> = Vec::new();
@@ -318,7 +325,7 @@ pub fn modify_contract_info(
         }
     }
 
-    match &msg.executors {
+    match &executors {
         None => {}
         Some(executors) => {
             let mut new_executors: Vec<Addr> = Vec::new();
@@ -331,7 +338,7 @@ pub fn modify_contract_info(
         }
     }
 
-    match (&msg.ask_fee_account, &msg.ask_fee_rate) {
+    match (&ask_fee_account, &ask_fee_rate) {
         (Some(account), Some(rate)) => {
             contract_info.ask_fee_info = match (account.as_str(), rate.as_str()) {
                 ("", "") => None,
@@ -350,7 +357,7 @@ pub fn modify_contract_info(
         (_, _) => (),
     };
 
-    match (&msg.bid_fee_account, &msg.bid_fee_rate) {
+    match (&bid_fee_account, &bid_fee_rate) {
         (Some(account), Some(rate)) => {
             contract_info.bid_fee_info = match (account.as_str(), rate.as_str()) {
                 ("", "") => None,
@@ -369,14 +376,14 @@ pub fn modify_contract_info(
         (_, _) => (),
     };
 
-    match &msg.ask_required_attributes {
+    match &ask_required_attributes {
         None => {}
         Some(ask_required_attributes) => {
             contract_info.ask_required_attributes = ask_required_attributes.clone();
         }
     }
 
-    match &msg.bid_required_attributes {
+    match &bid_required_attributes {
         None => {}
         Some(bid_required_attributes) => {
             contract_info.bid_required_attributes = bid_required_attributes.clone();
@@ -402,7 +409,7 @@ mod tests {
         modify_contract_info, ContractInfoV3, CONTRACT_INFO_V1, CONTRACT_INFO_V2,
     };
     use crate::error::ContractError;
-    use crate::msg::{MigrateMsg, ModifyMsg};
+    use crate::msg::MigrateMsg;
     use crate::version_info::{set_version_info, VersionInfoV1};
     use cosmwasm_std::{Addr, Uint128};
 

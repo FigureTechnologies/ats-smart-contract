@@ -295,8 +295,8 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::ModifyContract {
-                approvers: _,
-                executors: _,
+                approvers,
+                executors,
                 ask_fee_rate,
                 ask_fee_account,
                 bid_fee_rate,
@@ -304,6 +304,22 @@ impl Validate for ExecuteMsg {
                 ask_required_attributes: _,
                 bid_required_attributes: _,
             } => {
+                match approvers {
+                    Some(vector) => {
+                        if let true = vector.as_slice().is_empty() {
+                            invalid_fields.push("approvers_empty")
+                        }
+                    }
+                    None => (),
+                }
+                match executors {
+                    Some(vector) => {
+                        if let true = vector.as_slice().is_empty() {
+                            invalid_fields.push("executors_empty")
+                        }
+                    }
+                    None => (),
+                }
                 match (ask_fee_rate, ask_fee_account) {
                     (Some(_), None) => {
                         invalid_fields.push("ask_fee_account");
@@ -373,78 +389,6 @@ impl Validate for QueryMsg {
             }
             QueryMsg::GetContractInfo {} => {}
             QueryMsg::GetVersionInfo {} => {}
-        }
-
-        match invalid_fields.len() {
-            0 => Ok(()),
-            _ => Err(ContractError::InvalidFields {
-                fields: invalid_fields.into_iter().map(|item| item.into()).collect(),
-            }),
-        }
-    }
-}
-
-pub struct ModifyMsg {
-    pub approvers: Option<Vec<String>>,
-    pub executors: Option<Vec<String>>,
-    pub ask_fee_rate: Option<String>,
-    pub ask_fee_account: Option<String>,
-    pub bid_fee_rate: Option<String>,
-    pub bid_fee_account: Option<String>,
-    pub ask_required_attributes: Option<Vec<String>>,
-    pub bid_required_attributes: Option<Vec<String>>,
-}
-
-impl Validate for ModifyMsg {
-    /// Simple validation of MigrateMsg data
-    ///
-    /// ### Example
-    ///
-    /// ```rust
-    /// use ats_smart_contract::msg::{MigrateMsg, Validate};
-    /// pub fn query(msg: MigrateMsg){
-    ///
-    ///     let result = msg.validate();
-    /// }
-    /// ```
-    fn validate(&self) -> Result<(), ContractError> {
-        let mut invalid_fields: Vec<&str> = vec![];
-
-        match &self.approvers {
-            Some(vector) => {
-                if let true = vector.as_slice().is_empty() {
-                    invalid_fields.push("approvers_empty")
-                }
-            }
-            None => (),
-        }
-        match &self.executors {
-            Some(vector) => {
-                if let true = vector.as_slice().is_empty() {
-                    invalid_fields.push("executors_empty")
-                }
-            }
-            None => (),
-        }
-        match (&self.ask_fee_rate, &self.ask_fee_account) {
-            (Some(_), None) => {
-                invalid_fields.push("ask_fee_account");
-            }
-            (None, Some(_)) => {
-                invalid_fields.push("ask_fee_rate");
-            }
-            (Some(_), Some(_)) => (),
-            (None, None) => (),
-        }
-        match (&self.bid_fee_rate, &self.bid_fee_account) {
-            (Some(_), None) => {
-                invalid_fields.push("bid_fee_account");
-            }
-            (None, Some(_)) => {
-                invalid_fields.push("bid_fee_rate");
-            }
-            (Some(_), Some(_)) => (),
-            (None, None) => (),
         }
 
         match invalid_fields.len() {

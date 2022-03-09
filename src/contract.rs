@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
-    MessageInfo, Order, Pair, Response, StdError, StdResult, Uint128,
+    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{
     bind_name, transfer_marker_coins, Marker, MarkerType, NameBinding, ProvenanceMsg,
@@ -19,7 +19,7 @@ use crate::contract_info::{
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
-use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, ModifyMsg, QueryMsg, Validate};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
@@ -234,16 +234,14 @@ pub fn execute(
             deps,
             env,
             &info,
-            ModifyMsg {
-                approvers,
-                executors,
-                ask_fee_rate,
-                ask_fee_account,
-                bid_fee_rate,
-                bid_fee_account,
-                ask_required_attributes,
-                bid_required_attributes,
-            },
+            approvers,
+            executors,
+            ask_fee_rate,
+            ask_fee_account,
+            bid_fee_rate,
+            bid_fee_account,
+            ask_required_attributes,
+            bid_required_attributes,
         ),
     }
 }
@@ -1138,10 +1136,15 @@ fn modify_contract(
     deps: DepsMut<ProvenanceQuery>,
     _env: Env,
     info: &MessageInfo,
-    msg: ModifyMsg,
+    approvers: Option<Vec<String>>,
+    executors: Option<Vec<String>>,
+    ask_fee_rate: Option<String>,
+    ask_fee_account: Option<String>,
+    bid_fee_rate: Option<String>,
+    bid_fee_account: Option<String>,
+    ask_required_attributes: Option<Vec<String>>,
+    bid_required_attributes: Option<Vec<String>>,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
-    msg.validate()?;
-
     let contract_info = get_contract_info(deps.storage)?;
 
     if !contract_info.executors.contains(&info.sender) {
@@ -1151,13 +1154,13 @@ fn modify_contract(
     let ask_storage = get_ask_storage_read(deps.storage);
     let ask_orders: Vec<AskOrderV1> = ask_storage
         .range(None, None, Order::Ascending)
-        .map(|kv_ask: StdResult<Pair<AskOrderV1>>| {
+        .map(|kv_ask: StdResult<Record<AskOrderV1>>| {
             let (_, ask_order) = kv_ask.unwrap();
             ask_order
         })
         .collect();
     if !ask_orders.is_empty() {
-        match &msg.ask_required_attributes {
+        match &ask_required_attributes {
             None => (),
             Some(_) => {
                 return Err(ContractError::InvalidFields {
@@ -1170,13 +1173,13 @@ fn modify_contract(
     let bid_storage = get_bid_storage_read(deps.storage);
     let bid_orders: Vec<BidOrderV2> = bid_storage
         .range(None, None, Order::Ascending)
-        .map(|kv_bid: StdResult<Pair<BidOrderV2>>| {
+        .map(|kv_bid: StdResult<Record<BidOrderV2>>| {
             let (_, bid_order) = kv_bid.unwrap();
             bid_order
         })
         .collect();
     if !bid_orders.is_empty() {
-        match &msg.bid_required_attributes {
+        match &bid_required_attributes {
             None => {}
             Some(_) => {
                 return Err(ContractError::InvalidFields {
@@ -1184,7 +1187,7 @@ fn modify_contract(
                 });
             }
         }
-        match (&msg.bid_fee_rate, &msg.bid_fee_account) {
+        match (&bid_fee_rate, &bid_fee_account) {
             (None, None) => {}
             (_, _) => {
                 return Err(ContractError::InvalidFields {
@@ -1195,7 +1198,7 @@ fn modify_contract(
     }
 
     if !ask_orders.is_empty() || !bid_orders.is_empty() {
-        match &msg.approvers {
+        match &approvers {
             None => {}
             Some(approvers) => {
                 let current_approvers: HashSet<String> = contract_info
@@ -1213,7 +1216,17 @@ fn modify_contract(
         }
     }
 
-    modify_contract_info(deps, &msg)?;
+    modify_contract_info(
+        deps,
+        approvers,
+        executors,
+        ask_fee_rate,
+        ask_fee_account,
+        bid_fee_rate,
+        bid_fee_account,
+        ask_required_attributes,
+        bid_required_attributes,
+    )?;
 
     let response = Response::new();
 
