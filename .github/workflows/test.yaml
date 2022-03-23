@@ -46,7 +46,7 @@ jobs:
         run: |
           make all
       - name: Run ATS Test
-        uses: actions/provenance-io/provenance-testing-action@latest
+        uses: provenance-io/provenance-testing-action@latest
         with:
           provenance_version: "v1.8.0"
           test_script: "./scripts/test_ats.sh"
