@@ -115,7 +115,7 @@ export seller=$("$PROV_CMD" keys show -a seller --keyring-backend test --testnet
 "$PROV_CMD" tx wasm store ./artifacts/ats_smart_contract.wasm \
     --from="$validator" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 1.25 \
+    --gas auto --gas-prices 1905nhash --gas-adjustment 1.1 \
     --testnet \
     --yes
 
