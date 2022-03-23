@@ -28,11 +28,11 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       go_version: "1.17"
 
-  test_tutorial_smart_contract:
+  test_ats_smart_contract:
     runs-on: ubuntu-latest
     needs:
       - build_init
-    name: Test Tutorial Smart Contract
+    name: Test ATS Smart Contract
     steps:
       # To use this repository's private action,
       # you must check out the repository
