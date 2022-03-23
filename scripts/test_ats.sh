@@ -88,7 +88,7 @@ export seller=$("$PROV_CMD" keys show -a seller --keyring-backend test --testnet
     --yes
 
 "$PROV_CMD" tx marker withdraw usd.local 1000usd.local "$buyer" \
-    --from"$validator" \
+    --from="$validator" \
     --keyring-backend test \
     --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
     --testnet \
