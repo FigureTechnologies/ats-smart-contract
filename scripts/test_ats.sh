@@ -99,7 +99,6 @@ export seller=$("$PROV_CMD" keys show -a seller --keyring-backend test --testnet
     "$seller" \
     100000000000nhash \
     --from validator \
-    --home build/run/provenanced \
     --keyring-backend test \
     --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
     --testnet \
