@@ -165,10 +165,10 @@ export contract=$("$PROV_CMD" query wasm list-contract-by-code 1 -t -o json | jq
 echo "Step 9"
 # order of the arrays is not guaranteed so we have to check both to verify that we get the correct custom
 # denom and not the nhash value.
-export buyer_denom=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[0].denom")
-export buyer_denom2=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[1].denom")
-export seller_denom=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[0].denom")
-export seller_denom2=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[1].denom")
+export buyer_denom=$("$PROV_CMD" q bank balances "$buyer" --testnet -o json | jq -r ".balances[0].denom")
+export buyer_denom2=$("$PROV_CMD" q bank balances "$buyer" --testnet -o json | jq -r ".balances[1].denom")
+export seller_denom=$("$PROV_CMD" q bank balances "$seller" --testnet -o json | jq -r ".balances[0].denom")
+export seller_denom2=$("$PROV_CMD" q bank balances "$seller" --testnet -o json | jq -r ".balances[1].denom")
 
 echo "$buyer_denom ------ $buyer_denom2 ----- $seller_denom ----- $seller_denom2"
 
@@ -186,10 +186,10 @@ fi
 echo "Getting balances"
 
 # verify correct balances
-export buyer_balance=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[0].amount")
-export buyer_balance2=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[1].amount")
-export seller_balance=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[0].amount")
-export seller_balance2=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[1].amount")
+export buyer_balance=$("$PROV_CMD" q bank balances "$buyer" --testnet -o json | jq -r ".balances[0].amount")
+export buyer_balance2=$("$PROV_CMD" q bank balances "$buyer" --testnet -o json | jq -r ".balances[1].amount")
+export seller_balance=$("$PROV_CMD" q bank balances "$seller" --testnet -o json | jq -r ".balances[0].amount")
+export seller_balance2=$("$PROV_CMD" q bank balances "$seller" --testnet -o json | jq -r ".balances[1].amount")
 
 echo "$buyer_balance ----- $buyer_balance2 ----- $seller_balance ----- $seller_balance2"
 
