@@ -162,10 +162,37 @@ export contract=$("$PROV_CMD" query wasm list-contract-by-code 1 -t -o json | jq
     --yes
 
 ## 9. Query account balances to verify trade has executed
-export buyer_balances=$("$PROV_CMD" q bank balances "$buyer" --testnet)
-export seller_balances=$("$PROV_CMD" q bank balances "$seller" --testnet)
 
-echo "$buyer_balances"
-echo "$seller_balances"
+# order of the arrays is not guaranteed so we have to check both to verify that we get the correct custom
+# denom and not the nhash value.
+export buyer_denom=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[0].denom")
+export buyer_denom2=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[1].denom")
+export seller_denom=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[0].denom")
+export seller_denom2=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[1].denom")
 
-# TODO: add check to verify balances are correct
+# verify correct denom
+if [ "$buyer_denom" != "gme.local" ] && [ "$buyer_denom2" != "gme.local" ]; then
+  echo "The buyer did not get gme.local currency"
+  exit 1
+fi
+
+if [ "$seller_denom" != "usd.local" ] && [ "$seller_denom2" != "usd.local" ]; then
+  echo "The seller did not get usd.local currency"
+  exit 1
+fi
+
+# verify correct balances
+export buyer_balance=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[0].amount")
+export buyer_balance2=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r ".balances[1].amount")
+export seller_balance=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[0].amount")
+export seller_balance2=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[1].amount")
+
+if [ "$buyer_denom" != "500" ] && [ "$buyer_denom2" != "500" ]; then
+  echo "The buyer did not get gme.local currency"
+  exit 1
+fi
+
+if [ "$seller_denom" != "1000" ] && [ "$seller_denom2" != "1000" ]; then
+  echo "The seller did not get usd.local currency"
+  exit 1
+fi
