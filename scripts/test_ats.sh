@@ -187,12 +187,12 @@ export buyer_balance2=$("$PROV_CMD" q bank balances "$buyer" --testnet | jq -r "
 export seller_balance=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[0].amount")
 export seller_balance2=$("$PROV_CMD" q bank balances "$seller" --testnet | jq -r ".balances[1].amount")
 
-if [ "$buyer_denom" != "500" ] && [ "$buyer_denom2" != "500" ]; then
-  echo "The buyer did not get gme.local currency"
+if [ "$buyer_balance" != "500" ] && [ "$buyer_balance2" != "500" ]; then
+  echo "The buyer did not the expected amount of 500 but instead got: $buyer_balance and $buyer_balance2"
   exit 1
 fi
 
-if [ "$seller_denom" != "1000" ] && [ "$seller_denom2" != "1000" ]; then
-  echo "The seller did not get usd.local currency"
+if [ "$seller_balance" != "1000" ] && [ "$seller_balance2" != "1000" ]; then
+  echo "The seller did not get the expected amount of 1000 but instead got: $seller_balance and $seller_balance2"
   exit 1
 fi
