@@ -34,8 +34,6 @@ jobs:
       - build_init
     name: Test ATS Smart Contract
     steps:
-      # To use this repository's private action,
-      # you must check out the repository
       - name: Checkout
         uses: actions/checkout@v2
       - name: Setup go
