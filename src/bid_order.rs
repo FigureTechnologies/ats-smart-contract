@@ -252,23 +252,27 @@ pub fn migrate_bid_orders(
         }
     }
 
-    // get all bid ids
-    let existing_bid_order_ids: Vec<Vec<u8>> = get_bid_storage_read(store)
-        .range(None, None, Order::Ascending)
-        .map(|kv_bid| {
-            let (bid_key, _) = kv_bid.unwrap();
-            bid_key
-        })
-        .collect();
+    // bid fees and order events added in 0.16.3, refunds may be necessary for existing orders
+    if VersionReq::parse("<0.16.3")?.matches(&current_version) {
+        // get all bid ids
+        let existing_bid_order_ids: Vec<Vec<u8>> = get_bid_storage_read(store)
+            .range(None, None, Order::Ascending)
+            .map(|kv_bid| {
+                let (bid_key, _) = kv_bid.unwrap();
+                bid_key
+            })
+            .collect();
 
-    // determine and create a refund if necessary
-    for existing_bid_order_id in existing_bid_order_ids {
-        let mut existing_bid_order = get_bid_storage_read(store).load(&existing_bid_order_id)?;
+        // determine and create a refund if necessary
+        for existing_bid_order_id in existing_bid_order_ids {
+            let mut existing_bid_order =
+                get_bid_storage_read(store).load(&existing_bid_order_id)?;
 
-        response =
-            calculate_migrate_refund(&querier, &env, response, &mut existing_bid_order).unwrap();
+            response = calculate_migrate_refund(&querier, &env, response, &mut existing_bid_order)
+                .unwrap();
 
-        get_bid_storage(store).save(&existing_bid_order_id, &existing_bid_order)?
+            get_bid_storage(store).save(&existing_bid_order_id, &existing_bid_order)?
+        }
     }
 
     Ok(response)
