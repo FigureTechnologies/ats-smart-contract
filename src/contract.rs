@@ -20,6 +20,7 @@ use crate::contract_info::{
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
+use crate::util::to_hyphenated_uuid_str;
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
@@ -152,7 +153,9 @@ pub fn execute(
     msg.validate()?;
 
     match msg {
-        ExecuteMsg::ApproveAsk { id, base, size } => approve_ask(deps, env, info, id, base, size),
+        ExecuteMsg::ApproveAsk { id, base, size } => {
+            approve_ask(deps, env, info, to_hyphenated_uuid_str(id)?, base, size)
+        }
         ExecuteMsg::CreateAsk {
             id,
             base,
@@ -166,7 +169,7 @@ pub fn execute(
             AskOrderV1 {
                 base,
                 class: AskOrderClass::Basic,
-                id,
+                id: to_hyphenated_uuid_str(id)?,
                 owner: info.sender.to_owned(),
                 quote,
                 price,
@@ -192,7 +195,7 @@ pub fn execute(
                 },
                 events: vec![],
                 fee,
-                id,
+                id: to_hyphenated_uuid_str(id)?,
                 owner: info.sender.to_owned(),
                 price,
                 quote: Coin {
@@ -201,28 +204,61 @@ pub fn execute(
                 },
             },
         ),
-        ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
-        ExecuteMsg::CancelBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("cancel_bid"), None)
-        }
+        ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, to_hyphenated_uuid_str(id)?),
+        ExecuteMsg::CancelBid { id } => reverse_bid(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(id)?,
+            String::from("cancel_bid"),
+            None,
+        ),
         ExecuteMsg::ExecuteMatch {
             ask_id,
             bid_id,
             price,
             size,
-        } => execute_match(deps, env, info, ask_id, bid_id, price, size),
-        ExecuteMsg::ExpireAsk { id } => {
-            reverse_ask(deps, env, info, id, String::from("expire_ask"), None)
-        }
-        ExecuteMsg::ExpireBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("expire_bid"), None)
-        }
-        ExecuteMsg::RejectAsk { id, size } => {
-            reverse_ask(deps, env, info, id, String::from("reject_ask"), size)
-        }
-        ExecuteMsg::RejectBid { id, size } => {
-            reverse_bid(deps, env, info, id, String::from("reject_bid"), size)
-        }
+        } => execute_match(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(ask_id)?,
+            to_hyphenated_uuid_str(bid_id)?,
+            price,
+            size,
+        ),
+        ExecuteMsg::ExpireAsk { id } => reverse_ask(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(id)?,
+            String::from("expire_ask"),
+            None,
+        ),
+        ExecuteMsg::ExpireBid { id } => reverse_bid(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(id)?,
+            String::from("expire_bid"),
+            None,
+        ),
+        ExecuteMsg::RejectAsk { id, size } => reverse_ask(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(id)?,
+            String::from("reject_ask"),
+            size,
+        ),
+        ExecuteMsg::RejectBid { id, size } => reverse_bid(
+            deps,
+            env,
+            info,
+            to_hyphenated_uuid_str(id)?,
+            String::from("reject_bid"),
+            size,
+        ),
         ExecuteMsg::ModifyContract {
             approvers,
             executors,
@@ -1700,11 +1736,11 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
     match msg {
         QueryMsg::GetAsk { id } => {
             let ask_storage_read = get_ask_storage_read(deps.storage);
-            return to_binary(&ask_storage_read.load(id.as_bytes())?);
+            return to_binary(&ask_storage_read.load(to_hyphenated_uuid_str(id)?.as_bytes())?);
         }
         QueryMsg::GetBid { id } => {
             let bid_storage_read = get_bid_storage_read(deps.storage);
-            return to_binary(&bid_storage_read.load(id.as_bytes())?);
+            return to_binary(&bid_storage_read.load(to_hyphenated_uuid_str(id)?.as_bytes())?);
         }
         QueryMsg::GetContractInfo {} => to_binary(&get_contract_info(deps.storage)?),
         QueryMsg::GetVersionInfo {} => to_binary(&get_version_info(deps.storage)?),
