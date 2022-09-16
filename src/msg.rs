@@ -1,8 +1,8 @@
 use crate::error::ContractError;
+use crate::util::is_hyphenated_uuid_str;
 use cosmwasm_std::{Coin, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -169,7 +169,7 @@ impl Validate for ExecuteMsg {
 
         match self {
             ExecuteMsg::ApproveAsk { id, base, size } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
                 if base.is_empty() {
@@ -186,7 +186,7 @@ impl Validate for ExecuteMsg {
                 price,
                 size,
             } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
                 if base.is_empty() {
@@ -211,7 +211,7 @@ impl Validate for ExecuteMsg {
                 quote_size,
                 size,
             } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
                 if base.is_empty() {
@@ -236,12 +236,12 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::CancelAsk { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::CancelBid { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
@@ -251,10 +251,10 @@ impl Validate for ExecuteMsg {
                 price,
                 size,
             } => {
-                if Uuid::parse_str(ask_id).is_err() {
+                if !is_hyphenated_uuid_str(ask_id) {
                     invalid_fields.push("ask_id");
                 }
-                if Uuid::parse_str(bid_id).is_err() {
+                if !is_hyphenated_uuid_str(bid_id) {
                     invalid_fields.push("bid_id");
                 }
                 if price.is_empty() {
@@ -265,17 +265,17 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::ExpireAsk { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::ExpireBid { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::RejectAsk { id, size } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
                 if let Some(size) = size {
@@ -285,7 +285,7 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::RejectBid { id, size } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
                 if let Some(size) = size {
@@ -378,12 +378,12 @@ impl Validate for QueryMsg {
 
         match self {
             QueryMsg::GetAsk { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
             QueryMsg::GetBid { id } => {
-                if Uuid::parse_str(id).is_err() {
+                if !is_hyphenated_uuid_str(id) {
                     invalid_fields.push("id");
                 }
             }
