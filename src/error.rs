@@ -2,6 +2,7 @@ use cosmwasm_std::StdError;
 use semver::Error as SemverError;
 use serde_json::Error;
 use thiserror::Error;
+use uuid::Error as UuidError;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
@@ -76,6 +77,9 @@ pub enum ContractError {
 
     #[error("{0}")]
     SemverError(#[from] SemverError),
+
+    #[error("{0}")]
+    UuidError(#[from] UuidError),
 
     #[error("Total (price * size) exceeds max allowed")]
     TotalOverflow,
