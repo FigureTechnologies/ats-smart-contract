@@ -3,6 +3,7 @@ use crate::util::is_hyphenated_uuid_str;
 use cosmwasm_std::{Coin, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -236,12 +237,12 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::CancelAsk { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::CancelBid { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
@@ -265,17 +266,17 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::ExpireAsk { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::ExpireBid { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             ExecuteMsg::RejectAsk { id, size } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
                 if let Some(size) = size {
@@ -285,7 +286,7 @@ impl Validate for ExecuteMsg {
                 }
             }
             ExecuteMsg::RejectBid { id, size } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
                 if let Some(size) = size {
@@ -378,12 +379,12 @@ impl Validate for QueryMsg {
 
         match self {
             QueryMsg::GetAsk { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
             QueryMsg::GetBid { id } => {
-                if !is_hyphenated_uuid_str(id) {
+                if Uuid::parse_str(id).is_err() {
                     invalid_fields.push("id");
                 }
             }
