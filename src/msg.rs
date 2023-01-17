@@ -7,22 +7,52 @@ use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub name: String,
-    pub bind_name: String,
-    pub base_denom: String,
-    pub convertible_base_denoms: Vec<String>,
-    pub supported_quote_denoms: Vec<String>,
-    pub approvers: Vec<String>,
-    pub executors: Vec<String>,
-    pub ask_fee_rate: Option<String>,
-    pub ask_fee_account: Option<String>,
-    pub bid_fee_rate: Option<String>,
-    pub bid_fee_account: Option<String>,
-    pub ask_required_attributes: Vec<String>,
-    pub bid_required_attributes: Vec<String>,
+    pub name: String, // Some name (display)
+    pub bind_name: String, // name bound on chain, used similar to DNS to resolve contract address with human readable name (Example: orderbook1.orderbook.pb)
+    pub base_denom: String, // REQUIRED: Underlying token to buy (think of a security, like a stock)
+    pub convertible_base_denoms: Vec<String>, // token with 1:1 exchange rate to the base denom
+                                              // Think of a STOCK OPTION and its relationship to a STOCK when thinking of a CONVERTIBLE_BASE_DENOM and its relationship to the BASE_DENOM
+    pub supported_quote_denoms: Vec<String>, // REQUIRED: Token used for pricing (think of stablecoins)
+    pub approvers: Vec<String>, // Blockchain addresses allowed to approve orders (SEC regulation required)
+                                // Used to approve convertible_base_denom ask orders (since the convertible_base_denom needs to be converted into the base_denom)
+                                // NOTE:
+                                // - When an approver calls "approve_ask", they are swapping the convertible_base_denom with the base_denom in the contract
+                                // - Once approved + swapped, a match can be executed
+    pub executors: Vec<String>, // Blockchain addresses used to manage orders (match + reject + expire)
+    // Fees collected are held in the smart contract until the account makes a request to redeem fees
+    pub ask_fee_rate: Option<String>, // Fee percentage taken from ask orders (in the form of quote denom - gets withheld on match)
+    pub ask_fee_account: Option<String>, // Blockchain address that can redeem the ask fees
+    pub bid_fee_rate: Option<String>, // Fee percentage taken from bid orders (in the form of quote denom - gets withheld on match, but passed in request)
+    pub bid_fee_account: Option<String>, // Blockchain address that can redeem the bid fees
+    pub ask_required_attributes: Vec<String>, // List of attributes required on a blockchain account to create ask orders
+    pub bid_required_attributes: Vec<String>, // List of attributes required on a blockchain account to create bid orders
     pub price_precision: Uint128,
-    pub size_increment: Uint128,
+        // Used for some math validation on the price doesnt result in loss during price calculations with size_increment
+        // 10 ^ price_precision
+    pub size_increment: Uint128, // Multiple of the base_denom that can be traded
+        // size_increment == 1, then you can trade 1, 2, 3.. etc of the base denom
+        // size_increment == 100, then you can only trade 100, 200, 300, etc. of the base denom
+
+    // price_precision and size_increment:
+    //     if (msg.size_increment.u128() % 10u128.pow(msg.price_precision.u128() as u32)).ne(&0) {
+    //         return Err(InvalidPricePrecisionSizePair);
+    //     }
+    // size_increment has to be a multiple of price_precision
 }
+
+//
+// SITUATION:
+// ATS service account owns name: ats.pb
+// Passport service account owns name: kyc.pb
+
+// if (ask_required_attributes == [ ats.pb, kyc.pb ])
+// then
+//      If someone wants to trade on this order book:
+//          the ATS service account will have to ADD an attribute with the
+//              attribute name == ats.pb to the ATS user blockchain account (and any attribute value (string/number))
+//          AND the Passport service account will have to ADD an attribute with the
+//              attribute name == kyc.pb to the ATS user blockchain account (and any attribute value (string/number))
+
 
 /// Simple validation of InstantiateMsg data
 ///

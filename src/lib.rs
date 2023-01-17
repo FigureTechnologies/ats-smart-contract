@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod ask_order;
 pub mod bid_order;
 pub mod common;
