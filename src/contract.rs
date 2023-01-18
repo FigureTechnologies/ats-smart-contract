@@ -599,19 +599,21 @@ fn create_bid(
         is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
     // determine sent funds requirements
-    if is_quote_restricted_marker {
+    if is_quote_restricted_marker && !info.funds.is_empty() {
         // no funds should be sent if base is a restricted marker
-        if !info.funds.is_empty() {
-            return Err(ContractError::SentFundsOrderMismatch);
-        }
-    } else if info.funds.ne(&coins(
-        match &bid_order.fee {
-            Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
-            _ => total.to_u128().unwrap(),
-        },
-        bid_order.quote.denom.to_owned(),
-    )) {
-        // sent funds must match order if not a restricted marker
+        return Err(ContractError::SentFundsOrderMismatch);
+    }
+
+    // sent funds must match order if not a restricted marker
+    if !is_quote_restricted_marker
+        && info.funds.ne(&coins(
+            match &bid_order.fee {
+                Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
+                _ => total.to_u128().unwrap(),
+            },
+            bid_order.quote.denom.to_owned(),
+        ))
+    {
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
@@ -951,7 +953,7 @@ fn reverse_bid(
 
     // is bid quote a marker
     let is_quote_restricted_marker =
-        is_restricted_marker(&deps.querier, bid_order.quote.denom.to_owned());
+        is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
     // add event to order
     bid_order.events.push(Event {
