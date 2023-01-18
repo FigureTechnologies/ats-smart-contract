@@ -1666,8 +1666,6 @@ mod tests {
     use cosmwasm_std::{Addr, Storage, Uint128};
     use provwasm_std::{NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute};
 
-    use crate::ask_order::AskOrderV1;
-
     use super::*;
     use provwasm_mocks::mock_dependencies;
 
@@ -1879,19 +1877,5 @@ mod tests {
         if let Err(error) = set_contract_info(storage, contract_info) {
             panic!("unexpected error: {:?}", error)
         }
-    }
-
-    fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrderV1) {
-        let mut ask_storage = get_ask_storage(storage);
-        if let Err(error) = ask_storage.save(ask_order.id.as_bytes(), ask_order) {
-            panic!("unexpected error: {:?}", error)
-        };
-    }
-
-    fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV2) {
-        let mut bid_storage = get_bid_storage(storage);
-        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
-            panic!("unexpected error: {:?}", error);
-        };
     }
 }

@@ -1410,8 +1410,6 @@ mod create_bid_tests {
 
         // verify execute create bid response
         match create_bid_response {
-            // Ok(_) => {}
-            // Err(error) => panic!("unexpected error: {:?}", error) // TODO this should fail with quote_size==200
             Ok(_) => panic!("expected error, but ok"),
             Err(error) => match error {
                 ContractError::SentFundsOrderMismatch => {}
