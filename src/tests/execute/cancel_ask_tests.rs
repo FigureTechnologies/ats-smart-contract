@@ -245,7 +245,7 @@ mod cancel_ask_tests {
                         Addr::unchecked("asker"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                    .unwrap()
+                        .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
@@ -456,7 +456,7 @@ mod cancel_ask_tests {
                         asker_info.sender,
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                    .unwrap()
+                        .unwrap()
                 );
                 assert_eq!(
                     cancel_ask_response.messages[1].msg,
@@ -466,7 +466,7 @@ mod cancel_ask_tests {
                         Addr::unchecked("approver_1"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                    .unwrap()
+                        .unwrap()
                 );
             }
             Err(error) => panic!("unexpected error: {:?}", error),
