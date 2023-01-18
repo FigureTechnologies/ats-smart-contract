@@ -1,5 +1,27 @@
 use crate::error::ContractError;
+use cosmwasm_std::{QuerierWrapper, Uint128};
+use provwasm_std::{Marker, MarkerType, ProvenanceQuerier, ProvenanceQuery};
+use rust_decimal::prelude::Zero;
+use rust_decimal::Decimal;
+use std::ops::Mul;
 use uuid::Uuid;
+
+pub fn is_restricted_marker(querier: &QuerierWrapper<ProvenanceQuery>, denom: String) -> bool {
+    matches!(
+        ProvenanceQuerier::new(querier).get_marker_by_denom(denom),
+        Ok(Marker {
+            marker_type: MarkerType::Restricted,
+            ..
+        })
+    )
+}
+
+pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {
+    price
+        .mul(Decimal::from(10u128.pow(price_precision.u128() as u32)))
+        .fract()
+        .ne(&Decimal::zero())
+}
 
 fn to_hyphenated_uuid_str(uuid: String) -> Result<String, ContractError> {
     Ok(Uuid::parse_str(uuid.as_str())

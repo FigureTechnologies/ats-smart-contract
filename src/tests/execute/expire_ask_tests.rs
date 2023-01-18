@@ -515,7 +515,7 @@ mod expire_ask_tests {
     }
 
     #[test]
-    fn expire_ask_sender_notequal() {
+    fn expire_ask_sender_notequal_to_owner() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base_contract_v3(&mut deps.storage);
 
