@@ -4166,7 +4166,6 @@ mod tests {
             .is_err());
     }
 
-
     #[test]
     fn execute_quote_denom_mismatch_returns_err() {
         // setup
@@ -4219,7 +4218,7 @@ mod tests {
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
-                    denom: "quote_2".into() // not equal to "quote_1"
+                    denom: "quote_2".into(), // not equal to "quote_1"
                 },
                 price: "2".into(),
             },
@@ -4244,9 +4243,9 @@ mod tests {
         match execute_response {
             Ok(_) => panic!("expected error, but ok"),
             Err(error) => match error {
-                ContractError::UnsupportedQuoteDenom => {  }
+                ContractError::UnsupportedQuoteDenom => {}
                 error => panic!("unexpected error: {:?}", error),
-            }
+            },
         }
 
         // verify ask order removed from storage
