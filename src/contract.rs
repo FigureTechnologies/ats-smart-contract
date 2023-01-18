@@ -667,11 +667,6 @@ fn cancel_ask(
     info: MessageInfo,
     id: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
-    // return error if id is empty
-    if id.is_empty() {
-        return Err(ContractError::Unauthorized);
-    }
-
     // return error if funds sent
     if !info.funds.is_empty() {
         return Err(ContractError::CancelWithFunds);

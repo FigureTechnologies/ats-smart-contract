@@ -77,6 +77,33 @@ mod cancel_ask_tests {
     }
 
     #[test]
+    fn cancel_ask_empty_id_string_returns_err() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base_contract_v3(&mut deps.storage);
+
+        // cancel ask order
+        let asker_info = mock_info("asker", &[]);
+
+        let cancel_ask_msg = ExecuteMsg::CancelAsk { id: "".to_string() };
+        let cancel_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            cancel_ask_msg,
+        );
+
+        match cancel_ask_response {
+            Ok(_) => panic!("expected modifyContract validation to fail"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert_eq!(fields, vec!["id".to_string()]);
+                }
+                _ => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn cancel_ask_valid_legacy_unhyphenated_id_then_cancels_order() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base_contract_v3(&mut deps.storage);
