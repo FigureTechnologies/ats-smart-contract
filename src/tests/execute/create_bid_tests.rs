@@ -260,7 +260,7 @@ mod create_bid_tests {
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked("bidder")
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
             Err(error) => {
@@ -825,7 +825,7 @@ mod create_bid_tests {
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked("bidder")
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
             Err(error) => {

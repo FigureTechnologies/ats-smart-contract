@@ -2259,7 +2259,7 @@ mod execute_match_tests {
                         Addr::unchecked("asker"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
@@ -2276,7 +2276,7 @@ mod execute_match_tests {
                         Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }
@@ -2700,7 +2700,7 @@ mod execute_match_tests {
                         Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }
@@ -2855,7 +2855,7 @@ mod execute_match_tests {
                         Addr::unchecked("asker"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
@@ -3048,7 +3048,7 @@ mod execute_match_tests {
                         Addr::unchecked("asker"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
@@ -3058,7 +3058,7 @@ mod execute_match_tests {
                         Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }
@@ -3251,7 +3251,7 @@ mod execute_match_tests {
                         Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
@@ -3261,7 +3261,7 @@ mod execute_match_tests {
                         Addr::unchecked("approver_1"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[2].msg,
@@ -3442,7 +3442,7 @@ mod execute_match_tests {
                         Addr::unchecked("approver_1"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }
@@ -3667,7 +3667,7 @@ mod execute_match_tests {
                         Addr::unchecked("bidder"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[1].msg,
@@ -3677,7 +3677,7 @@ mod execute_match_tests {
                         Addr::unchecked("approver_1"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
                 assert_eq!(
                     execute_response.messages[2].msg,
@@ -3687,7 +3687,7 @@ mod execute_match_tests {
                         Addr::unchecked("approver_1"),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }

@@ -360,8 +360,8 @@ fn create_ask(
     // error if order base is not contract base nor contract convertible base
     if ask_order.base.ne(&contract_info.base_denom)
         && !contract_info
-        .convertible_base_denoms
-        .contains(&ask_order.base)
+            .convertible_base_denoms
+            .contains(&ask_order.base)
     {
         return Err(ContractError::InconvertibleBaseDenom);
     }
@@ -607,12 +607,12 @@ fn create_bid(
     // sent funds must match order if not a restricted marker
     if !is_quote_restricted_marker
         && info.funds.ne(&coins(
-        match &bid_order.fee {
-            Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
-            _ => total.to_u128().unwrap(),
-        },
-        bid_order.quote.denom.to_owned(),
-    ))
+            match &bid_order.fee {
+                Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
+                _ => total.to_u128().unwrap(),
+            },
+            bid_order.quote.denom.to_owned(),
+        ))
     {
         return Err(ContractError::SentFundsOrderMismatch);
     }
@@ -703,7 +703,7 @@ fn cancel_ask(
                 to_address: owner.to_string(),
                 amount: coins(u128::from(size), base),
             }
-                .into(),
+            .into(),
         })
         .add_attributes(vec![attr("action", "cancel_ask"), attr("id", id)]);
 
@@ -729,7 +729,7 @@ fn cancel_ask(
                 to_address: approver.to_string(),
                 amount: vec![converted_base],
             }
-                .into(),
+            .into(),
         });
     }
 
@@ -805,7 +805,7 @@ fn reverse_ask(
                 to_address: ask_order.owner.to_string(),
                 amount: coins(u128::from(effective_cancel_size), ask_order.base.to_owned()),
             }
-                .into(),
+            .into(),
         })
         .add_attributes(vec![
             attr("action", action),
@@ -835,7 +835,7 @@ fn reverse_ask(
                 to_address: approver.to_string(),
                 amount: coins(u128::from(effective_cancel_size), converted_base.denom),
             }
-                .into(),
+            .into(),
         });
     }
 
@@ -987,7 +987,7 @@ fn reverse_bid(
                     bid_order.quote.denom.to_owned(),
                 )],
             }
-                .into(),
+            .into(),
         })
         .add_attributes(vec![
             attr("action", action),
@@ -1008,7 +1008,7 @@ fn reverse_bid(
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
             }
-                .into(),
+            .into(),
         });
     }
 
@@ -1398,10 +1398,10 @@ fn execute_match(
         }
         AskOrderClass::Convertible {
             status:
-            AskOrderStatus::Ready {
-                approver,
-                converted_base,
-            },
+                AskOrderStatus::Ready {
+                    approver,
+                    converted_base,
+                },
         } => {
             match is_base_restricted_marker {
                 true => {

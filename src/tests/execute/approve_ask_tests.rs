@@ -109,7 +109,7 @@ mod approve_ask_tests {
                                 converted_base: coin(100, "base_denom")
                             },
                         })
-                            .unwrap()
+                        .unwrap()
                     )
                 );
                 assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
@@ -330,7 +330,7 @@ mod approve_ask_tests {
                                 converted_base: coin(100, "base_1")
                             },
                         })
-                            .unwrap()
+                        .unwrap()
                     )
                 );
                 assert_eq!(approve_ask_response.attributes[3], attr("quote", "quote_1"));
@@ -346,7 +346,7 @@ mod approve_ask_tests {
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked("approver_1")
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
         }

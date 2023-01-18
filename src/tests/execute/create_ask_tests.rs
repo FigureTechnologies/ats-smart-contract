@@ -216,7 +216,7 @@ mod create_ask_tests {
                         serde_json::to_string(&AskOrderClass::Convertible {
                             status: AskOrderStatus::PendingIssuerApproval
                         })
-                            .unwrap()
+                        .unwrap()
                     )
                 );
                 assert_eq!(response.attributes[3], attr("target_base", "base_1"));
@@ -371,7 +371,7 @@ mod create_ask_tests {
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked("asker")
                     )
-                        .unwrap()
+                    .unwrap()
                 );
             }
             Err(error) => {
