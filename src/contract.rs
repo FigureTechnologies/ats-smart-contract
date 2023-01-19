@@ -305,9 +305,9 @@ fn approve_ask(
                                     approver: approver.to_string(),
                                 })
                             }
-                            _ => {}
+                            AskOrderStatus::PendingIssuerApproval {} => {}
                         },
-                        _ => {}
+                        AskOrderClass::Basic => {}
                     }
 
                     if size.ne(&stored_ask_order.size) || base.ne(&contract_info.base_denom) {
@@ -791,11 +791,11 @@ fn reverse_ask(
         })?;
 
     // is ask base a marker
-    let is_quote_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
 
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
-        .add_message(match is_quote_restricted_marker {
+        .add_message(match is_base_restricted_marker {
             true => transfer_marker_coins(
                 effective_cancel_size.into(),
                 ask_order.base.to_owned(),
