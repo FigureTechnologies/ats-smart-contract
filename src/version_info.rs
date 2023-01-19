@@ -29,7 +29,7 @@ pub fn set_version_info(
 pub fn get_version_info(store: &dyn Storage) -> Result<VersionInfoV1, ContractError> {
     let version_info_result = VERSION_INFO.load(store).map_err(ContractError::Std);
     match &version_info_result {
-        Ok(_) => (version_info_result),
+        Ok(_) => version_info_result,
         // version support added in 0.15.0, all previous versions used ContractInfo for version tracking
         // if VersionInfo doesn't exist, try ContractInfo
         Err(_) => match get_legacy_contract_info(store) {

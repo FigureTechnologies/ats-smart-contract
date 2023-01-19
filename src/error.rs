@@ -12,6 +12,9 @@ pub enum ContractError {
     #[error("Ask order not ready: {current_status:?}")]
     AskOrderNotReady { current_status: String },
 
+    #[error("Ask order already marked Ready by approver: {approver:?}")]
+    AskOrderReady { approver: String },
+
     #[error("Attributes conflict with orders")]
     ConflictingAttributes,
 

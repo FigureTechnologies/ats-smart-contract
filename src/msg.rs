@@ -74,7 +74,7 @@ impl Validate for InstantiateMsg {
             (Some(_), Some(_)) => (),
             (None, None) => (),
         }
-        if self.price_precision.lt(&Uint128::new(0)) || self.price_precision.gt(&Uint128::new(18)) {
+        if self.price_precision.gt(&Uint128::new(18)) {
             invalid_fields.push("price_precision");
         }
         if self.size_increment.lt(&Uint128::new(1)) {

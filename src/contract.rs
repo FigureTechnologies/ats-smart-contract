@@ -3,8 +3,8 @@ use cosmwasm_std::{
     MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{
-    bind_name, transfer_marker_coins, Marker, MarkerType, NameBinding, ProvenanceMsg,
-    ProvenanceQuerier, ProvenanceQuery,
+    bind_name, transfer_marker_coins, NameBinding, ProvenanceMsg, ProvenanceQuerier,
+    ProvenanceQuery,
 };
 
 use crate::ask_order::{
@@ -20,6 +20,7 @@ use crate::contract_info::{
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
+use crate::util::{is_invalid_price_precision, is_restricted_marker};
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
@@ -263,13 +264,8 @@ fn approve_ask(
     }
 
     // is ask base a marker
-    let is_base_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(base.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, base.clone());
 
     // determine sent funds requirements
     match is_base_restricted_marker {
@@ -298,6 +294,22 @@ fn approve_ask(
                     fields: vec![String::from("id")],
                 }),
                 Some(mut stored_ask_order) => {
+                    // Validate ask order hasnt been approved yet
+                    match stored_ask_order.class {
+                        AskOrderClass::Convertible { status } => match status {
+                            AskOrderStatus::Ready {
+                                approver,
+                                converted_base: _converted_base,
+                            } => {
+                                return Err(ContractError::AskOrderReady {
+                                    approver: approver.to_string(),
+                                })
+                            }
+                            AskOrderStatus::PendingIssuerApproval {} => {}
+                        },
+                        AskOrderClass::Basic => {}
+                    }
+
                     if size.ne(&stored_ask_order.size) || base.ne(&contract_info.base_denom) {
                         return Err(ContractError::SentFundsOrderMismatch);
                     }
@@ -356,13 +368,7 @@ fn create_ask(
     }
 
     // is ask base a marker
-    let is_base_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
 
     // determine sent funds requirements
     match is_base_restricted_marker {
@@ -404,13 +410,7 @@ fn create_ask(
         })?;
 
     // error if price smaller than allow price precision
-    if ask_price
-        .mul(Decimal::from(
-            10u128.pow(contract_info.price_precision.u128() as u32),
-        ))
-        .fract()
-        .ne(&Decimal::zero())
-    {
+    if is_invalid_price_precision(ask_price.clone(), contract_info.price_precision.clone()) {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("price")],
         });
@@ -489,13 +489,7 @@ fn create_bid(
         })?;
 
     // error if price smaller than allow price precision
-    if bid_price
-        .mul(Decimal::from(
-            10u128.pow(contract_info.price_precision.u128() as u32),
-        ))
-        .fract()
-        .ne(&Decimal::zero())
-    {
+    if is_invalid_price_precision(bid_price.clone(), contract_info.price_precision.clone()) {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("price")],
         });
@@ -516,6 +510,11 @@ fn create_bid(
     // error if total is not an integer
     if total.fract().ne(&Decimal::zero()) {
         return Err(ContractError::NonIntegerTotal);
+    }
+
+    // Validate the quote.amount matches the base.amount * price
+    if total.ne(&Decimal::from(bid_order.quote.amount.u128())) {
+        return Err(ContractError::SentFundsOrderMismatch);
     }
 
     // if bid fee exists, calculate and compare to sent fee_size
@@ -597,34 +596,26 @@ fn create_bid(
     }
 
     // is bid quote a marker
-    let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_quote_restricted_marker =
+        is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
     // determine sent funds requirements
-    match is_quote_restricted_marker {
+    if is_quote_restricted_marker && !info.funds.is_empty() {
         // no funds should be sent if base is a restricted marker
-        true => {
-            if !info.funds.is_empty() {
-                return Err(ContractError::SentFundsOrderMismatch);
-            }
-        }
-        // sent funds must match order if not a restricted marker
-        false => {
-            if info.funds.ne(&coins(
-                match &bid_order.fee {
-                    Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
-                    _ => total.to_u128().unwrap(),
-                },
-                bid_order.quote.denom.to_owned(),
-            )) {
-                return Err(ContractError::SentFundsOrderMismatch);
-            }
-        }
+        return Err(ContractError::SentFundsOrderMismatch);
+    }
+
+    // sent funds must match order if not a restricted marker
+    if !is_quote_restricted_marker
+        && info.funds.ne(&coins(
+            match &bid_order.fee {
+                Some(fee) => total.to_u128().unwrap() + fee.amount.u128(),
+                _ => total.to_u128().unwrap(),
+            },
+            bid_order.quote.denom.to_owned(),
+        ))
+    {
+        return Err(ContractError::SentFundsOrderMismatch);
     }
 
     let mut bid_storage = get_bid_storage(deps.storage);
@@ -676,11 +667,6 @@ fn cancel_ask(
     info: MessageInfo,
     id: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
-    // return error if id is empty
-    if id.is_empty() {
-        return Err(ContractError::Unauthorized);
-    }
-
     // return error if funds sent
     if !info.funds.is_empty() {
         return Err(ContractError::CancelWithFunds);
@@ -706,17 +692,11 @@ fn cancel_ask(
     ask_storage.remove(id.as_bytes());
 
     // is ask base a marker
-    let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(base.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, base.clone());
 
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
-        .add_message(match is_quote_restricted_marker {
+        .add_message(match is_base_restricted_marker {
             true => {
                 transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
             }
@@ -736,13 +716,8 @@ fn cancel_ask(
     } = class
     {
         // is convertible a marker
-        let is_convertible_restricted_marker = matches!(
-            ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(&converted_base.denom),
-            Ok(Marker {
-                marker_type: MarkerType::Restricted,
-                ..
-            })
-        );
+        let is_convertible_restricted_marker =
+            is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
             true => transfer_marker_coins(
@@ -816,17 +791,11 @@ fn reverse_ask(
         })?;
 
     // is ask base a marker
-    let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
 
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
-        .add_message(match is_quote_restricted_marker {
+        .add_message(match is_base_restricted_marker {
             true => transfer_marker_coins(
                 effective_cancel_size.into(),
                 ask_order.base.to_owned(),
@@ -853,13 +822,8 @@ fn reverse_ask(
     } = ask_order.class.to_owned()
     {
         // is convertible a marker
-        let is_convertible_restricted_marker = matches!(
-            ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(&converted_base.denom),
-            Ok(Marker {
-                marker_type: MarkerType::Restricted,
-                ..
-            })
-        );
+        let is_convertible_restricted_marker =
+            is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
             true => transfer_marker_coins(
@@ -879,15 +843,12 @@ fn reverse_ask(
     let mut ask_storage = get_ask_storage(deps.storage);
 
     // remove the ask order from storage if remaining size is 0, otherwise, store updated order
-    match ask_order.size.is_zero() {
-        true => {
-            ask_storage.remove(ask_order.id.as_bytes());
-            response = response.add_attributes(vec![attr("order_open", "false")]);
-        }
-        false => {
-            ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
-            response = response.add_attributes(vec![attr("order_open", "true")]);
-        }
+    if ask_order.size.is_zero() {
+        ask_storage.remove(ask_order.id.as_bytes());
+        response = response.add_attributes(vec![attr("order_open", "false")]);
+    } else {
+        ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+        response = response.add_attributes(vec![attr("order_open", "true")]);
     }
 
     Ok(response)
@@ -992,13 +953,8 @@ fn reverse_bid(
     };
 
     // is bid quote a marker
-    let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.to_owned()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_quote_restricted_marker =
+        is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
     // add event to order
     bid_order.events.push(Event {
@@ -1207,6 +1163,11 @@ fn execute_match(
         .load(bid_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
+    // Validate the requested quote denom in the ask order matches the offered quote denom in the bid order
+    if ask_order.quote.ne(&bid_order.quote.denom) {
+        return Err(ContractError::UnsupportedQuoteDenom);
+    }
+
     let ask_price =
         Decimal::from_str(&ask_order.price).map_err(|_| ContractError::InvalidFields {
             fields: vec![String::from("AskOrder.price")],
@@ -1272,22 +1233,11 @@ fn execute_match(
     }
 
     // is base a restricted marker
-    let is_base_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(ask_order.base.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_base_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
 
     // is quote a restricted marker
-    let is_quote_restricted_marker = matches!(
-        ProvenanceQuerier::new(&deps.querier).get_marker_by_denom(bid_order.quote.denom.clone()),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
-            ..
-        })
-    );
+    let is_quote_restricted_marker =
+        is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
     let mut response = Response::new();
     response = response.add_attributes(vec![
@@ -1725,7 +1675,38 @@ mod tests {
     use crate::bid_order::get_bid_storage_read;
 
     use super::*;
+    use crate::tests::test_setup_utils::setup_test_base_contract_v3;
     use provwasm_mocks::mock_dependencies;
+
+    const QUOTE1_RESTRICTED_MARKER_JSON: &str = "{
+              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
+              \"coins\": [
+                {
+                  \"denom\": \"quote_1\",
+                  \"amount\": \"1000\"
+                }
+              ],
+              \"account_number\": 10,
+              \"sequence\": 0,
+              \"permissions\": [
+                {
+                  \"permissions\": [
+                    \"burn\",
+                    \"delete\",
+                    \"deposit\",
+                    \"admin\",
+                    \"mint\",
+                    \"withdraw\"
+                  ],
+                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
+                }
+              ],
+              \"status\": \"active\",
+              \"denom\": \"quote_1\",
+              \"total_supply\": \"1000\",
+              \"marker_type\": \"restricted\",
+              \"supply_fixed\": false
+            }";
 
     #[test]
     fn instantiate_valid_data() {
@@ -4018,6 +3999,44 @@ mod tests {
     }
 
     #[test]
+    fn create_bid_restricted_quote_denom_and_quote_mismatch_order_amount_and_size() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base_contract_v3(&mut deps.storage);
+
+        let test_marker: Marker =
+            from_binary(&Binary::from(QUOTE1_RESTRICTED_MARKER_JSON.as_bytes())).unwrap();
+        deps.querier.with_markers(vec![test_marker]);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            base: "base_denom".into(),
+            fee: None,
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "3".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(200), // Valid amount would be 300
+            size: Uint128::new(100),
+        };
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("bidder", &[]),
+            create_bid_msg,
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::SentFundsOrderMismatch => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn execute_valid_data() {
         // setup
         let mut deps = mock_dependencies(&[]);
@@ -4140,6 +4159,101 @@ mod tests {
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
+    }
+
+    #[test]
+    fn execute_quote_denom_mismatch_returns_err() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: "base_1".into(),
+                class: AskOrderClass::Basic,
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // store valid bid order
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: None,
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_2".into(), // not equal to "quote_1"
+                },
+                price: "2".into(),
+            },
+        );
+
+        // execute on matched ask order and bid order
+        let execute_msg = ExecuteMsg::ExecuteMatch {
+            ask_id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            bid_id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            price: "2".into(),
+            size: Uint128::new(100),
+        };
+
+        let execute_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("exec_1", &[]),
+            execute_msg,
+        );
+
+        // validate execute response
+        match execute_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::UnsupportedQuoteDenom => {}
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        // verify ask order removed from storage
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        assert!(ask_storage
+            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+            .is_ok());
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_ok());
     }
 
     #[test]
@@ -8892,7 +9006,7 @@ mod tests {
             fee: None,
             price: "2".into(),
             quote: "quote_1".into(),
-            quote_size: Uint128::new(100),
+            quote_size: Uint128::new(200),
             size: Uint128::new(100),
         };
         let create_bid_response = execute(
@@ -9662,7 +9776,7 @@ mod tests {
             fee: None,
             price: "2".into(),
             quote: "quote_1".to_string(),
-            quote_size: Uint128::new(100),
+            quote_size: Uint128::new(200),
             size: Uint128::new(100),
         };
         let create_bid_response = execute(
@@ -9768,7 +9882,7 @@ mod tests {
             fee: None,
             price: "2".into(),
             quote: "quote_1".to_string(),
-            quote_size: Uint128::new(100),
+            quote_size: Uint128::new(200),
             size: Uint128::new(100),
         };
         let create_bid_response = execute(
@@ -10168,6 +10282,82 @@ mod tests {
                         size: Uint128::new(100),
                     }
                 )
+            }
+            _ => {
+                panic!("ask order was not found in storage")
+            }
+        }
+    }
+
+    #[test]
+    fn approve_ask_already_approved_return_err() {
+        // setup
+        let mut deps = mock_dependencies(&[]);
+        let mock_env = mock_env();
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // store approved ask order
+        let existing_ask_order = AskOrderV1 {
+            base: "con_base_1".into(),
+            class: AskOrderClass::Convertible {
+                status: AskOrderStatus::Ready {
+                    // Already marked ready
+                    approver: Addr::unchecked("approver_1"),
+                    converted_base: coin(100, "base_denom"),
+                },
+            },
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            owner: Addr::unchecked("asker"),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            size: Uint128::new(100),
+        };
+        store_test_ask(&mut deps.storage, &existing_ask_order);
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env,
+            mock_info("approver_2", &[coin(100, "base_denom")]),
+            ExecuteMsg::ApproveAsk {
+                id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+                base: "base_denom".to_string(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // validate ask response
+        match approve_ask_response {
+            Err(error) => match error {
+                ContractError::AskOrderReady { approver } => {
+                    assert_eq!("approver_1", approver)
+                }
+                _ => panic!("unexpected error type: {:?}", error),
+            },
+            Ok(_) => panic!("expected error, but ok"),
+        }
+
+        // verify ask order the same
+        let ask_storage = get_ask_storage_read(&deps.storage);
+        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            Ok(stored_order) => {
+                assert_eq!(stored_order, existing_ask_order)
             }
             _ => {
                 panic!("ask order was not found in storage")
