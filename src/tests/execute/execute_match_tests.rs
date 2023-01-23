@@ -1773,7 +1773,7 @@ mod execute_match_tests {
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
-                    amount: Uint128::new(500),
+                    amount: Uint128::new(1000),
                     denom: "quote_1".into(),
                 },
                 price: "100.000000000000000000".into(),
@@ -1893,11 +1893,13 @@ mod execute_match_tests {
                         owner: Addr::unchecked("bidder"),
                         price: "100.000000000000000000".into(),
                         quote: Coin {
-                            amount: Uint128::new(500),
+                            amount: Uint128::new(1000),
                             denom: "quote_1".into(),
                         },
                     }
-                )
+                );
+                assert_eq!(stored_order.get_remaining_base().u128(), 5_u128);
+                assert_eq!(stored_order.get_remaining_quote().u128(), 500_u128);
             }
             _ => {
                 panic!("bid order was not found in storage")
