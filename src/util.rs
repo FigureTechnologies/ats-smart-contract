@@ -18,7 +18,9 @@ pub fn is_restricted_marker(querier: &QuerierWrapper<ProvenanceQuery>, denom: St
 
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {
     price
-        .mul(Decimal::from(10u128.pow(price_precision.u128() as u32)))
+        .checked_mul(Decimal::from(10u128.pow(price_precision.u128() as u32)))
+        .ok_or(ContractError::TotalOverflow)
+        .unwrap()
         .fract()
         .ne(&Decimal::zero())
 }
