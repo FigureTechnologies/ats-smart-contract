@@ -912,7 +912,8 @@ fn reverse_bid(
     // calculate canceled quote size (price * effective_cancel_size), error if overflows
     let effective_cancel_quote_size = Decimal::from_str(&bid_order.price)
         .unwrap()
-        .mul(Decimal::from(effective_cancel_size.u128()));
+        .checked_mul(Decimal::from(effective_cancel_size.u128()))
+        .ok_or(ContractError::TotalOverflow)?;
 
     // error if canceled quote total is not an integer
     if effective_cancel_quote_size.fract().ne(&Decimal::zero()) {
@@ -930,7 +931,8 @@ fn reverse_bid(
             // fees required for remaining quote
             let required_remaining_fees = Decimal::from_u128(bid_fee.amount.u128())
                 .unwrap()
-                .mul(quote_remaining_ratio)
+                .checked_mul(quote_remaining_ratio)
+                .ok_or(ContractError::TotalOverflow)?
                 .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
                 .to_u128()
                 .unwrap();
