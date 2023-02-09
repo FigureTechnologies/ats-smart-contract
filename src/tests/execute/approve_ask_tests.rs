@@ -5,7 +5,9 @@ mod approve_ask_tests {
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
     use crate::msg::ExecuteMsg;
-    use crate::tests::test_constants::UNHYPHENATED_ASK_ID;
+    use crate::tests::test_constants::{
+        APPROVER_1, BASE_DENOM, HYPHENATED_ASK_ID, UNHYPHENATED_ASK_ID,
+    };
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_ask,
     };
@@ -1015,6 +1017,49 @@ mod approve_ask_tests {
             _ => {
                 panic!("ask order was not found in storage")
             }
+        }
+    }
+
+    #[test]
+    fn approve_ask_with_basic_class_returns_err() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base_contract_v3(&mut deps.storage);
+
+        // store valid ask order
+        store_test_ask(
+            &mut deps.storage,
+            &AskOrderV1 {
+                base: BASE_DENOM.into(),
+                class: AskOrderClass::Basic, // Only AskOrderClass::Convertible should accept an approve
+                id: HYPHENATED_ASK_ID.into(),
+                owner: Addr::unchecked("asker"),
+                price: "2".into(),
+                quote: "quote_1".into(),
+                size: Uint128::new(100),
+            },
+        );
+
+        let approve_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info(APPROVER_1, &[coin(100, BASE_DENOM)]),
+            // mock_info(APPROVER_1, &[]),
+            ExecuteMsg::ApproveAsk {
+                id: HYPHENATED_ASK_ID.into(),
+                base: BASE_DENOM.to_string(),
+                size: Uint128::new(100),
+            },
+        );
+
+        // verify approve failed ask response
+        match approve_ask_response {
+            Ok(_) => {
+                panic!("Expected error but got Ok")
+            }
+            Err(error) => match error {
+                ContractError::InconvertibleBaseDenom {} => {}
+                _ => panic!("unexpected error: {:?}", error),
+            },
         }
     }
 }

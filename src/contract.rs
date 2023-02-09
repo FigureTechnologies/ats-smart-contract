@@ -29,7 +29,6 @@ use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::ops::Mul;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -306,7 +305,7 @@ fn approve_ask(
                             }
                             AskOrderStatus::PendingIssuerApproval {} => {}
                         },
-                        AskOrderClass::Basic => {}
+                        AskOrderClass::Basic => return Err(ContractError::InconvertibleBaseDenom),
                     }
 
                     if size.ne(&stored_ask_order.size) || base.ne(&contract_info.base_denom) {
