@@ -1,6 +1,7 @@
 use crate::ask_order::{get_ask_storage, AskOrderV1};
 use crate::bid_order::{get_bid_storage, BidOrderV2};
 use crate::contract_info::{set_contract_info, ContractInfoV3};
+use crate::tests::test_constants::{APPROVER_1, APPROVER_2, BASE_DENOM};
 use cosmwasm_std::{Addr, Storage, Uint128};
 
 pub fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
@@ -15,10 +16,10 @@ pub fn setup_test_base_contract_v3(storage: &mut dyn Storage) {
         &ContractInfoV3 {
             name: "contract_name".into(),
             bind_name: "contract_bind_name".into(),
-            base_denom: "base_denom".into(),
+            base_denom: BASE_DENOM.into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-            approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            approvers: vec![Addr::unchecked(APPROVER_1), Addr::unchecked(APPROVER_2)],
             executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
             ask_fee_info: None,
             bid_fee_info: None,

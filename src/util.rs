@@ -3,7 +3,6 @@ use cosmwasm_std::{QuerierWrapper, Uint128};
 use provwasm_std::{Marker, MarkerType, ProvenanceQuerier, ProvenanceQuery};
 use rust_decimal::prelude::Zero;
 use rust_decimal::Decimal;
-use std::ops::Mul;
 use uuid::Uuid;
 
 pub fn is_restricted_marker(querier: &QuerierWrapper<ProvenanceQuery>, denom: String) -> bool {

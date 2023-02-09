@@ -18,7 +18,10 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 #### [pio-testnet-1](https://github.com/provenance-io/testnet/tree/main/pio-testnet-1)
 
 | Contract Version | Code ID |
-| ---------------- |---------|
+|------------------|---------|
+| 0.17.4           | 239     |
+| 0.17.3           | 229     |
+| 0.17.2           | 152     |
 | 0.17.1           | 139     |
 | 0.17.0           | 126     |
 | 0.16.3           | 110     |
@@ -52,7 +55,7 @@ _note: Address bech32 values may vary._
     
     ```bash
     git clone https://github.com/provenance-io/provenance.git
-    git checkout v1.7.2
+    git checkout v1.13.1
     make clean
     make build
     make install
