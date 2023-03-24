@@ -68,7 +68,7 @@ _note: Address bech32 values may vary._
     
     ```bash
     git clone https://github.com/provenance-io/provenance.git
-    git checkout v1.13.1
+    git checkout v1.14.1
     make clean
     make build
     make install
