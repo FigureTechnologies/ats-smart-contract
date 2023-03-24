@@ -2,10 +2,7 @@ use cosmwasm_std::{
     attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
     MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
 };
-use provwasm_std::{
-    bind_name, transfer_marker_coins, NameBinding, ProvenanceMsg, ProvenanceQuerier,
-    ProvenanceQuery,
-};
+use provwasm_std::{transfer_marker_coins, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery};
 
 use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
@@ -34,7 +31,7 @@ use std::collections::HashSet;
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut<ProvenanceQuery>,
-    env: Env,
+    _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
@@ -93,7 +90,7 @@ pub fn instantiate(
     // set contract info
     let contract_info = ContractInfoV3 {
         name: msg.name,
-        bind_name: msg.bind_name,
+        bind_name: "".into(),
         base_denom: msg.base_denom,
         convertible_base_denoms: msg.convertible_base_denoms,
         supported_quote_denoms: msg.supported_quote_denoms,
@@ -113,13 +110,6 @@ pub fn instantiate(
 
     set_contract_info(deps.storage, &contract_info)?;
 
-    // create name binding provenance message
-    let bind_name_msg = bind_name(
-        contract_info.bind_name,
-        env.contract.address,
-        NameBinding::Restricted,
-    )?;
-
     set_version_info(
         deps.storage,
         &VersionInfoV1 {
@@ -129,15 +119,13 @@ pub fn instantiate(
     )?;
 
     // build response
-    Ok(Response::new()
-        .add_message(bind_name_msg)
-        .add_attributes(vec![
-            attr(
-                "contract_info",
-                format!("{:?}", get_contract_info(deps.storage)?),
-            ),
-            attr("action", "init"),
-        ]))
+    Ok(Response::new().add_attributes(vec![
+        attr(
+            "contract_info",
+            format!("{:?}", get_contract_info(deps.storage)?),
+        ),
+        attr("action", "init"),
+    ]))
 }
 
 // smart contract execute entrypoint
@@ -1664,10 +1652,8 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
 // unit tests
 #[cfg(test)]
 mod tests {
-    use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::CosmosMsg;
+    use cosmwasm_std::testing::{mock_env, mock_info};
     use cosmwasm_std::{Addr, Storage, Uint128};
-    use provwasm_std::{NameMsgParams, ProvenanceMsg, ProvenanceMsgParams, ProvenanceRoute};
 
     use super::*;
     use provwasm_mocks::mock_dependencies;
@@ -1679,7 +1665,6 @@ mod tests {
         let info = mock_info("contract_admin", &[]);
         let init_msg = InstantiateMsg {
             name: "contract_name".into(),
-            bind_name: "contract_bind_name".into(),
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
@@ -1701,22 +1686,10 @@ mod tests {
         // verify initialize response
         match init_response {
             Ok(init_response) => {
-                assert_eq!(init_response.messages.len(), 1);
-                assert_eq!(
-                    init_response.messages[0].msg,
-                    CosmosMsg::Custom(ProvenanceMsg {
-                        route: ProvenanceRoute::Name,
-                        params: ProvenanceMsgParams::Name(NameMsgParams::BindName {
-                            name: init_msg.bind_name,
-                            address: Addr::unchecked(MOCK_CONTRACT_ADDR),
-                            restrict: true
-                        }),
-                        version: "2.0.0".to_string(),
-                    })
-                );
+                assert!(init_response.messages.is_empty());
                 let expected_contract_info = ContractInfoV3 {
                     name: "contract_name".into(),
-                    bind_name: "contract_bind_name".into(),
+                    bind_name: "".into(),
                     base_denom: "base_denom".into(),
                     convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
@@ -1767,7 +1740,6 @@ mod tests {
         let info = mock_info("contract_owner", &[]);
         let init_msg = InstantiateMsg {
             name: "".into(),
-            bind_name: "".into(),
             base_denom: "".into(),
             convertible_base_denoms: vec![],
             supported_quote_denoms: vec![],
@@ -1792,7 +1764,6 @@ mod tests {
             Err(error) => match error {
                 ContractError::InvalidFields { fields } => {
                     assert!(fields.contains(&"name".into()));
-                    assert!(fields.contains(&"bind_name".into()));
                     assert!(fields.contains(&"base_denom".into()));
                     assert!(fields.contains(&"supported_quote_denoms".into()));
                     assert!(fields.contains(&"executors".into()));
@@ -1809,7 +1780,6 @@ mod tests {
         let info = mock_info("contract_owner", &[]);
         let init_msg = InstantiateMsg {
             name: "contract_name".into(),
-            bind_name: "contract_bind_name".into(),
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
@@ -1846,7 +1816,7 @@ mod tests {
             &mut deps.storage,
             &ContractInfoV3 {
                 name: "contract_name".into(),
-                bind_name: "contract_bind_name".into(),
+                bind_name: "".into(),
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],

@@ -8,7 +8,6 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub name: String,
-    pub bind_name: String,
     pub base_denom: String,
     pub convertible_base_denoms: Vec<String>,
     pub supported_quote_denoms: Vec<String>,
@@ -41,9 +40,6 @@ impl Validate for InstantiateMsg {
 
         if self.name.is_empty() {
             invalid_fields.push("name");
-        }
-        if self.bind_name.is_empty() {
-            invalid_fields.push("bind_name");
         }
         if self.base_denom.is_empty() {
             invalid_fields.push("base_denom");
