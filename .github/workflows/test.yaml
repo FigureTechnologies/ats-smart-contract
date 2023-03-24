@@ -46,5 +46,5 @@ jobs:
       - name: Run ATS Test
         uses: provenance-io/provenance-testing-action@v1.0.0
         with:
-          provenance_version: "v1.8.0"
+          provenance_version: "v1.14.1"
           test_script: "./scripts/test_ats.sh"
