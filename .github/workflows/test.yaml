@@ -44,7 +44,8 @@ jobs:
         run: |
           make all
       - name: Run ATS Test
-        uses: provenance-io/provenance-testing-action@v1.0.0
+        uses: provenance-io/provenance-testing-action@v1.1.2
         with:
-          provenance_version: "v1.13.0"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          provenance_version: "v1.14.1"
           test_script: "./scripts/test_ats.sh"
