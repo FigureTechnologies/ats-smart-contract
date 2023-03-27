@@ -155,7 +155,7 @@ mod instantiate_tests {
         match init_response {
             Ok(_) => panic!("expected error, but ok"),
             Err(error) => match error {
-                InvalidPricePrecisionSizePair => {}
+                ContractError::InvalidPricePrecisionSizePair => {}
                 error => panic!("unexpected error: {:?}", error),
             },
         }
