@@ -19,6 +19,7 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 
 | Contract Version | Code ID |
 |------------------|---------|
+| 0.17.5           | 241     |
 | 0.17.4           | 239     |
 | 0.17.3           | 229     |
 | 0.17.2           | 152     |
@@ -38,12 +39,24 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
 | 0.14.1           | 14      |
 
 ## Build
+### Intel chip (x86)
 
 1. Compile and package to wasm
 
     ```bash
     make
     ```
+
+### Arm chip (M1 Mac)
+1. Compile and package to wasm
+
+   ```bash
+   make all-arm
+   ```
+
+NOTE: You must deploy the x86 version because the Arm version produces different artifacts.
+- Reference: https://github.com/CosmWasm/rust-optimizer#notice
+   - "Arm images are released to ease development and testing on Mac M1 machines. For release / production use, only contracts built with the Intel optimizers must be used."
 
 ## Example Usage
 
@@ -55,7 +68,7 @@ _note: Address bech32 values may vary._
     
     ```bash
     git clone https://github.com/provenance-io/provenance.git
-    git checkout v1.13.1
+    git checkout v1.14.1
     make clean
     make build
     make install

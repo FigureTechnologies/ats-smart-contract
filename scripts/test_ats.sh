@@ -127,7 +127,7 @@ export seller=$("$PROV_CMD" keys show -a seller --keyring-backend test --testnet
     --yes
 
 "$PROV_CMD" tx wasm instantiate 1 \
-'{"name":"ats-ex", "bind_name":"ats-ex.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$validator'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
+'{"name":"ats-ex", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$validator'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
     --admin="$validator" \
     --label ats-ex \
     --from="$validator" \

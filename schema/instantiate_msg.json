@@ -7,7 +7,6 @@
     "ask_required_attributes",
     "base_denom",
     "bid_required_attributes",
-    "bind_name",
     "convertible_base_denoms",
     "executors",
     "name",
@@ -60,9 +59,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "bind_name": {
-      "type": "string"
     },
     "convertible_base_denoms": {
       "type": "array",

@@ -45,7 +45,7 @@
   },
   "definitions": {
     "Action": {
-      "anyOf": [
+      "oneOf": [
         {
           "type": "object",
           "required": [

@@ -27,7 +27,7 @@ pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> b
 fn to_hyphenated_uuid_str(uuid: String) -> Result<String, ContractError> {
     Ok(Uuid::parse_str(uuid.as_str())
         .map_err(ContractError::UuidError)?
-        .to_hyphenated()
+        .hyphenated()
         .to_string())
 }
 

@@ -40,7 +40,7 @@
       "type": "string"
     },
     "AskOrderClass": {
-      "anyOf": [
+      "oneOf": [
         {
           "type": "string",
           "enum": [
@@ -70,7 +70,7 @@
       ]
     },
     "AskOrderStatus": {
-      "anyOf": [
+      "oneOf": [
         {
           "type": "string",
           "enum": [
