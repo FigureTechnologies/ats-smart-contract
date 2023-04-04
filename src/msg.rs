@@ -202,7 +202,7 @@ impl Validate for ExecuteMsg {
             ExecuteMsg::CreateBid {
                 id,
                 base,
-                fee,
+                fee: _,
                 price,
                 quote,
                 quote_size,
@@ -213,11 +213,6 @@ impl Validate for ExecuteMsg {
                 }
                 if base.is_empty() {
                     invalid_fields.push("base");
-                }
-                if let Some(fee) = fee {
-                    if fee.amount.lt(&Uint128::new(1)) {
-                        invalid_fields.push("fee");
-                    }
                 }
                 if price.is_empty() {
                     invalid_fields.push("price");

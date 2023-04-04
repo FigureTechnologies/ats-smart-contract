@@ -6,8 +6,12 @@ mod create_bid_tests {
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
     use crate::msg::ExecuteMsg;
-    use crate::tests::test_constants::UNHYPHENATED_BID_ID;
-    use crate::tests::test_setup_utils::{setup_test_base, setup_test_base_contract_v3};
+    use crate::tests::test_constants::{
+        BASE_DENOM, HYPHENATED_BID_ID, QUOTE_DENOM_1, UNHYPHENATED_BID_ID,
+    };
+    use crate::tests::test_setup_utils::{
+        set_default_required_attributes, setup_test_base, setup_test_base_contract_v3,
+    };
     use crate::tests::test_utils::validate_execute_invalid_id_field;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Coin, Uint128};
@@ -43,6 +47,100 @@ mod create_bid_tests {
               \"marker_type\": \"restricted\",
               \"supply_fixed\": false
             }";
+
+    #[test]
+    fn create_bid_valid_with_fee_less_than_one_is_accepted() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base_contract_v3(&mut deps.storage);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: HYPHENATED_BID_ID.to_string(),
+            base: BASE_DENOM.into(),
+            fee: Some(coin(0, QUOTE_DENOM_1)),
+            price: "2.5".into(),
+            quote: QUOTE_DENOM_1.into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+        // Add bid required attributes
+        set_default_required_attributes(&mut deps.querier, "bidder", false, true);
+
+        let bidder_info = mock_info("bidder", &coins(250, QUOTE_DENOM_1));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(response) => {
+                assert_eq!(response.attributes.len(), 8);
+                assert_eq!(response.attributes[0], attr("action", "create_bid"));
+                assert_eq!(response.attributes[1], attr("base", BASE_DENOM));
+                assert_eq!(
+                    response.attributes[2],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    response.attributes[3],
+                    attr("fee", format!("{:?}", coin(0, QUOTE_DENOM_1)))
+                );
+                assert_eq!(response.attributes[4], attr("price", "2.5"));
+                assert_eq!(response.attributes[5], attr("quote", QUOTE_DENOM_1));
+                assert_eq!(response.attributes[6], attr("quote_size", "250"));
+                assert_eq!(response.attributes[7], attr("size", "100"));
+            }
+            Err(error) => {
+                panic!("failed to create bid: {:?}", error)
+            }
+        }
+
+        // verify bid order stored
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        if let ExecuteMsg::CreateBid {
+            id,
+            base,
+            fee,
+            quote,
+            quote_size,
+            price,
+            size,
+        } = create_bid_msg
+        {
+            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+                Ok(stored_order) => {
+                    assert_eq!(
+                        stored_order,
+                        BidOrderV2 {
+                            base: Coin {
+                                amount: size,
+                                denom: base,
+                            },
+                            events: vec![],
+                            fee,
+                            id,
+                            owner: bidder_info.sender,
+                            price,
+                            quote: Coin {
+                                amount: quote_size,
+                                denom: quote,
+                            },
+                        }
+                    )
+                }
+                _ => {
+                    panic!("bid order was not found in storage")
+                }
+            }
+        } else {
+            panic!("bid_message is not a CreateBid type. this is bad.")
+        }
+    }
 
     #[test]
     fn create_bid_valid_data_unhyphenated() {

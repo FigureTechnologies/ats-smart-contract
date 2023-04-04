@@ -543,8 +543,14 @@ fn create_bid(
             }
         }
         None => {
-            if bid_order.fee.is_some() {
-                return Err(ContractError::SentFees);
+            match bid_order.fee.to_owned() {
+                // Allow for fee.amount of 0 if no fee is required
+                Some(fee) => {
+                    if fee.amount.gt(&Uint128::zero()) {
+                        return Err(ContractError::SentFees);
+                    }
+                }
+                None => {}
             }
         }
     }
@@ -1652,7 +1658,7 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
 // unit tests
 #[cfg(test)]
 mod tests {
-    use cosmwasm_std::testing::{mock_env, mock_info};
+    use cosmwasm_std::testing::mock_env;
     use cosmwasm_std::{Addr, Storage, Uint128};
 
     use super::*;
