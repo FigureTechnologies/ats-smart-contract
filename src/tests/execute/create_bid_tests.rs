@@ -49,6 +49,42 @@ mod create_bid_tests {
             }";
 
     #[test]
+    fn create_bid_valid_with_fee_less_than_one_but_wrong_denom_return_err() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base_contract_v3(&mut deps.storage);
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: HYPHENATED_BID_ID.to_string(),
+            base: BASE_DENOM.into(),
+            fee: Some(coin(0, "BAD_DENOM")), // Incorrect fee denom
+            price: "2.5".into(),
+            quote: QUOTE_DENOM_1.into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+        // Add bid required attributes
+        set_default_required_attributes(&mut deps.querier, "bidder", false, true);
+
+        let bidder_info = mock_info("bidder", &coins(250, QUOTE_DENOM_1));
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(ContractError::SentFundsOrderMismatch) => {}
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+    }
+
+    #[test]
     fn create_bid_valid_with_fee_less_than_one_is_accepted() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base_contract_v3(&mut deps.storage);
