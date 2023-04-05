@@ -542,60 +542,6 @@ fn create_bid(
             }
         }
     }
-    //
-    // match contract_info.bid_fee_info {
-    //     Some(bid_fee_info) => {
-    //         let bid_fee_rate = Decimal::from_str(&bid_fee_info.rate).map_err(|_| {
-    //             ContractError::InvalidFields {
-    //                 fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
-    //             }
-    //         })?;
-    //
-    //         // if the bid fee rate is 0, there should not be any sent fees
-    //         if bid_fee_rate.eq(&Decimal::zero()) && bid_order.fee.is_some() {
-    //             return Err(ContractError::SentFees);
-    //         }
-    //
-    //         let calculated_fee_size = bid_fee_rate
-    //             .checked_mul(total)
-    //             .ok_or(ContractError::TotalOverflow)?
-    //             .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-    //             .to_u128()
-    //             .ok_or(ContractError::TotalOverflow)?;
-    //
-    //         match &mut bid_order.fee {
-    //             Some(fee) => {
-    //                 if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
-    //                     return Err(ContractError::InvalidFeeSize {
-    //                         fee_rate: bid_fee_info.rate,
-    //                     });
-    //                 }
-    //                 if fee.denom.ne(&bid_order.quote.denom) {
-    //                     return Err(ContractError::SentFundsOrderMismatch);
-    //                 }
-    //             }
-    //             _ => {
-    //                 return Err(ContractError::InvalidFeeSize {
-    //                     fee_rate: bid_fee_info.rate,
-    //                 })
-    //             }
-    //         }
-    //     }
-    //     None => {
-    //         match &bid_order.fee {
-    //             // Allow for fee.amount of 0 if no fee is required
-    //             Some(fee) => {
-    //                 if fee.denom.ne(&bid_order.quote.denom) {
-    //                     return Err(ContractError::SentFundsOrderMismatch);
-    //                 }
-    //                 if fee.amount.gt(&Uint128::zero()) {
-    //                     return Err(ContractError::SentFees);
-    //                 }
-    //             }
-    //             None => {}
-    //         }
-    //     }
-    // }
 
     // error if order quote is not supported quote denom
     if !&contract_info
