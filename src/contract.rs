@@ -503,48 +503,42 @@ fn create_bid(
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
-    // if bid fee exists, calculate and compare to sent fee_size
-    match contract_info.bid_fee_info {
+    // Get the bid fee rate (0 if not set)
+    let bid_fee_rate = match contract_info.bid_fee_info {
         Some(bid_fee_info) => {
-            let bid_fee_rate = Decimal::from_str(&bid_fee_info.rate).map_err(|_| {
-                ContractError::InvalidFields {
-                    fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
-                }
-            })?;
+            Decimal::from_str(&bid_fee_info.rate).map_err(|_| ContractError::InvalidFields {
+                fields: vec![String::from("ContractInfo.bid_fee_info.rate")],
+            })?
+        }
+        None => Decimal::from(0),
+    };
 
-            // if the bid fee rate is 0, there should not be any sent fees
-            if bid_fee_rate.eq(&Decimal::zero()) && bid_order.fee.is_some() {
-                return Err(ContractError::SentFees);
+    // Calculate the expected fees (bid_fee_rate * total)
+    let calculated_fee_size = bid_fee_rate
+        .checked_mul(total)
+        .ok_or(ContractError::TotalOverflow)?
+        .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+        .to_u128()
+        .ok_or(ContractError::TotalOverflow)?;
+
+    match &mut bid_order.fee {
+        Some(fee) => {
+            // If the user sent fees, then make sure the amount + denom match
+            if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
+                return Err(ContractError::InvalidFeeSize {
+                    fee_rate: bid_fee_rate.to_string(),
+                });
             }
-
-            let calculated_fee_size = bid_fee_rate
-                .checked_mul(total)
-                .ok_or(ContractError::TotalOverflow)?
-                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-                .to_u128()
-                .ok_or(ContractError::TotalOverflow)?;
-
-            match &mut bid_order.fee {
-                Some(fee) => {
-                    if fee.amount.ne(&Uint128::new(calculated_fee_size)) {
-                        return Err(ContractError::InvalidFeeSize {
-                            fee_rate: bid_fee_info.rate,
-                        });
-                    }
-                    if fee.denom.ne(&bid_order.quote.denom) {
-                        return Err(ContractError::SentFundsOrderMismatch);
-                    }
-                }
-                _ => {
-                    return Err(ContractError::InvalidFeeSize {
-                        fee_rate: bid_fee_info.rate,
-                    })
-                }
+            if fee.denom.ne(&bid_order.quote.denom) {
+                return Err(ContractError::SentFundsOrderMismatch);
             }
         }
         None => {
-            if bid_order.fee.is_some() {
-                return Err(ContractError::SentFees);
+            // If the user did not send fees, make sure the calculated fees was 0
+            if calculated_fee_size.ne(&0) {
+                return Err(ContractError::InvalidFeeSize {
+                    fee_rate: bid_fee_rate.to_string(),
+                });
             }
         }
     }
@@ -1652,7 +1646,7 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
 // unit tests
 #[cfg(test)]
 mod tests {
-    use cosmwasm_std::testing::{mock_env, mock_info};
+    use cosmwasm_std::testing::mock_env;
     use cosmwasm_std::{Addr, Storage, Uint128};
 
     use super::*;
