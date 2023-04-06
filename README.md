@@ -58,285 +58,404 @@ NOTE: You must deploy the x86 version because the Arm version produces different
 - Reference: https://github.com/CosmWasm/rust-optimizer#notice
    - "Arm images are released to ease development and testing on Mac M1 machines. For release / production use, only contracts built with the Intel optimizers must be used."
 
-## Example Usage
+## Usage
 
-_note: Address bech32 values may vary._
+Below is a demonstration on how to:
+
+* [set up Provenance to run locally](#1-blockchain-setup)
+* [set up base and quote denominations](#2-create-markers)
+* [create buyer and seller accounts](#3-create-accounts)
+* [fund said accounts with the created denominations](#4-fund-the-accounts)
+* [store and instantiate the smart contract](#5-store-and-instantiate-the-ats-smart-contract)
+* [execute an ask order](#6-create-an-ask-order)
+* [execute a bid order](#7-create-a-bid-order)
+* [execute an order match](#8-match-and-execute-the-ask-and-bid-orders)
+
+_Note: Address bech32 values may vary._
 
 ### 1. Blockchain setup
 
-1. Checkout [provenance](https://github.com/provenance-io/provenance) v1.7.2, clear all existing state, install the `provenanced` command, and start.
-    
+1. See the [glossary](#glossary) for an explanation of terms used in this document.
+
+2. Add `GOPATH` to `$HOME/.bashrc`.
+   See https://stackoverflow.com/questions/21001387/how-do-i-set-the-gopath-environment-variable-on-ubuntu-what-file-must-i-edit
+
+3. Checkout [provenance v1.14.1](https://github.com/provenance-io/provenance/releases/tag/v1.14.1), clear all existing state, install the `provenanced` command, and start localnet:
+
     ```bash
-    git clone https://github.com/provenance-io/provenance.git
-    git checkout v1.14.1
-    make clean
-    make build
-    make install
-    make run
+    $ git clone https://github.com/provenance-io/provenance.git
+    $ git checkout v1.14.1
+    $ make clean
+    $ make build
+    $ make install
+    # Run the blockchain locally (this is an independent network)
+    # `localnet-start` runs 4 nodes, `run` runs 1 node
+    $ make localnet-start OR make run
+    ```
+
+4. Set the directory of the Provenance node you will be communicating with (private keys will be stored here as well):
+
+    ```bash
+    # If using `make localnet-start`:
+    $ export PIO_NODE="$PIO_HOME/build/node0"
+
+    # If using `make run`:
+    $ export PIO_NODE="$PIO_HOME/build/run/provenanced"
+    ```
+
+5. Set an environment variable for the validator node (`node0`) of your local Provenance network:
+
+    ```bash
+    # If using `make localnet-start`:
+    $ export NODE0=$(provenanced keys show -a node0 --home $PIO_NODE --keyring-backend test --testnet)
+
+    # If using `make run`:
+    $ export NODE0=$(provenanced keys show -a validator --home $PIO_NODE --keyring-backend test --testnet)
+    ```
+
+6. Set an environment variable for the `chain-id` argument:
+
+    ```bash
+    # If using `make localnet-start`:
+    $ export CHAIN_ID="chain-local"
+
+    # If using `make run`:
+    $ export CHAIN_ID="testing"
     ```
 
 ### 2. Create markers
 
-The example requires two markers: base (gme) and quote (usd)
+The example requires two markers: base (gme) and quote (usd).
 
-1. Base
+1. Set up the marker for the base denomination `gme.local`:
 
-    ```shell
-    provenanced tx marker new 1000gme.local \
+    ```bash
+    $ provenanced tx marker new "1000gme.local" \
         --type COIN \
-        --from validator \
-        --home build/run/provenanced \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker grant (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) gme.local mint,burn,admin,withdraw,deposit \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker grant "$NODE0" "gme.local" "mint,burn,admin,withdraw,deposit" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker finalize gme.local \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker finalize "gme.local" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker activate gme.local \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker activate "gme.local" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
 
-2. Quote
-   
-    ```shell
-    provenanced tx marker new 1000usd.local \
+2. Set up marker for the quote denomination `usd.local`:
+
+    ```bash
+    $ provenanced tx marker new "1000usd.local" \
         --type COIN \
-        --from validator \
-        --home build/run/provenanced \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker grant (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) usd.local mint,burn,admin,withdraw,deposit \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker grant "$NODE0" "usd.local mint,burn,admin,withdraw,deposit" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker finalize usd.local \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker finalize "usd.local" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-    
-    provenanced tx marker activate usd.local \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker activate "usd.local" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
 
 ### 3. Create accounts
 
-The example requires two trading accounts: buyer and seller
+The example requires two trading accounts: `buyer` and `seller`:
 
-1. Buyer
+1. Create the `buyer` account:
 
-    ```shell
-    provenanced keys add buyer \
-        --home build/run/provenanced \
+    ```bash
+    $ provenanced keys add buyer \
+        --home "$PIO_HOME" \
         --keyring-backend test \
+        --chain-id "$CHAIN_ID" \
         --testnet
     ```
 
-2. Seller
+2. Create the `seller` account:
 
     ```shell
-    provenanced keys add seller \
-        --home build/run/provenanced \
+    $ provenanced keys add seller \
+        --home "$PIO_HOME" \
         --keyring-backend test \
+        --chain-id "$CHAIN_ID" \
         --testnet
+    ```
+
+3. Store the `buyer` and `seller` account addresses:
+
+    ```bash
+    $ export BUYER=$(provenanced keys show -a "buyer" --home "$PIO_HOME" --keyring-backend test --testnet)
+    $ export SELLER=$(provenanced keys show -a "seller" --home "$PIO_HOME" --keyring-backend test --testnet)
     ```
 
 ### 4. Fund the accounts
 
-1. Fund buyer's account with nhash for transaction fees and usd (quote)
+1. Fund the `buyer` account with `nhash` for transaction fees and `usd.local` (quote):
 
-    ```shell
-    provenanced tx bank send \
-        (provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
-        (provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
-        100000000000nhash \
-        --from validator \
-        --home build/run/provenanced \
+    ```bash
+    $ provenanced tx bank send "$NODE0" "$BUYER" 100000000000nhash \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-        
-    provenanced tx marker withdraw usd.local 1000usd.local (build/provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker withdraw "usd.local" "1000usd.local" "$BUYER" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
 
-2. Fund seller's account with nhash for transaction fees and gme (base) to sell
+2. Fund the `seller` account with nhash for transaction fees and `gme.local` (base) to sell:
 
-    ```shell
-    provenanced tx bank send \
-        (provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
-        (provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
-        100000000000nhash \
-        --from validator \
-        --home build/run/provenanced \
+    ```bash
+    $ provenanced tx bank send "$NODE0" "$SELLER" 100000000000nhash \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
-        
-    provenanced tx marker withdraw gme.local 500gme.local (build/provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
-        --from validator \
-        --home build/run/provenanced \
+
+    $ provenanced tx marker withdraw "gme.local" "500gme.local" "$SELLER" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --chain-id "$CHAIN_ID" \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
 
 ### 5. Store and Instantiate the `ats-smart-contract`
 
-1. Deploy the `ats-smart-contract` to provenance. Copy the previously built `artifacts/ats-smart-contract.wasm` to the root directory of the Provenance git project
-    ```shell
-    provenanced tx wasm store ats_smart_contract.wasm \
-        --from validator \
-        --home build/run/provenanced \
+1. Copy the previously built `artifacts/ats-smart-contract.wasm` to the root directory of the Provenance git project:
+
+    ```bash
+    $ cp ats-smart-contract/artifacts/ats-smart-contract.wasm "$PIO_HOME"
+    $ cd "$PIO_HOME"
+    ```
+
+2. Deploy the `ats-smart-contract` to Provenance and store the resulting code ID:
+
+    ```bash
+    $ store_result=$(provenanced tx wasm store "ats_smart_contract.wasm" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
+        --testnet \
+        --yes)
+    $ export CODE_ID=$(jq '.logs[0].events[] | select(.type == "store_code").attributes[] | select(.key == "code_id").value | tonumber' <<< "$store_result")
+    ```
+
+3. Instantiate the contract, binding the name `ats-ex.pb` to the contract address:
+
+    ```bash
+    $ provenanced tx wasm instantiate "$CODE_ID" \
+       '{"name":"ats-ex", "bind_name":"ats-ex.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
+        --admin "$NODE0" \
+        --label "ats-ex" \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend test \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
 
-2. Instantiate the contract, binding the name `ats-ex.pb` to the contract address:
-    ```shell
-    provenanced tx wasm instantiate 1 \
-   '{"name":"ats-ex", "bind_name":"ats-ex.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'(build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test)'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
-        --admin (build/provenanced keys show -ta validator --home build/run/provenanced --keyring-backend test) \
-        --label ats-ex \
-        --from validator \
-        --home build/run/provenanced \
-        --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
-        --testnet \
-        --yes
-    ```
+4. Get the address of the instantiated contract:
+
+   ```bash
+   $ CONTRACT_ADDRESS=$(provenanced q name resolve "ats-ex.pb" --chain-id "$CHAIN_ID" --testnet | awk '{print $2}')
+   ```
 
 ### 6. Create an `ask` order
 
-```shell
-provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"create_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "base":"gme.local", "quote":"usd.local", "price": "2", "size":"500"}}' \
     --from seller \
-    --amount 500gme.local \
-    --home build/run/provenanced \
+    --amount "500gme.local" \
+    --home "$PIO_HOME" \
+    --chain-id "$CHAIN_ID" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --gas auto \
+    --gas-prices 1905nhash \
+    --gas-adjustment 2 \
     --testnet \
     --yes
 ```
 
 ### 7. Create a `bid` order
 
-```shell
-provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"create_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277", "base":"gme.local", "price": "2", "quote":"usd.local", "quote_size":"1000", "size":"500"}}' \
-    --amount 1000usd.local \
+    --amount "1000usd.local" \
     --from buyer \
-    --home build/run/provenanced \
+    --home "$PIO_HOME" \
+    --chain-id "$CHAIN_ID" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --gas auto \
+    --gas-prices 1905nhash \
+    --gas-adjustment 2 \
     --testnet \
     --yes
 ```
 
 ### 8. Match and execute the `ask` and `bid` orders
 
-```shell
-provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"execute_match":{"ask_id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "bid_id":"6a25ffc2-181e-4187-9ac6-572c17038277", "price":"2", "size": "500"}}' \
-    --from validator \
-    --home build/run/provenanced \
+    --from "$NODE0" \
+    --home "$PIO_NODE" \
+    --chain-id "$CHAIN_ID" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --gas auto \
+    --gas-prices 1905nhash \
+    --gas-adjustment 2 \
     --testnet \
     --yes
 ```
 
 ### 9. Query account balances to verify trade has executed
 
-1. Buyer account balance
-    ```shell
-    provenanced q bank balances \
-      (provenanced keys show -ta buyer --home build/run/provenanced --keyring-backend test) \
+1. Check the `buyer` account balance:
+    ```bash
+    $ provenanced q bank balances "$BUYER" \
+      --chain-id "$CHAIN_ID" \
       --testnet
     ```
-   
-1. Seller account balance
-    ```shell
-    provenanced q bank balances \
-      (provenanced keys show -ta seller --home build/run/provenanced --keyring-backend test) \
+
+2. Check the `seller` account balance:
+
+    ```bash
+    $ provenanced q bank balances "$SELLER" \
+      --chain-id "$CHAIN_ID" \
       --testnet
     ```
 
 ## Contract Queries
 
-### contract general information
+### Contract general information
 
-```shell
-provenanced query wasm contract-state smart \
-    (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
-    '{"get_contract_info":{}}' --testnet
+```bash
+$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
+  '{"get_contract_info":{}}' \
+  --testnet
 ```
 
-### contract version
+### Contract version
 
-```shell
-provenanced query wasm contract-state smart \
-    (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
-    '{"get_version_info":{}}' --testnet
+```bash
+$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
+  '{"get_version_info":{}}' \
+  --testnet
 ```
 
-### ask order information
+### Ask order information
 
-```shell
-provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
   '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
   --testnet
 ```
 
-### bid order information
+### Bid order information
 
-```shell
-provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
   '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
   --testnet
 ```
@@ -345,56 +464,66 @@ provenanced query wasm contract-state smart (provenanced q name resolve ats-ex.p
 
 ### Cancel an ask order
 
-```shell
-provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"cancel_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
     --from seller \
-    --home build/run/provenanced \
+    --home "$PIO_HOME" \
+    --chain-id "$CHAIN_ID" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --gas auto \
+    --gas-prices 1905nhash \
+    --gas-adjustment 2 \
     --testnet \
     --yes
 ```
 
 ### Cancel a bid order
 
-```shell
-provenanced tx wasm execute (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') \
+```bash
+$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"cancel_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
-    -t \
     --from buyer \
-    --home build/run/provenanced \
+    --home "$PIO_HOME" \
+    --chain-id "$CHAIN_ID" \
     --keyring-backend test \
-    --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+    --gas auto \
+    --gas-prices 1905nhash \
+    --gas-adjustment 2 \
     --testnet \
     --yes
 ```
 
 ## Migrate/Upgrade contract
 
-1. Store the new `ats-smart-contract` wasm
+1. Store the new `ats-smart-contract` wasm and extract the resulting code ID:
 
-	```shell
-    provenanced tx wasm store ats_smart_contract.wasm \
-        --from validator \
-        --home build/run/provenanced \
+	```bash
+    $ store_result = $(provenanced tx wasm store ats_smart_contract.wasm \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
-        --yes
+        --yes)
+    $ export CODE_ID=$(jq '.logs[0].events[] | select(.type == "store_code").attributes[] | select(.key == "code_id").value | tonumber' <<< "$store_result")
     ```
 
-1. Migrate/Upgrade to the new code id
-   
-   _note: The `CODE_ID` is the `code_id` returned when storing the new wasm in the previous step._
+2. Migrate/upgrade to the new code ID:
 
-	```shell
-    provenanced tx wasm migrate (provenanced q name resolve ats-ex.pb --testnet | awk '{print $2}') CODE_ID \
+	```bash
+    $ provenanced tx wasm migrate "$CONTRACT_ADDRESS" "$CODE_ID" \
     '{"migrate":{}}' \
-        --from validator \
-        --home build/run/provenanced \
+        --from "$NODE0" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
         --keyring-backend test \
-        --gas auto --gas-prices 1905nhash --gas-adjustment 2 \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 2 \
         --testnet \
         --yes
     ```
