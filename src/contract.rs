@@ -533,7 +533,7 @@ fn create_bid(
                 return Err(ContractError::SentFundsOrderMismatch);
             }
         }
-        _ => {
+        None => {
             // If the user did not send fees, make sure the calculated fees was 0
             if calculated_fee_size.ne(&0) {
                 return Err(ContractError::InvalidFeeSize {
