@@ -188,6 +188,10 @@ fn bootstrap_cosm(
             .store_contracts(&wasm_dir, signing_key, None)
             .map_err(Into::<ProfilerError>::into)?;
 
+        if config.verbose {
+            eprintln!("{:#?}", response);
+        }
+
         let contract_response = response
             .first()
             .ok_or(ProfilerError::MissingStoreCodeResponse)?
@@ -373,6 +377,7 @@ fn run() -> Result<()> {
                 .long("verbose")
                 .short('v')
                 .global(true)
+                .action(ArgAction::SetTrue)
                 .help("Enable verbose output"),
         )
         .arg(

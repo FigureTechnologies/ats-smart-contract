@@ -63,10 +63,14 @@ operation.
   $ ./setup.sh
   ```
 
+  > _Note:_ if you want to provide custom buyer and seller mnemonic phrases, make sure `BUYER_MNEMONIC` and `SELLER_MNEMONIC` are defined
+    before running `setup.sh`. Otherwise, set `BUYER_MNEMONIC` and `SELLER_MNEMONIC` to the mnemonic phrases output by the script.
+
 3. Build the smart contract:
 
   ```
-  $ cd ats-smart-contract
+  $ ATS_SMART_CONTRACT_HOME="<location-of-ats-smart-contract-repository>"
+  $ cd $ATS_SMART_CONTRACT_HOME
   $ cargo build
   ```
 
@@ -81,7 +85,7 @@ operation.
 4. Store the smart contract WASM on chain using the profiler tool:
 
   ```bash
-  $ ats-profiler store --wasm-dir ats-smart-contract/artifacts
+  $ ats-profiler store --wasm-dir "$ATS_SMART_CONTRACT_HOME/artifacts"
 
   > {"code_id":1}
   ```
@@ -138,7 +142,7 @@ operation.
 8. Execute a match using the previous bid and ask orders:
 
   ```bash
-  $ ats-profiler --code-id 1 \
+  $ ats-profiler execute-match --code-id 1 \
     --address tp14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s96lrg8 \
     --bid-id=0ec05211-bcfb-4d6c-8d7f-e97835d04006 \
     --ask-id=a0674876-a8b3-446f-bfae-33053821a624 | jq
