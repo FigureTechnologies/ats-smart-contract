@@ -178,7 +178,9 @@ pub fn execute(
                     amount: size,
                     denom: base,
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee,
                 id,
                 owner: info.sender.to_owned(),
@@ -938,21 +940,17 @@ fn reverse_bid(
     let is_quote_restricted_marker =
         is_restricted_marker(&deps.querier, bid_order.quote.denom.clone());
 
-    // add event to order
-    bid_order.events.push(Event {
-        action: Action::Reject {
-            base: Coin {
-                amount: effective_cancel_size,
-                denom: bid_order.base.denom.to_owned(),
-            },
-            fee: effective_cancel_fee_size.to_owned(),
-            quote: Coin {
-                amount: effective_cancel_quote_size,
-                denom: bid_order.quote.denom.to_owned(),
-            },
+    bid_order.update_remaining_amounts(&Action::Reject {
+        base: Coin {
+            amount: effective_cancel_size,
+            denom: bid_order.base.denom.to_owned(),
         },
-        block_info: env.block.into(),
-    });
+        fee: effective_cancel_fee_size.to_owned(),
+        quote: Coin {
+            amount: effective_cancel_quote_size,
+            denom: bid_order.quote.denom.to_owned(),
+        },
+    })?;
 
     // 'send quote back to owner' message
     let mut response = Response::new()
@@ -1525,58 +1523,47 @@ fn execute_match(
             }
         }
 
-        // add fill event to bid order events
-        bid_order.events.push(Event {
-            action: Action::Fill {
-                base: Coin {
-                    denom: bid_order.base.denom.to_owned(),
-                    amount: execute_size,
-                },
-                fee: actual_bid_fee,
-                price,
-                quote: Coin {
-                    denom: bid_order.quote.denom.to_owned(),
-                    amount: Uint128::new(
-                        actual_gross_proceeds
-                            .to_u128()
-                            .ok_or(ContractError::TotalOverflow)?,
-                    ),
-                },
+        bid_order.update_remaining_amounts(&Action::Fill {
+            base: Coin {
+                denom: bid_order.base.denom.to_owned(),
+                amount: execute_size,
             },
-            block_info: env.block.to_owned().into(),
-        });
-        // add refund event to bid order events
-        bid_order.events.push(Event {
-            action: Action::Refund {
-                fee: bid_fee_refund,
-                quote: Coin {
-                    denom: bid_order.quote.denom.to_owned(),
-                    amount: Uint128::new(bid_quote_refund),
-                },
+            fee: actual_bid_fee,
+            price,
+            quote: Coin {
+                denom: bid_order.quote.denom.to_owned(),
+                amount: Uint128::new(
+                    actual_gross_proceeds
+                        .to_u128()
+                        .ok_or(ContractError::TotalOverflow)?,
+                ),
             },
-            block_info: env.block.into(),
-        });
+        })?;
+
+        bid_order.update_remaining_amounts(&Action::Refund {
+            fee: bid_fee_refund,
+            quote: Coin {
+                denom: bid_order.quote.denom.to_owned(),
+                amount: Uint128::new(bid_quote_refund),
+            },
+        })?;
     } else {
-        // add fill event to bid order events
-        bid_order.events.push(Event {
-            action: Action::Fill {
-                base: Coin {
-                    denom: bid_order.base.denom.to_owned(),
-                    amount: execute_size,
-                },
-                fee: actual_bid_fee,
-                price,
-                quote: Coin {
-                    denom: bid_order.quote.denom.to_owned(),
-                    amount: Uint128::new(
-                        actual_gross_proceeds
-                            .to_u128()
-                            .ok_or(ContractError::TotalOverflow)?,
-                    ),
-                },
+        bid_order.update_remaining_amounts(&Action::Fill {
+            base: Coin {
+                denom: bid_order.base.denom.to_owned(),
+                amount: execute_size,
             },
-            block_info: env.block.into(),
-        });
+            fee: actual_bid_fee,
+            price,
+            quote: Coin {
+                denom: bid_order.quote.denom.to_owned(),
+                amount: Uint128::new(
+                    actual_gross_proceeds
+                        .to_u128()
+                        .ok_or(ContractError::TotalOverflow)?,
+                ),
+            },
+        })?;
     }
 
     // finally update or remove the orders from storage

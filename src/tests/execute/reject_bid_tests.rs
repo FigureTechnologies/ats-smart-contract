@@ -29,7 +29,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -100,7 +102,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -171,7 +175,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(400),
@@ -235,20 +241,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(200),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Reject {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                                fee: None,
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(200)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(100),
+                        remaining_quote: Uint128::new(200),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         quote: Coin {
                             amount: Uint128::new(400),
@@ -299,7 +294,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(10),
                     denom: "quote_1".to_string(),
@@ -373,23 +370,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Reject {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(50)
-                                },
-                                fee: Some(Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(5)
-                                }),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(50)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(100 - 50),
+                        remaining_quote: Uint128::new(100 - 50),
+                        remaining_fee: Uint128::new(10 - 5),
                         fee: Some(Coin {
                             amount: Uint128::new(10),
                             denom: "quote_1".to_string(),
@@ -443,7 +426,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(10),
                     denom: "quote_1".to_string(),
@@ -516,23 +501,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Reject {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(55)
-                                },
-                                fee: Some(Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(5)
-                                }),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(55)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(55),
+                        remaining_quote: Uint128::new(55),
+                        remaining_fee: Uint128::new(5),
                         fee: Some(Coin {
                             amount: Uint128::new(10),
                             denom: "quote_1".to_string(),
@@ -587,7 +558,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(10),
                     denom: "quote_1".to_string(),
@@ -661,23 +634,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Reject {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(56)
-                                },
-                                fee: Some(Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(6)
-                                }),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(56)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(56),
+                        remaining_quote: Uint128::new(56),
+                        remaining_fee: Uint128::new(6),
                         fee: Some(Coin {
                             amount: Uint128::new(10),
                             denom: "quote_1".to_string(),
@@ -728,7 +687,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -769,7 +730,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        remaining_base: Uint128::zero(),
+                        remaining_quote: Uint128::zero(),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -819,7 +782,9 @@ mod reject_bid_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -860,7 +825,9 @@ mod reject_bid_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![],
+                        remaining_base: Uint128::zero(),
+                        remaining_quote: Uint128::zero(),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),

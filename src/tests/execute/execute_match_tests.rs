@@ -93,7 +93,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -206,7 +208,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -323,7 +327,9 @@ mod execute_match_tests {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(149),
@@ -447,7 +453,9 @@ mod execute_match_tests {
                     amount: Uint128::new(150),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(150),
@@ -571,7 +579,9 @@ mod execute_match_tests {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(1),
                     denom: "quote_1".into(),
@@ -698,7 +708,9 @@ mod execute_match_tests {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(149),
@@ -826,7 +838,9 @@ mod execute_match_tests {
                     amount: Uint128::new(150),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(2),
                     denom: "quote_1".into(),
@@ -960,7 +974,9 @@ mod execute_match_tests {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(20),
@@ -1100,7 +1116,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -1175,21 +1193,9 @@ mod execute_match_tests {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(50)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(50),
+                        remaining_quote: Uint128::new(100),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1260,7 +1266,9 @@ mod execute_match_tests {
                     amount: Uint128::new(300),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(600),
@@ -1357,21 +1365,9 @@ mod execute_match_tests {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(200)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(100),
+                        remaining_quote: Uint128::new(200),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1440,7 +1436,9 @@ mod execute_match_tests {
                     amount: Uint128::new(300),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1551,21 +1549,9 @@ mod execute_match_tests {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(200)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        remaining_base: Uint128::new(100),
+                        remaining_quote: Uint128::new(200),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1633,7 +1619,9 @@ mod execute_match_tests {
                     amount: Uint128::new(5),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1769,7 +1757,9 @@ mod execute_match_tests {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1861,33 +1851,9 @@ mod execute_match_tests {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![
-                            Event {
-                                action: Action::Fill {
-                                    base: Coin {
-                                        denom: "base_1".to_string(),
-                                        amount: Uint128::new(5),
-                                    },
-                                    fee: None,
-                                    price: "2.000000000000000000".to_string(),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(10),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            },
-                            Event {
-                                action: Action::Refund {
-                                    fee: None,
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(490),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            }
-                        ],
+                        remaining_base: Uint128::new(5),
+                        remaining_quote: Uint128::new(10 + 490),
+                        remaining_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1959,7 +1925,9 @@ mod execute_match_tests {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(100),
                     denom: "quote_1".to_string(),
@@ -2069,39 +2037,9 @@ mod execute_match_tests {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![
-                            Event {
-                                action: Action::Fill {
-                                    base: Coin {
-                                        denom: "base_1".to_string(),
-                                        amount: Uint128::new(5),
-                                    },
-                                    fee: Some(Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(1),
-                                    }),
-                                    price: "2.000000000000000000".to_string(),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(10),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            },
-                            Event {
-                                action: Action::Refund {
-                                    fee: Some(Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(49),
-                                    }),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(490),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            }
-                        ],
+                        remaining_base: Uint128::new(5),
+                        remaining_quote: Uint128::new(10 + 490),
+                        remaining_fee: Uint128::new(1 + 49),
                         fee: Some(Coin {
                             amount: Uint128::new(100),
                             denom: "quote_1".to_string(),
@@ -2203,7 +2141,9 @@ mod execute_match_tests {
                     amount: Uint128::new(5),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(500),
@@ -2344,7 +2284,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(400),
@@ -2472,7 +2414,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
@@ -2637,9 +2581,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -2799,9 +2744,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -2992,9 +2938,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3195,9 +3142,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3373,7 +3321,9 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
@@ -3611,9 +3561,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3851,9 +3802,10 @@ mod execute_match_tests {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -3922,9 +3874,10 @@ mod execute_match_tests {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -4105,9 +4058,10 @@ mod execute_match_tests {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -4187,9 +4141,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -4281,9 +4236,10 @@ mod execute_match_tests {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),

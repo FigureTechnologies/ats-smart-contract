@@ -44,7 +44,9 @@ pub struct BidOrderV1 {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
     pub base: Coin,
-    pub events: Vec<Event>,
+    pub remaining_base: Uint128,
+    pub remaining_quote: Uint128,
+    pub remaining_fee: Uint128,
     pub fee: Option<Coin>,
     pub id: String,
     pub owner: Addr,
@@ -91,16 +93,7 @@ impl BidOrderV2 {
 
     /// Returns the remaining amount of base in the order
     pub fn get_remaining_base(&self) -> Uint128 {
-        self.base.amount
-            - self
-                .events
-                .iter()
-                .map(|event| match &event.action {
-                    Action::Fill { base, .. } => base.amount,
-                    Action::Reject { base, .. } => base.amount,
-                    _ => Uint128::zero(),
-                })
-                .sum::<Uint128>()
+        self.base.amount - self.remaining_base
     }
 
     /// Calculates the ratio of an amount to the bid order base amount
@@ -115,27 +108,7 @@ impl BidOrderV2 {
     pub fn get_remaining_fee(&self) -> Uint128 {
         match &self.fee {
             None => Uint128::zero(),
-            Some(fee) => {
-                fee.amount
-                    - self
-                        .events
-                        .iter()
-                        .map(|event| match &event.action {
-                            Action::Fill { fee, .. } => match fee {
-                                None => Uint128::zero(),
-                                Some(fee) => fee.amount,
-                            },
-                            Action::Refund { fee, .. } => match fee {
-                                None => Uint128::zero(),
-                                Some(fee) => fee.amount,
-                            },
-                            Action::Reject { fee, .. } => match fee {
-                                None => Uint128::zero(),
-                                Some(fee) => fee.amount,
-                            },
-                        })
-                        .sum::<Uint128>()
-            }
+            Some(fee) => fee.amount - self.remaining_fee,
         }
     }
 
@@ -149,16 +122,47 @@ impl BidOrderV2 {
 
     /// Returns the remaining amount of quote in the order
     pub fn get_remaining_quote(&self) -> Uint128 {
-        self.quote.amount
-            - self
-                .events
-                .iter()
-                .map(|event| match &event.action {
-                    Action::Fill { quote, .. } => quote.amount,
-                    Action::Refund { quote, .. } => quote.amount,
-                    Action::Reject { quote, .. } => quote.amount,
-                })
-                .sum::<Uint128>()
+        self.quote.amount - self.remaining_quote
+    }
+
+    /// Update remaining base, fee, and quote amounts based on the given `Action`.
+    pub fn update_remaining_amounts(&mut self, action: &Action) -> Result<(), ContractError> {
+        match action {
+            Action::Fill {
+                base,
+                fee,
+                price: _,
+                quote,
+            } => {
+                // Update base:
+                self.remaining_base = self.remaining_base.checked_add(base.amount)?;
+                // Update fee:
+                if let Some(fee) = fee {
+                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                }
+                // Update quote:
+                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+            }
+            Action::Refund { fee, quote } => {
+                // Update fee:
+                if let Some(fee) = fee {
+                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                }
+                // Update quote:
+                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+            }
+            Action::Reject { base, fee, quote } => {
+                // Update base:
+                self.remaining_base = self.remaining_base.checked_add(base.amount)?;
+                // Update fee:
+                if let Some(fee) = fee {
+                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                }
+                // Update quote:
+                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -170,7 +174,9 @@ impl From<BidOrder> for BidOrderV2 {
                 amount: bid_order.size,
                 denom: bid_order.base,
             },
-            events: vec![],
+            remaining_base: Uint128::zero(),
+            remaining_quote: Uint128::zero(),
+            remaining_fee: Uint128::zero(),
             fee: None,
             id: bid_order.id,
             owner: bid_order.owner,
@@ -199,7 +205,9 @@ impl From<BidOrderV1> for BidOrderV2 {
                 amount: bid_order.quote_size,
                 denom: bid_order.quote,
             },
-            events: vec![],
+            remaining_base: Uint128::zero(),
+            remaining_quote: Uint128::zero(),
+            remaining_fee: Uint128::zero(),
         }
     }
 }
@@ -333,16 +341,13 @@ fn calculate_migrate_refund(
             }
         }
 
-        bid_order.events.push(Event {
-            action: Action::Refund {
-                fee: None,
-                quote: Coin {
-                    denom: bid_order.quote.denom.to_string(),
-                    amount: Uint128::new(refund),
-                },
+        bid_order.update_remaining_amounts(&Action::Refund {
+            fee: None,
+            quote: Coin {
+                denom: bid_order.quote.denom.to_string(),
+                amount: Uint128::new(refund),
             },
-            block_info: env.block.to_owned().into(),
-        })
+        })?
     }
 
     Ok(response)
@@ -447,7 +452,9 @@ mod tests {
                     amount: Uint128::new(100),
                     denom: "base_1".to_string(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -555,16 +562,9 @@ mod tests {
                     amount: Uint128::new(8),
                     denom: "base_1".to_string(),
                 },
-                events: vec![Event {
-                    action: Action::Refund {
-                        fee: None,
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(20),
-                        },
-                    },
-                    block_info: mock_env().block.into(),
-                }],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::new(20),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -584,16 +584,9 @@ mod tests {
                     amount: Uint128::new(9),
                     denom: "base_1".to_string(),
                 },
-                events: vec![Event {
-                    action: Action::Refund {
-                        fee: None,
-                        quote: Coin {
-                            denom: "marker_1".to_string(),
-                            amount: Uint128::new(30),
-                        },
-                    },
-                    block_info: mock_env().block.into(),
-                }],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::new(30),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -682,7 +675,9 @@ mod tests {
                     amount: Uint128::new(100),
                     denom: "base_1".to_string(),
                 },
-                events: vec![],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::zero(),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -781,16 +776,9 @@ mod tests {
                     amount: Uint128::new(80),
                     denom: "base_1".to_string(),
                 },
-                events: vec![Event {
-                    action: Action::Refund {
-                        fee: None,
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(200),
-                        },
-                    },
-                    block_info: mock_env().block.into(),
-                }],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::new(200),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -810,16 +798,9 @@ mod tests {
                     amount: Uint128::new(9),
                     denom: "base_1".to_string(),
                 },
-                events: vec![Event {
-                    action: Action::Refund {
-                        fee: None,
-                        quote: Coin {
-                            denom: "marker_1".to_string(),
-                            amount: Uint128::new(30),
-                        },
-                    },
-                    block_info: mock_env().block.into(),
-                }],
+                remaining_base: Uint128::zero(),
+                remaining_quote: Uint128::new(30),
+                remaining_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -859,53 +840,9 @@ mod tests {
                 amount: Uint128::new(100),
                 denom: "base_1".to_string(),
             },
-            events: vec![
-                Event {
-                    action: Action::Fill {
-                        base: Coin {
-                            denom: "base_1".to_string(),
-                            amount: Uint128::new(10),
-                        },
-                        fee: Some(Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(2),
-                        }),
-                        price: "2".to_string(),
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(20),
-                        },
-                    },
-                    block_info: Default::default(),
-                },
-                Event {
-                    action: Action::Refund {
-                        fee: Some(Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(8),
-                        }),
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(80),
-                        },
-                    },
-                    block_info: Default::default(),
-                },
-                Event {
-                    action: Action::Reject {
-                        base: Coin {
-                            denom: "base_1".to_string(),
-                            amount: Uint128::new(10),
-                        },
-                        fee: Default::default(),
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(100),
-                        },
-                    },
-                    block_info: Default::default(),
-                },
-            ],
+            remaining_base: Uint128::new(10 + 10),
+            remaining_quote: Uint128::new(20 + 80 + 100),
+            remaining_fee: Uint128::new(2 + 8),
             fee: None,
             id: "id".to_string(),
             owner: Addr::unchecked("bidder"),
