@@ -170,9 +170,9 @@ fn bootstrap_cosm(
             .and_then(|info| info.code_id),
     };
 
-    let (code_id, address) = if let Some(code_id) = use_code_id {
-        config.with_deploy_info(Some(code_id), address.clone());
-        (Some(code_id), address)
+    let (code_id, address) = if use_code_id.is_some() || address.is_some() {
+        config.with_deploy_info(use_code_id, address.clone());
+        (use_code_id, address)
     } else {
         // Update the config with the code ID returned from the result of
         // `store_contract()`:
@@ -380,22 +380,6 @@ fn run() -> Result<()> {
                 .action(ArgAction::SetTrue)
                 .help("Enable verbose output"),
         )
-        .arg(
-            Arg::new("buyer-mnemonic")
-                .long("buyer")
-                .env("BUYER_MNEMONIC")
-                .action(ArgAction::Set)
-                .required(true)
-                .help("Buyer BIP39 mnemonic phrase"),
-        )
-        .arg(
-            Arg::new("seller-mnemonic")
-                .long("seller")
-                .env("SELLER_MNEMONIC")
-                .action(ArgAction::Set)
-                .required(true)
-                .help("Seller BIP39 mnemonic phrase"),
-        )
         .subcommand(
             Command::new("store")
                 .about("Store a smart contract on chain")
@@ -420,12 +404,6 @@ fn run() -> Result<()> {
             Command::new("contract-version")
                 .about("View contract version")
                 .arg(
-                    Arg::new("code-id")
-                        .long("code-id")
-                        .required(true)
-                        .help("The code ID of an existing smart contract"),
-                )
-                .arg(
                     Arg::new("address")
                         .long("address")
                         .required(true)
@@ -435,12 +413,6 @@ fn run() -> Result<()> {
         .subcommand(
             Command::new("contract-info")
                 .about("View contract information")
-                .arg(
-                    Arg::new("code-id")
-                        .long("code-id")
-                        .required(true)
-                        .help("The code ID of an existing smart contract"),
-                )
                 .arg(
                     Arg::new("address")
                         .long("address")
@@ -452,16 +424,18 @@ fn run() -> Result<()> {
             Command::new("place-bid")
                 .about("Place a BID order")
                 .arg(
-                    Arg::new("code-id")
-                        .long("code-id")
-                        .required(true)
-                        .help("The code ID of an existing smart contract"),
-                )
-                .arg(
                     Arg::new("address")
                         .long("address")
                         .required(true)
                         .help("The address of a previously instantiated smart contract"),
+                )
+                .arg(
+                    Arg::new("buyer-mnemonic")
+                        .long("buyer")
+                        .env("BUYER_MNEMONIC")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Buyer BIP39 mnemonic phrase"),
                 )
                 .arg(Arg::new("price").long("price").default_value("2"))
                 .arg(Arg::new("size").long("size").default_value("500"))
@@ -475,16 +449,18 @@ fn run() -> Result<()> {
             Command::new("place-ask")
                 .about("Place an ASK order")
                 .arg(
-                    Arg::new("code-id")
-                        .long("code-id")
-                        .required(true)
-                        .help("The code ID of an existing smart contract"),
-                )
-                .arg(
                     Arg::new("address")
                         .long("address")
                         .required(true)
                         .help("The address of a previously instantiated smart contract"),
+                )
+                .arg(
+                    Arg::new("seller-mnemonic")
+                        .long("seller")
+                        .env("SELLER_MNEMONIC")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Seller BIP39 mnemonic phrase"),
                 )
                 .arg(Arg::new("price").long("price").default_value("2"))
                 .arg(Arg::new("size").long("size").default_value("500")),
@@ -493,16 +469,26 @@ fn run() -> Result<()> {
             Command::new("execute-match")
                 .about("Execute an order match")
                 .arg(
-                    Arg::new("code-id")
-                        .long("code-id")
-                        .required(true)
-                        .help("The code ID of an existing smart contract"),
-                )
-                .arg(
                     Arg::new("address")
                         .long("address")
                         .required(true)
                         .help("The address of a previously instantiated smart contract"),
+                )
+                .arg(
+                    Arg::new("buyer-mnemonic")
+                        .long("buyer")
+                        .env("BUYER_MNEMONIC")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Buyer BIP39 mnemonic phrase"),
+                )
+                .arg(
+                    Arg::new("seller-mnemonic")
+                        .long("seller")
+                        .env("SELLER_MNEMONIC")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Seller BIP39 mnemonic phrase"),
                 )
                 .arg(Arg::new("bid-id").long("bid-id").required(true))
                 .arg(Arg::new("ask-id").long("ask-id").required(true))
@@ -516,31 +502,40 @@ fn run() -> Result<()> {
         config.set_verbose(true);
     }
 
-    let buyer_mnemonic = matches
-        .get_one::<String>("buyer-mnemonic")
-        .cloned()
-        .ok_or(ProfilerError::MissingMnemonic("buyer".to_owned()))?;
-    let seller_mnemonic = matches
-        .get_one::<String>("seller-mnemonic")
-        .cloned()
-        .ok_or(ProfilerError::MissingMnemonic("seller".to_owned()))?;
-
     let node0_key = SigningKey {
         name: "node0".to_string(),
         key: Key::Raw(provenanced::get_node0_private_key_bytes()?),
         derivation_path: DERIVATION_PATH.into(),
     };
 
-    let buyer_key = SigningKey {
-        name: "buyer".to_string(),
-        key: Key::Mnemonic(buyer_mnemonic),
-        derivation_path: DERIVATION_PATH.into(),
+    let get_buyer_key = |matches: &clap::ArgMatches| {
+        let k = matches
+            .get_one::<String>("buyer-mnemonic")
+            .cloned()
+            .ok_or(ProfilerError::MissingMnemonic("buyer".to_owned()));
+        match k {
+            Ok(key) => Ok(SigningKey {
+                name: "buyer".to_string(),
+                key: Key::Mnemonic(key),
+                derivation_path: DERIVATION_PATH.into(),
+            }),
+            Err(e) => Err(e),
+        }
     };
 
-    let seller_key = SigningKey {
-        name: "seller".to_string(),
-        key: Key::Mnemonic(seller_mnemonic),
-        derivation_path: DERIVATION_PATH.into(),
+    let get_seller_key = |matches: &clap::ArgMatches| {
+        let k = matches
+            .get_one::<String>("seller-mnemonic")
+            .cloned()
+            .ok_or(ProfilerError::MissingMnemonic("seller".to_owned()));
+        match k {
+            Ok(key) => Ok(SigningKey {
+                name: "seller".to_string(),
+                key: Key::Mnemonic(key),
+                derivation_path: DERIVATION_PATH.into(),
+            }),
+            Err(e) => Err(e),
+        }
     };
 
     match matches.subcommand() {
@@ -550,7 +545,7 @@ fn run() -> Result<()> {
                 .cloned()
                 .ok_or(ProfilerError::MissingWasmDirectory)?;
             config.set_wasm_dir(wasm_dir);
-            let (_, code_id, _) = bootstrap_cosm(&buyer_key, &mut config, None, None)?;
+            let (_, code_id, _) = bootstrap_cosm(&node0_key, &mut config, None, None)?;
             println!(
                 "{}",
                 ContractResponse {
@@ -564,8 +559,8 @@ fn run() -> Result<()> {
             let code_id = sc_matches
                 .get_one::<String>("code-id")
                 .and_then(|opt| opt.parse::<u64>().ok());
-            let (mut cosm, code_id, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, None)?;
-            let response = instantiate_contract(&mut cosm, &buyer_key, &config)?;
+            let (mut cosm, code_id, _) = bootstrap_cosm(&node0_key, &mut config, code_id, None)?;
+            let response = instantiate_contract(&mut cosm, &node0_key, &config)?;
 
             if sc_matches.contains_id("verbose") {
                 log!("response = {:#?}", response);
@@ -581,41 +576,35 @@ fn run() -> Result<()> {
             );
         }
         Some(("contract-version", sc_matches)) => {
-            let code_id = sc_matches
-                .get_one::<String>("code-id")
-                .and_then(|opt| opt.parse::<u64>().ok());
             let address: Option<String> = sc_matches.get_one::<String>("address").cloned();
-
-            let (cosm, _, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, address)?;
+            let (cosm, _, _) = bootstrap_cosm(&node0_key, &mut config, None, address)?;
             let response = get_contract_version(&cosm, &config)?;
 
             println!("{}", response.to_utf8_string()?); // JSON
         }
         Some(("contract-info", sc_matches)) => {
-            let code_id = sc_matches
-                .get_one::<String>("code-id")
-                .and_then(|opt| opt.parse::<u64>().ok());
             let address: Option<String> = sc_matches.get_one::<String>("address").cloned();
-
-            let (cosm, _, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, address)?;
+            let (cosm, _, _) = bootstrap_cosm(&node0_key, &mut config, None, address)?;
             let response = get_contract_info(&cosm, &config)?;
 
             println!("{}", response.to_utf8_string()?);
         }
         Some(("place-bid", sc_matches)) => {
-            let code_id = sc_matches
-                .get_one::<String>("code-id")
-                .and_then(|opt| opt.parse::<u64>().ok());
             let address: Option<String> = sc_matches.get_one::<String>("address").cloned();
             let price = sc_matches.get_one::<String>("price").expect("price");
             let size = sc_matches.get_one::<String>("size").expect("size");
             let quote_size = sc_matches
                 .get_one::<String>("quote-size")
                 .expect("quote_size");
-
-            let (mut cosm, _, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, address)?;
-            let (bid_id, response) =
-                execute_bid(&mut cosm, &buyer_key, &config, price, size, quote_size)?;
+            let (mut cosm, _, _) = bootstrap_cosm(&node0_key, &mut config, None, address)?;
+            let (bid_id, response) = execute_bid(
+                &mut cosm,
+                &get_buyer_key(sc_matches)?,
+                &config,
+                price,
+                size,
+                quote_size,
+            )?;
 
             if config.verbose {
                 log!("response = {:#?}", response);
@@ -632,15 +621,18 @@ fn run() -> Result<()> {
             }
         }
         Some(("place-ask", sc_matches)) => {
-            let code_id = sc_matches
-                .get_one::<String>("code-id")
-                .and_then(|opt| opt.parse::<u64>().ok());
             let address: Option<String> = sc_matches.get_one::<String>("address").cloned();
             let price = sc_matches.get_one::<String>("price").expect("price");
             let size = sc_matches.get_one::<String>("size").expect("size");
 
-            let (mut cosm, _, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, address)?;
-            let (ask_id, response) = execute_ask(&mut cosm, &seller_key, &config, price, size)?;
+            let (mut cosm, _, _) = bootstrap_cosm(&node0_key, &mut config, None, address)?;
+            let (ask_id, response) = execute_ask(
+                &mut cosm,
+                &get_seller_key(sc_matches)?,
+                &config,
+                price,
+                size,
+            )?;
 
             log!("Successfully submitted ASK: ID = {}", ask_id.to_string());
 
@@ -657,9 +649,6 @@ fn run() -> Result<()> {
             }
         }
         Some(("execute-match", sc_matches)) => {
-            let code_id = sc_matches
-                .get_one::<String>("code-id")
-                .and_then(|opt| opt.parse::<u64>().ok());
             let address: Option<String> = sc_matches.get_one::<String>("address").cloned();
             let bid_id = Uuid::parse_str(
                 &sc_matches
@@ -676,7 +665,7 @@ fn run() -> Result<()> {
             let price = sc_matches.get_one::<String>("price").expect("price");
             let size = sc_matches.get_one::<String>("size").expect("size");
 
-            let (mut cosm, _, _) = bootstrap_cosm(&buyer_key, &mut config, code_id, address)?;
+            let (mut cosm, _, _) = bootstrap_cosm(&node0_key, &mut config, None, address)?;
             let response = execute_match(
                 &mut cosm, &node0_key, &config, &bid_id, &ask_id, price, size,
             )?;
@@ -693,8 +682,8 @@ fn run() -> Result<()> {
                 println!("{}", reports_json);
             }
         }
-        Some((_, _)) => { }
-        None => { }
+        Some((_, _)) => {}
+        None => {}
     }
 
     Ok(())
