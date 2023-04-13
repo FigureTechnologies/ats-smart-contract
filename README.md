@@ -54,7 +54,8 @@ A ProvWasm smart contract that provides on-chain services for the Provenance ATS
    make all-arm
    ```
 
-NOTE: You must deploy the x86 version because the Arm version produces different artifacts.
+_NOTE: You must deploy the x86 version because the Arm version produces different artifacts._
+
 - Reference: https://github.com/CosmWasm/rust-optimizer#notice
    - "Arm images are released to ease development and testing on Mac M1 machines. For release / production use, only contracts built with the Intel optimizers must be used."
 
@@ -71,7 +72,7 @@ Below is a demonstration on how to:
 * [execute a bid order](#7-create-a-bid-order)
 * [execute an order match](#8-match-and-execute-the-ask-and-bid-orders)
 
-_Note: Address bech32 values may vary._
+_NOTE: Address bech32 values may vary._
 
 ### 1. Blockchain setup
 
@@ -335,11 +336,11 @@ The example requires two trading accounts: `buyer` and `seller`:
     $ export CODE_ID=$(jq '.logs[0].events[] | select(.type == "store_code").attributes[] | select(.key == "code_id").value | tonumber' <<< "$store_result")
     ```
 
-3. Instantiate the contract, binding the name `ats-ex.pb` to the contract address:
+3. Instantiate the contract, binding the name `ats-ex.sc.pb` to the contract address:
 
     ```bash
     $ provenanced tx wasm instantiate "$CODE_ID" \
-       '{"name":"ats-ex", "bind_name":"ats-ex.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
+       '{"name":"ats-ex", "bind_name":"ats-ex.sc.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
         --admin "$NODE0" \
         --label "ats-ex" \
         --from "$NODE0" \
@@ -353,10 +354,29 @@ The example requires two trading accounts: `buyer` and `seller`:
         --yes
     ```
 
+   _NOTE: It is assumed that the parent name `sc.pb` already exists and is unrestricted._
+
+   <details>
+     <summary>If the name `sc.pb` does not exist, it can be created like so:</summary>
+
+   ```bash
+   $ provenanced tx name bind "sc" "$NODE0" "pb" \
+       --unrestrict \
+       --from "$NODE0" \
+       --keyring-backend test \
+       --home "$PIO_NODE" \
+       --chain-id "$CHAIN_ID" \
+       --gas-prices 1905nhash \
+       --gas-adjustment 2 \
+       --testnet \
+       --yes
+   ```
+   </details>
+
 4. Get the address of the instantiated contract:
 
    ```bash
-   $ CONTRACT_ADDRESS=$(provenanced q name resolve "ats-ex.pb" --chain-id "$CHAIN_ID" --testnet | awk '{print $2}')
+   $ CONTRACT_ADDRESS=$(provenanced q name resolve "ats-ex.sc.pb" --chain-id "$CHAIN_ID" --testnet | awk '{print $2}')
    ```
 
 ### 6. Create an `ask` order
