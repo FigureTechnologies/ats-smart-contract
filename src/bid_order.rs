@@ -44,9 +44,9 @@ pub struct BidOrderV1 {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
     pub base: Coin,
-    pub remaining_base: Uint128,
-    pub remaining_quote: Uint128,
-    pub remaining_fee: Uint128,
+    pub accumulated_base: Uint128,
+    pub accumulated_quote: Uint128,
+    pub accumulated_fee: Uint128,
     pub fee: Option<Coin>,
     pub id: String,
     pub owner: Addr,
@@ -93,7 +93,7 @@ impl BidOrderV2 {
 
     /// Returns the remaining amount of base in the order
     pub fn get_remaining_base(&self) -> Uint128 {
-        self.base.amount - self.remaining_base
+        self.base.amount - self.accumulated_base
     }
 
     /// Calculates the ratio of an amount to the bid order base amount
@@ -108,7 +108,7 @@ impl BidOrderV2 {
     pub fn get_remaining_fee(&self) -> Uint128 {
         match &self.fee {
             None => Uint128::zero(),
-            Some(fee) => fee.amount - self.remaining_fee,
+            Some(fee) => fee.amount - self.accumulated_fee,
         }
     }
 
@@ -122,7 +122,7 @@ impl BidOrderV2 {
 
     /// Returns the remaining amount of quote in the order
     pub fn get_remaining_quote(&self) -> Uint128 {
-        self.quote.amount - self.remaining_quote
+        self.quote.amount - self.accumulated_quote
     }
 
     /// Update remaining base, fee, and quote amounts based on the given `Action`.
@@ -135,31 +135,31 @@ impl BidOrderV2 {
                 quote,
             } => {
                 // Update base:
-                self.remaining_base = self.remaining_base.checked_add(base.amount)?;
+                self.accumulated_base = self.accumulated_base.checked_add(base.amount)?;
                 // Update fee:
                 if let Some(fee) = fee {
-                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                    self.accumulated_fee = self.accumulated_fee.checked_add(fee.amount)?;
                 }
                 // Update quote:
-                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+                self.accumulated_quote = self.accumulated_quote.checked_add(quote.amount)?;
             }
             Action::Refund { fee, quote } => {
                 // Update fee:
                 if let Some(fee) = fee {
-                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                    self.accumulated_fee = self.accumulated_fee.checked_add(fee.amount)?;
                 }
                 // Update quote:
-                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+                self.accumulated_quote = self.accumulated_quote.checked_add(quote.amount)?;
             }
             Action::Reject { base, fee, quote } => {
                 // Update base:
-                self.remaining_base = self.remaining_base.checked_add(base.amount)?;
+                self.accumulated_base = self.accumulated_base.checked_add(base.amount)?;
                 // Update fee:
                 if let Some(fee) = fee {
-                    self.remaining_fee = self.remaining_fee.checked_add(fee.amount)?;
+                    self.accumulated_fee = self.accumulated_fee.checked_add(fee.amount)?;
                 }
                 // Update quote:
-                self.remaining_quote = self.remaining_quote.checked_add(quote.amount)?;
+                self.accumulated_quote = self.accumulated_quote.checked_add(quote.amount)?;
             }
         }
         Ok(())
@@ -174,9 +174,9 @@ impl From<BidOrder> for BidOrderV2 {
                 amount: bid_order.size,
                 denom: bid_order.base,
             },
-            remaining_base: Uint128::zero(),
-            remaining_quote: Uint128::zero(),
-            remaining_fee: Uint128::zero(),
+            accumulated_base: Uint128::zero(),
+            accumulated_quote: Uint128::zero(),
+            accumulated_fee: Uint128::zero(),
             fee: None,
             id: bid_order.id,
             owner: bid_order.owner,
@@ -205,9 +205,9 @@ impl From<BidOrderV1> for BidOrderV2 {
                 amount: bid_order.quote_size,
                 denom: bid_order.quote,
             },
-            remaining_base: Uint128::zero(),
-            remaining_quote: Uint128::zero(),
-            remaining_fee: Uint128::zero(),
+            accumulated_base: Uint128::zero(),
+            accumulated_quote: Uint128::zero(),
+            accumulated_fee: Uint128::zero(),
         }
     }
 }
@@ -452,9 +452,9 @@ mod tests {
                     amount: Uint128::new(100),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::zero(),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -562,9 +562,9 @@ mod tests {
                     amount: Uint128::new(8),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::new(20),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::new(20),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -584,9 +584,9 @@ mod tests {
                     amount: Uint128::new(9),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::new(30),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::new(30),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -675,9 +675,9 @@ mod tests {
                     amount: Uint128::new(100),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::zero(),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -776,9 +776,9 @@ mod tests {
                     amount: Uint128::new(80),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::new(200),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::new(200),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -798,9 +798,9 @@ mod tests {
                     amount: Uint128::new(9),
                     denom: "base_1".to_string(),
                 },
-                remaining_base: Uint128::zero(),
-                remaining_quote: Uint128::new(30),
-                remaining_fee: Uint128::zero(),
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::new(30),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "id".to_string(),
                 owner: Addr::unchecked("bidder"),
@@ -840,9 +840,9 @@ mod tests {
                 amount: Uint128::new(100),
                 denom: "base_1".to_string(),
             },
-            remaining_base: Uint128::new(10 + 10),
-            remaining_quote: Uint128::new(20 + 80 + 100),
-            remaining_fee: Uint128::new(2 + 8),
+            accumulated_base: Uint128::new(10 + 10),
+            accumulated_quote: Uint128::new(20 + 80 + 100),
+            accumulated_fee: Uint128::new(2 + 8),
             fee: None,
             id: "id".to_string(),
             owner: Addr::unchecked("bidder"),
