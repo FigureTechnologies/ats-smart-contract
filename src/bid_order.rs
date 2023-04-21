@@ -1,19 +1,15 @@
 use crate::common::{Action, Event};
+use crate::contract_info::require_version;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{
-    coin, Addr, BankMsg, Coin, CosmosMsg, DepsMut, Env, Order, QuerierWrapper, Response, Storage,
-    Uint128,
-};
+use cosmwasm_std::{Addr, Coin, DepsMut, Env, Response, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
-use provwasm_std::{
-    transfer_marker_coins, Marker, MarkerType, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery,
-};
-use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive};
+use provwasm_std::{ProvenanceMsg, ProvenanceQuery};
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
 use schemars::JsonSchema;
-use semver::{Version, VersionReq};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub static NAMESPACE_ORDER_BID: &[u8] = b"bid";
@@ -141,107 +137,15 @@ impl BidOrderV2 {
 
 pub fn migrate_bid_orders(
     deps: DepsMut<ProvenanceQuery>,
-    env: Env,
+    _env: Env,
     _msg: &MigrateMsg,
-    mut response: Response<ProvenanceMsg>,
+    response: Response<ProvenanceMsg>,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let store = deps.storage;
-    let querier = deps.querier;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
 
-    // bid fees and order events added in 0.16.3, refunds may be necessary for existing orders
-    if VersionReq::parse("<0.16.3")?.matches(&current_version) {
-        // get all bid ids
-        let existing_bid_order_ids: Vec<Vec<u8>> = get_bid_storage_read(store)
-            .range(None, None, Order::Ascending)
-            .map(|kv_bid| {
-                let (bid_key, _) = kv_bid.unwrap();
-                bid_key
-            })
-            .collect();
-
-        // determine and create a refund if necessary
-        for existing_bid_order_id in existing_bid_order_ids {
-            let mut existing_bid_order =
-                get_bid_storage_read(store).load(&existing_bid_order_id)?;
-
-            response = calculate_migrate_refund(&querier, &env, response, &mut existing_bid_order)
-                .unwrap();
-
-            get_bid_storage(store).save(&existing_bid_order_id, &existing_bid_order)?
-        }
-    }
-
-    Ok(response)
-}
-
-fn calculate_migrate_refund(
-    querier: &QuerierWrapper<ProvenanceQuery>,
-    env: &Env,
-    mut response: Response<ProvenanceMsg>,
-    bid_order: &mut BidOrderV2,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
-    let bid_price =
-        Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
-            fields: vec![String::from("BidOrder.price")],
-        })?;
-
-    // calculate quote total (price * size), error if overflows
-    let total = bid_price
-        .checked_mul(Decimal::from(bid_order.base.amount.u128()))
-        .ok_or(ContractError::TotalOverflow)?;
-
-    let quote =
-        Decimal::from_u128(bid_order.quote.amount.u128()).ok_or(ContractError::InvalidFields {
-            fields: vec![String::from("BidOrder.quote")],
-        })?;
-
-    // if excess funds exist
-    if total.lt(&quote) {
-        let refund = quote
-            .checked_sub(total)
-            .ok_or(ContractError::TotalOverflow)?
-            .to_u128()
-            .ok_or(ContractError::NonIntegerTotal)?;
-
-        // is bid quote a marker
-        let is_quote_restricted_marker = matches!(
-            ProvenanceQuerier::new(querier).get_marker_by_denom(bid_order.quote.denom.clone()),
-            Ok(Marker {
-                marker_type: MarkerType::Restricted,
-                ..
-            })
-        );
-
-        match is_quote_restricted_marker {
-            true => {
-                response = response.add_message(transfer_marker_coins(
-                    refund,
-                    bid_order.quote.denom.to_string(),
-                    bid_order.owner.to_owned(),
-                    env.contract.address.to_owned(),
-                )?);
-            }
-            false => {
-                response = response.add_message(CosmosMsg::Bank(BankMsg::Send {
-                    to_address: bid_order.owner.to_string(),
-                    amount: vec![coin(refund, bid_order.quote.denom.to_string())],
-                }));
-            }
-        }
-
-        bid_order.events.push(Event {
-            action: Action::Refund {
-                fee: None,
-                quote: Coin {
-                    denom: bid_order.quote.denom.to_string(),
-                    amount: Uint128::new(refund),
-                },
-            },
-            block_info: env.block.to_owned().into(),
-        })
-    }
+    require_version(">=0.16.2", &current_version)?;
 
     Ok(response)
 }

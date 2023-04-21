@@ -1,9 +1,12 @@
+use crate::contract_info::require_version;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
+use crate::version_info::get_version_info;
 use cosmwasm_std::{Addr, Coin, DepsMut, Storage, Uint128};
 use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
 use provwasm_std::ProvenanceQuery;
 use schemars::JsonSchema;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub static NAMESPACE_ORDER_ASK: &[u8] = b"ask";
@@ -43,9 +46,15 @@ pub fn get_ask_storage_read(storage: &dyn Storage) -> ReadonlyBucket<AskOrderV1>
 }
 
 pub fn migrate_ask_orders(
-    _deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut<ProvenanceQuery>,
     _msg: &MigrateMsg,
 ) -> Result<(), ContractError> {
+    let store = deps.storage;
+    let version_info = get_version_info(store)?;
+    let current_version = Version::parse(&version_info.version)?;
+
+    require_version(">=0.15.0", &current_version)?;
+
     Ok(())
 }
 

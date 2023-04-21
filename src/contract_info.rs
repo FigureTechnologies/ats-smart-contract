@@ -33,9 +33,12 @@ pub struct ContractInfoV3 {
     pub size_increment: Uint128,
 }
 
-/// Checks and enforces the minimum prior contract version supported for migration.
-fn check_minimum_supported_version(current_version: &Version) -> Result<(), ContractError> {
-    if !VersionReq::parse(">=0.16.2")?.matches(&current_version) {
+/// Enforces the specified contract version requirement.
+pub fn require_version(
+    version_requirement: &str,
+    current_version: &Version,
+) -> Result<(), ContractError> {
+    if !VersionReq::parse(version_requirement)?.matches(&current_version) {
         return Err(ContractError::UnsupportedUpgrade {
             source_version: current_version.to_string(),
             target_version: PACKAGE_VERSION.to_owned(),
@@ -68,7 +71,7 @@ pub fn migrate_contract_info(
 
     // Enforce a minimum version that can be migrated to - this was put in place
     // after the cleanup of older migration code:
-    check_minimum_supported_version(&current_version)?;
+    require_version(">=0.16.2", &current_version)?;
 
     let mut contract_info = get_contract_info(store)?;
     match &msg.approvers {
@@ -255,8 +258,8 @@ mod tests {
 
     #[allow(deprecated)]
     use super::{
-        check_minimum_supported_version, get_contract_info, migrate_contract_info,
-        set_contract_info, ContractInfoV3, Version,
+        get_contract_info, migrate_contract_info, require_version, set_contract_info,
+        ContractInfoV3, Version,
     };
     use crate::common::FeeInfo;
     use crate::error::ContractError;
@@ -357,14 +360,14 @@ mod tests {
         let version_info = get_version_info(&store)?;
         let current_version = Version::parse(&version_info.version)?;
 
-        let result = check_minimum_supported_version(&current_version);
+        let result = require_version(">=0.16.2", &current_version);
         assert!(result.is_err());
 
         Ok(())
     }
 
     #[test]
-    fn newer_contract_versions_are_not_supported() -> Result<(), ContractError> {
+    fn newer_contract_versions_are_supported() -> Result<(), ContractError> {
         let mut deps = mock_dependencies(&[]);
         set_version_info(
             &mut deps.storage,
@@ -378,7 +381,7 @@ mod tests {
         let version_info = get_version_info(&store)?;
         let current_version = Version::parse(&version_info.version)?;
 
-        let result = check_minimum_supported_version(&current_version);
+        let result = require_version(">=0.16.2", &current_version);
         assert!(result.is_ok());
 
         Ok(())
