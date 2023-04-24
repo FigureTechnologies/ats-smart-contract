@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod create_bid_tests {
-    use crate::bid_order::{get_bid_storage_read, BidOrderV2};
+    use crate::bid_order::{get_bid_storage_read, BidOrderV3};
     use crate::common::FeeInfo;
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
@@ -137,7 +137,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -152,7 +152,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             base: Coin {
                                 amount: size,
                                 denom: base,
@@ -283,7 +283,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -298,7 +298,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             base: Coin {
                                 amount: size,
                                 denom: base,
@@ -407,7 +407,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let ask_storage = get_bid_storage_read(&deps.storage);
+        let ask_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -422,7 +422,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             id,
                             owner: bidder_info.sender,
                             base: Coin {
@@ -541,7 +541,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -556,7 +556,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             base: Coin {
                                 amount: size,
                                 denom: base,
@@ -675,7 +675,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -690,7 +690,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             base: Coin {
                                 amount: size,
                                 denom: base,
@@ -809,7 +809,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -824,7 +824,7 @@ mod create_bid_tests {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             base: Coin {
                                 amount: size,
                                 denom: base,
@@ -980,7 +980,7 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let ask_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -991,11 +991,11 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match bid_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
-                        BidOrderV2 {
+                        BidOrderV3 {
                             id,
                             owner: bidder_info.sender,
                             base: Coin {
@@ -1186,13 +1186,13 @@ mod create_bid_tests {
         }
 
         // verify bid order stored is the original order
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
 
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         base: Coin {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),

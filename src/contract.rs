@@ -8,8 +8,8 @@ use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
 };
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV2};
-use crate::common::{Action, Event, FeeInfo};
+use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV3};
+use crate::common::{Action, FeeInfo};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
     ContractInfoV3,
@@ -173,7 +173,7 @@ pub fn execute(
             deps,
             env,
             &info,
-            BidOrderV2 {
+            BidOrderV3 {
                 base: Coin {
                     amount: size,
                     denom: base,
@@ -467,7 +467,7 @@ fn create_bid(
     deps: DepsMut<ProvenanceQuery>,
     env: Env,
     info: &MessageInfo,
-    mut bid_order: BidOrderV2,
+    mut bid_order: BidOrderV3,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
@@ -857,7 +857,7 @@ fn reverse_bid(
 
     let contract_info = get_contract_info(deps.storage)?;
 
-    let bid_storage = get_bid_storage_read(deps.storage);
+    let bid_storage = get_bid_storage_read::<BidOrderV3>(deps.storage);
 
     //load the bid order
     let mut bid_order = bid_storage
@@ -993,7 +993,7 @@ fn reverse_bid(
         });
     }
 
-    let mut bid_storage = get_bid_storage(deps.storage);
+    let mut bid_storage = get_bid_storage::<BidOrderV3>(deps.storage);
 
     // remove the bid order from storage if remaining size is 0, otherwise, store updated order
     match bid_order.get_remaining_base().is_zero() {
@@ -1049,9 +1049,9 @@ fn modify_contract(
     }
 
     let bid_storage = get_bid_storage_read(deps.storage);
-    let bid_orders: Vec<BidOrderV2> = bid_storage
+    let bid_orders: Vec<BidOrderV3> = bid_storage
         .range(None, None, Order::Ascending)
-        .map(|kv_bid: StdResult<Record<BidOrderV2>>| {
+        .map(|kv_bid: StdResult<Record<BidOrderV3>>| {
             let (_, bid_order) = kv_bid.unwrap();
             bid_order
         })
@@ -1138,7 +1138,7 @@ fn execute_match(
         .load(ask_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
-    let bid_storage_read = get_bid_storage_read(deps.storage);
+    let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
     let mut bid_order = bid_storage_read
         .load(bid_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
@@ -1575,7 +1575,7 @@ fn execute_match(
     }
 
     if bid_order.get_remaining_base().eq(&Uint128::zero()) {
-        get_bid_storage(deps.storage).remove(bid_id.as_bytes());
+        get_bid_storage::<BidOrderV3>(deps.storage).remove(bid_id.as_bytes());
     } else {
         get_bid_storage(deps.storage)
             .update(bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
@@ -1622,7 +1622,7 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
             return to_binary(&ask_storage_read.load(id.as_bytes())?);
         }
         QueryMsg::GetBid { id } => {
-            let bid_storage_read = get_bid_storage_read(deps.storage);
+            let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
             return to_binary(&bid_storage_read.load(id.as_bytes())?);
         }
         QueryMsg::GetContractInfo {} => to_binary(&get_contract_info(deps.storage)?),
