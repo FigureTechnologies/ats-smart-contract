@@ -400,6 +400,106 @@ mod cancel_bid_tests {
     }
 
     #[test]
+    fn cancel_bid_with_fees_eq_zero_valid() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: Some(FeeInfo {
+                    account: Addr::unchecked("bid_fee_account"),
+                    rate: "0.1".to_string(),
+                }),
+                ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(0),
+                size_increment: Uint128::new(1),
+            },
+        );
+
+        // create bid data
+        store_test_bid(
+            &mut deps.storage,
+            &BidOrderV2 {
+                base: Coin {
+                    amount: Uint128::new(100),
+                    denom: "base_1".into(),
+                },
+                events: vec![],
+                fee: Some(Coin {
+                    denom: "quote_1".to_string(),
+                    amount: Uint128::new(0),
+                }),
+                id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+                owner: Addr::unchecked("bidder"),
+                price: "2".into(),
+                quote: Coin {
+                    amount: Uint128::new(200),
+                    denom: "quote_1".into(),
+                },
+            },
+        );
+
+        // cancel bid order
+        let bidder_info = mock_info("bidder", &[]);
+
+        let cancel_bid_msg = ExecuteMsg::CancelBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".to_string(),
+        };
+
+        let cancel_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            bidder_info.clone(),
+            cancel_bid_msg,
+        );
+
+        match cancel_bid_response {
+            Ok(cancel_bid_response) => {
+                assert_eq!(cancel_bid_response.attributes.len(), 4);
+                assert_eq!(
+                    cancel_bid_response.attributes[0],
+                    attr("action", "cancel_bid")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[1],
+                    attr("id", "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[2],
+                    attr("reverse_size", "100")
+                );
+                assert_eq!(
+                    cancel_bid_response.attributes[3],
+                    attr("order_open", "false")
+                );
+                assert_eq!(cancel_bid_response.messages.len(), 1);
+                assert_eq!(
+                    cancel_bid_response.messages[0].msg,
+                    CosmosMsg::Bank(BankMsg::Send {
+                        to_address: bidder_info.sender.to_string(),
+                        amount: coins(200, "quote_1"),
+                    })
+                );
+            }
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        // verify bid order removed from storage
+        let bid_storage = get_bid_storage_read(&deps.storage);
+        assert!(bid_storage
+            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+            .is_err());
+    }
+
+    #[test]
     fn cancel_bid_restricted_marker_with_fees() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
