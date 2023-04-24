@@ -992,7 +992,7 @@ fn reverse_bid(
                     to_address: bid_order.owner.to_string(),
                     amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
                 }
-                    .into(),
+                .into(),
             });
         }
     }
