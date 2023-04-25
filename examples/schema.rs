@@ -9,6 +9,7 @@ use ats_smart_contract::contract_info::ContractInfoV3;
 use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use ats_smart_contract::version_info::VersionInfoV1;
 
+#[allow(deprecated)]
 fn main() {
     let mut out_dir = current_dir().unwrap();
     out_dir.push("schema");
