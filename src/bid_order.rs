@@ -161,12 +161,82 @@ pub fn get_bid_storage_read(storage: &dyn Storage) -> ReadonlyBucket<BidOrderV2>
 #[cfg(test)]
 mod tests {
     #[allow(deprecated)]
+    use super::migrate_bid_orders;
     use crate::bid_order::BidOrderV2;
     use crate::common::{Action, Event};
     use crate::error::ContractError;
-    use cosmwasm_std::{Addr, Coin, Uint128};
+    use crate::msg::MigrateMsg;
+    use crate::version_info::{set_version_info, VersionInfoV1, CRATE_NAME};
+    use cosmwasm_std::testing::mock_env;
+    use cosmwasm_std::{Addr, Coin, Response, Uint128};
+    use provwasm_mocks::mock_dependencies;
+    use provwasm_std::ProvenanceMsg;
     use rust_decimal::prelude::FromStr;
     use rust_decimal::Decimal;
+
+    #[test]
+    pub fn bid_migration_version_check() -> Result<(), ContractError> {
+        // Setup
+        let mut deps = mock_dependencies(&[]);
+
+        // Contract too old:
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: CRATE_NAME.to_string(),
+                version: "0.16.1".to_string(), // version too old
+            },
+        )?;
+
+        let result = {
+            let response: Response<ProvenanceMsg> = Response::new();
+            migrate_bid_orders(
+                deps.as_mut(),
+                mock_env(),
+                &MigrateMsg {
+                    approvers: None,
+                    ask_fee_rate: None,
+                    ask_fee_account: None,
+                    bid_fee_rate: None,
+                    bid_fee_account: None,
+                    ask_required_attributes: None,
+                    bid_required_attributes: None,
+                },
+                response,
+            )
+        };
+        assert!(result.is_err());
+
+        // Contract minimum version:
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: CRATE_NAME.to_string(),
+                version: "0.16.2".to_string(), // version too old
+            },
+        )?;
+
+        let result = {
+            let response: Response<ProvenanceMsg> = Response::new();
+            migrate_bid_orders(
+                deps.as_mut(),
+                mock_env(),
+                &MigrateMsg {
+                    approvers: None,
+                    ask_fee_rate: None,
+                    ask_fee_account: None,
+                    bid_fee_rate: None,
+                    bid_fee_account: None,
+                    ask_required_attributes: None,
+                    bid_required_attributes: None,
+                },
+                response,
+            )
+        };
+        assert!(result.is_ok());
+
+        Ok(())
+    }
 
     #[test]
     pub fn get_functions() -> Result<(), ContractError> {
