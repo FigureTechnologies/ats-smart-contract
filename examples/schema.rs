@@ -4,6 +4,7 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use ats_smart_contract::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1};
+#[allow(deprecated)]
 use ats_smart_contract::bid_order::{BidOrderV2, BidOrderV3};
 use ats_smart_contract::contract_info::ContractInfoV3;
 use ats_smart_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};

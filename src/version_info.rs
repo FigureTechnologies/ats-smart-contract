@@ -26,16 +26,7 @@ pub fn set_version_info(
 }
 
 pub fn get_version_info(store: &dyn Storage) -> Result<VersionInfoV1, ContractError> {
-    let version_info_result = VERSION_INFO.load(store).map_err(ContractError::Std);
-    match &version_info_result {
-        Ok(_) => version_info_result,
-        // version support added in 0.15.0, all previous versions used ContractInfo for version tracking
-        // if VersionInfo doesn't exist, try ContractInfo
-        Err(_) => Err(ContractError::UnsupportedUpgrade {
-            source_version: "UNKNOWN".to_string(),
-            target_version: PACKAGE_VERSION.into(),
-        }),
-    }
+    VERSION_INFO.load(store).map_err(ContractError::Std)
 }
 
 pub fn migrate_version_info(
@@ -53,8 +44,7 @@ pub fn migrate_version_info(
 
 #[cfg(test)]
 mod tests {
-    use crate::error::ContractError;
-    use crate::version_info::{get_version_info, set_version_info, VersionInfoV1, PACKAGE_VERSION};
+    use crate::version_info::{get_version_info, set_version_info, VersionInfoV1};
     use provwasm_mocks::mock_dependencies;
 
     #[test]
@@ -80,29 +70,5 @@ mod tests {
             }
             result => panic!("unexpected error: {:?}", result),
         }
-    }
-
-    #[test]
-    pub fn get_version_info_unknown() -> Result<(), ContractError> {
-        let deps = mock_dependencies(&[]);
-
-        let version_info = get_version_info(&deps.storage);
-        match version_info {
-            Ok(_) => {
-                panic!("expected error, but ok")
-            }
-            Err(error) => match error {
-                ContractError::UnsupportedUpgrade {
-                    source_version,
-                    target_version,
-                } => {
-                    assert_eq!(source_version, "UNKNOWN");
-                    assert_eq!(target_version, PACKAGE_VERSION)
-                }
-                _ => panic!("unexpected error: {:?}", error),
-            },
-        }
-
-        Ok(())
     }
 }

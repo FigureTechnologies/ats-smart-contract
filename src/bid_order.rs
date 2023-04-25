@@ -266,9 +266,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    #[allow(deprecated)]
     use super::{get_bid_storage, get_bid_storage_read};
-    use crate::bid_order::{migrate_bid_orders, BidOrderV2, BidOrderV3};
+    #[allow(deprecated)]
+    use super::{migrate_bid_orders, BidOrderV2, BidOrderV3};
     use crate::common::{Action, Event};
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
