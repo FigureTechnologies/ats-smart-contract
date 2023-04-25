@@ -978,19 +978,21 @@ fn reverse_bid(
 
     // add 'send fee back to owner' message
     if let Some(fee) = effective_cancel_fee_size {
-        response = response.add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(
-                fee.amount.u128(),
-                bid_order.quote.denom.to_owned(),
-                bid_order.owner.to_owned(),
-                env.contract.address,
-            )?,
-            false => BankMsg::Send {
-                to_address: bid_order.owner.to_string(),
-                amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
-            }
-            .into(),
-        });
+        if fee.amount.gt(&Uint128::zero()) {
+            response = response.add_message(match is_quote_restricted_marker {
+                true => transfer_marker_coins(
+                    fee.amount.u128(),
+                    bid_order.quote.denom.to_owned(),
+                    bid_order.owner.to_owned(),
+                    env.contract.address,
+                )?,
+                false => BankMsg::Send {
+                    to_address: bid_order.owner.to_string(),
+                    amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
+                }
+                .into(),
+            });
+        }
     }
 
     let mut bid_storage = get_bid_storage::<BidOrderV3>(deps.storage);
