@@ -95,13 +95,25 @@ mod tests {
             },
         );
 
-        assert!(result.is_err());
+        match result {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::UnsupportedUpgrade {
+                    source_version,
+                    target_version,
+                } => {
+                    assert_eq!(source_version, "0.14.9");
+                    assert_eq!(target_version, ">=0.15.0");
+                }
+                _ => panic!("unexpected error: {:?}", error),
+            },
+        }
 
         Ok(())
     }
 
     #[test]
-    pub fn ask_migration_miniumum_version_check() -> Result<(), ContractError> {
+    pub fn ask_migration_minimum_version_check() -> Result<(), ContractError> {
         // Setup
         let mut deps = mock_dependencies(&[]);
 

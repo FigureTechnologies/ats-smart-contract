@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    pub fn bid_migration_version_check() -> Result<(), ContractError> {
+    pub fn bid_migration_fails_if_contract_is_too_old() -> Result<(), ContractError> {
         // Setup
         let mut deps = mock_dependencies(&[]);
 
@@ -345,7 +345,28 @@ mod tests {
                 response,
             )
         };
-        assert!(result.is_err());
+
+        match result {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::UnsupportedUpgrade {
+                    source_version,
+                    target_version,
+                } => {
+                    assert_eq!(source_version, "0.16.1");
+                    assert_eq!(target_version, ">=0.16.2");
+                }
+                _ => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    pub fn bid_migration_minimum_version_check() -> Result<(), ContractError> {
+        // Setup
+        let mut deps = mock_dependencies(&[]);
 
         // Contract minimum version:
         set_version_info(
@@ -373,7 +394,9 @@ mod tests {
                 response,
             )
         };
+
         assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Response::new());
 
         Ok(())
     }
