@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 pub static NAMESPACE_ORDER_BID: &[u8] = b"bid";
 
-#[deprecated(since = "0.18.1")]
+#[deprecated(since = "0.18.2")]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidOrderV2 {
     pub base: Coin,
@@ -214,7 +214,6 @@ impl BidOrderV3 {
     }
 }
 
-#[allow(deprecated)]
 pub fn migrate_bid_orders(
     deps: DepsMut<ProvenanceQuery>,
     _env: Env,
@@ -228,7 +227,7 @@ pub fn migrate_bid_orders(
     require_version(">=0.16.2", &current_version)?;
 
     // Migrate BidOrderV2 -> BidOrderV2
-    if VersionReq::parse(">=0.16.2, <0.18.1")?.matches(&current_version) {
+    if VersionReq::parse(">=0.16.2, <0.18.2")?.matches(&current_version) {
         // get all bid ids
         let existing_bid_order_ids: Vec<Vec<u8>> = get_bid_storage_read::<BidOrderV2>(store)
             .range(None, None, Order::Ascending)

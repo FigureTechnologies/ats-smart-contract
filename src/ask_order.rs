@@ -78,7 +78,7 @@ mod tests {
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: CRATE_NAME.to_string(),
-                version: "0.14.9".to_string(), // version too old
+                version: "0.14.9".to_string(),
             },
         )?;
 
@@ -101,7 +101,7 @@ mod tests {
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: CRATE_NAME.to_string(),
-                version: "0.15.0".to_string(), // version too old
+                version: "0.15.0".to_string(),
             },
         )?;
 
