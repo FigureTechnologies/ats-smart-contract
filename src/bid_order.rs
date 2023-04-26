@@ -214,6 +214,7 @@ impl BidOrderV3 {
     }
 }
 
+#[allow(deprecated)]
 pub fn migrate_bid_orders(
     deps: DepsMut<ProvenanceQuery>,
     _env: Env,
@@ -572,20 +573,25 @@ mod tests {
         bid_order_v2_storage.save(&bid2.id.as_bytes(), &bid2)?;
 
         // Migrate:
-        migrate_bid_orders(
-            deps.as_mut(),
-            mock_env(),
-            &MigrateMsg {
-                approvers: None,
-                ask_fee_rate: None,
-                ask_fee_account: None,
-                bid_fee_rate: None,
-                bid_fee_account: None,
-                ask_required_attributes: None,
-                bid_required_attributes: None,
-            },
-            Response::new(),
-        )?;
+        let response = {
+            let response = Response::new();
+            migrate_bid_orders(
+                deps.as_mut(),
+                mock_env(),
+                &MigrateMsg {
+                    approvers: None,
+                    ask_fee_rate: None,
+                    ask_fee_account: None,
+                    bid_fee_rate: None,
+                    bid_fee_account: None,
+                    ask_required_attributes: None,
+                    bid_required_attributes: None,
+                },
+                response,
+            )?
+        };
+
+        assert_eq!(response, Response::new());
 
         // Fetch and verify:
         let bid_order_v3_storage = get_bid_storage_read::<BidOrderV3>(&mut deps.storage);
