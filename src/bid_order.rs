@@ -407,12 +407,11 @@ mod tests {
         // Setup
         let mut deps = mock_dependencies(&[]);
 
-        // Set the version to the minimim supported version:
         set_version_info(
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: CRATE_NAME.to_string(),
-                version: "0.16.2".to_string(),
+                version: "0.16.3".to_string(), // go beyond the minimum version
             },
         )?;
 
