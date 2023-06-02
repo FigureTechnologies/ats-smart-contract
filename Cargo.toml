@@ -1,6 +1,6 @@
 [package]
 name = "ats-smart-contract"
-version = "0.18.2"
+version = "0.19.0"
 authors = ["Ken Talley <ktalley@figure.com>"]
 edition = "2018"
 

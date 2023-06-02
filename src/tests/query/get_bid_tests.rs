@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod get_bid_tests {
-    use crate::bid_order::{get_bid_storage, BidOrderV2};
+    use crate::bid_order::{get_bid_storage, BidOrderV3};
     use crate::contract::query;
     use crate::msg::QueryMsg;
     use crate::tests::test_constants::{HYPHENATED_BID_ID, UNHYPHENATED_BID_ID};
@@ -16,12 +16,14 @@ mod get_bid_tests {
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid bid order
-        let bid_order = BidOrderV2 {
+        let bid_order = BidOrderV3 {
             base: Coin {
                 amount: Uint128::new(100),
                 denom: "base_1".into(),
             },
-            events: vec![],
+            accumulated_base: Uint128::zero(),
+            accumulated_quote: Uint128::zero(),
+            accumulated_fee: Uint128::zero(),
             fee: None,
             id: HYPHENATED_BID_ID.into(),
             owner: Addr::unchecked("bidder"),
@@ -56,12 +58,14 @@ mod get_bid_tests {
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store legacy unhyphenated bid order
-        let bid_order = BidOrderV2 {
+        let bid_order = BidOrderV3 {
             base: Coin {
                 amount: Uint128::new(100),
                 denom: "base_1".into(),
             },
-            events: vec![],
+            accumulated_base: Uint128::zero(),
+            accumulated_quote: Uint128::zero(),
+            accumulated_fee: Uint128::zero(),
             fee: None,
             id: UNHYPHENATED_BID_ID.into(),
             owner: Addr::unchecked("bidder"),

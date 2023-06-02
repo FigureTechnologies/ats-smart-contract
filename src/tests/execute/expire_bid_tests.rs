@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod expire_bid_tests {
-    use crate::bid_order::{get_bid_storage_read, BidOrderV2};
-    use crate::common::{Action, Event, FeeInfo};
+    use crate::bid_order::{get_bid_storage_read, BidOrderV3};
+    use crate::common::FeeInfo;
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
@@ -23,12 +23,14 @@ mod expire_bid_tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: HYPHENATED_BID_ID.into(),
                 owner: Addr::unchecked("bidder"),
@@ -81,7 +83,7 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage.load(HYPHENATED_BID_ID.as_bytes()).is_err());
     }
 
@@ -93,12 +95,14 @@ mod expire_bid_tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: UNHYPHENATED_BID_ID.into(),
                 owner: Addr::unchecked("bidder"),
@@ -151,7 +155,7 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage.load(UNHYPHENATED_BID_ID.as_bytes()).is_err());
     }
 
@@ -196,14 +200,16 @@ mod expire_bid_tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -257,7 +263,7 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -321,14 +327,16 @@ mod expire_bid_tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(100),
@@ -408,31 +416,16 @@ mod expire_bid_tests {
         // create bid data
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(10000),
                     denom: "base_1".into(),
                 },
-                events: vec![Event {
-                    action: Action::Fill {
-                        base: Coin {
-                            denom: "base_1".to_string(),
-                            amount: Uint128::new(2000),
-                        },
-                        fee: Some(Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(6),
-                        }),
-                        price: "0.01".to_string(),
-                        quote: Coin {
-                            denom: "quote_1".to_string(),
-                            amount: Uint128::new(20),
-                        },
-                    },
-                    block_info: mock_env().block.into(),
-                }],
+                accumulated_base: Uint128::new(2000),
+                accumulated_quote: Uint128::new(20),
+                accumulated_fee: Uint128::new(6),
                 fee: Some(Coin {
                     amount: Uint128::new(30),
                     denom: "quote_1".to_string(),

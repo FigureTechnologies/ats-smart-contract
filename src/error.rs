@@ -63,6 +63,9 @@ pub enum ContractError {
     #[error("Total (price * size) must be an integer")]
     NonIntegerTotal,
 
+    #[error("Integer overflow")]
+    OverflowError(#[from] cosmwasm_std::OverflowError),
+
     #[error("One quote required in order")]
     QuoteQuantity,
 

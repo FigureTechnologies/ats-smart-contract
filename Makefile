@@ -1,5 +1,6 @@
 #!/usr/bin/make -f
 CONTAINER_RUNTIME := $(shell which docker 2>/dev/null || which podman 2>/dev/null)
+CONTRACT_NAME     := ats_smart_contract
 
 .PHONY: all
 all: clean fmt lint test schema optimize
@@ -10,6 +11,7 @@ all-arm: clean fmt lint test schema optimize-arm
 .PHONY: clean
 clean:
 	@cargo clean
+	@rm -Rf artifacts/*
 
 .PHONY: fmt
 fmt:
@@ -51,4 +53,4 @@ optimize-arm:
 
 .PHONY: install
 install: optimize
-	@cp artifacts/ats_smart_contract.wasm $(PIO_HOME)
+	@cp artifacts/$(CONTRACT_NAME).wasm $(PIO_HOME)

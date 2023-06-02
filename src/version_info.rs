@@ -44,7 +44,9 @@ pub fn migrate_version_info(
 
 #[cfg(test)]
 mod tests {
+    use crate::error::ContractError;
     use crate::version_info::{get_version_info, set_version_info, VersionInfoV1};
+    use cosmwasm_std::StdError;
     use provwasm_mocks::mock_dependencies;
 
     #[test]
@@ -70,5 +72,25 @@ mod tests {
             }
             result => panic!("unexpected error: {:?}", result),
         }
+    }
+
+    #[test]
+    pub fn version_info_not_found() -> Result<(), ContractError> {
+        let deps = mock_dependencies(&[]);
+
+        let version_info = get_version_info(&deps.storage);
+        match version_info {
+            Ok(_) => {
+                panic!("expected error, but ok")
+            }
+            Err(error) => match error {
+                ContractError::Std(StdError::NotFound { kind }) => {
+                    assert_eq!(kind, "ats_smart_contract::version_info::VersionInfoV1");
+                }
+                _ => panic!("unexpected error: {:?}", error),
+            },
+        }
+
+        Ok(())
     }
 }

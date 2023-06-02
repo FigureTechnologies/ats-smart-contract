@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::FeeInfo;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
-use crate::version_info::{get_version_info, PACKAGE_VERSION};
+use crate::version_info::get_version_info;
 use provwasm_std::ProvenanceQuery;
 use semver::{Version, VersionReq};
 
@@ -41,7 +41,7 @@ pub fn require_version(
     if !VersionReq::parse(version_requirement)?.matches(&current_version) {
         return Err(ContractError::UnsupportedUpgrade {
             source_version: current_version.to_string(),
-            target_version: PACKAGE_VERSION.to_owned(),
+            target_version: version_requirement.to_owned(),
         });
     }
     Ok(())

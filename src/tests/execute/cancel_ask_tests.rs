@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod cancel_ask_tests {
     use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
-    use crate::bid_order::BidOrderV2;
+    use crate::bid_order::BidOrderV3;
     use crate::contract::execute;
     use crate::error::ContractError;
     use crate::msg::ExecuteMsg;
@@ -613,12 +613,14 @@ mod cancel_ask_tests {
 
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: bid_id.into(),
                 owner: Addr::unchecked("bidder"),

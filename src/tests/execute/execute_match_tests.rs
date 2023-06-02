@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod execute_match_tests {
     use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
-    use crate::bid_order::{get_bid_storage_read, BidOrderV2};
-    use crate::common::{Action, Event, FeeInfo};
+    use crate::bid_order::{get_bid_storage_read, BidOrderV3};
+    use crate::common::FeeInfo;
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
@@ -86,14 +86,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -134,7 +136,7 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_ok());
@@ -199,14 +201,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -277,7 +281,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -316,14 +320,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(149),
@@ -401,7 +407,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -440,14 +446,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(150),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(150),
@@ -525,7 +533,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -564,14 +572,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(1),
                     denom: "quote_1".into(),
@@ -652,7 +662,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -691,14 +701,16 @@ mod execute_match_tests {
         // store valid bid order without fees
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(149),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(149),
@@ -769,7 +781,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -819,14 +831,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(150),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(2),
                     denom: "quote_1".into(),
@@ -907,7 +921,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -953,14 +967,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(20),
@@ -1047,7 +1063,7 @@ mod execute_match_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -1093,14 +1109,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(200),
@@ -1165,31 +1183,19 @@ mod execute_match_tests {
         }
 
         // verify bid order update
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         base: Coin {
                             amount: Uint128::new(100),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(50)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        accumulated_base: Uint128::new(50),
+                        accumulated_quote: Uint128::new(100),
+                        accumulated_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1253,14 +1259,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(300),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(600),
@@ -1347,31 +1355,19 @@ mod execute_match_tests {
         }
 
         // verify bid order update
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         base: Coin {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(200)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        accumulated_base: Uint128::new(100),
+                        accumulated_quote: Uint128::new(200),
+                        accumulated_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1434,13 +1430,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(300),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1541,31 +1539,19 @@ mod execute_match_tests {
         }
 
         // verify bid order update
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         base: Coin {
                             amount: Uint128::new(300),
                             denom: "base_1".into(),
                         },
-                        events: vec![Event {
-                            action: Action::Fill {
-                                base: Coin {
-                                    denom: "base_1".to_string(),
-                                    amount: Uint128::new(100)
-                                },
-                                fee: None,
-                                price: "2".to_string(),
-                                quote: Coin {
-                                    denom: "quote_1".to_string(),
-                                    amount: Uint128::new(200)
-                                },
-                            },
-                            block_info: mock_env().block.into(),
-                        }],
+                        accumulated_base: Uint128::new(100),
+                        accumulated_quote: Uint128::new(200),
+                        accumulated_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1627,13 +1613,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(5),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1715,7 +1703,7 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -1763,13 +1751,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 quote: Coin {
@@ -1851,43 +1841,19 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order update
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         base: Coin {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![
-                            Event {
-                                action: Action::Fill {
-                                    base: Coin {
-                                        denom: "base_1".to_string(),
-                                        amount: Uint128::new(5),
-                                    },
-                                    fee: None,
-                                    price: "2.000000000000000000".to_string(),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(10),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            },
-                            Event {
-                                action: Action::Refund {
-                                    fee: None,
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(490),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            }
-                        ],
+                        accumulated_base: Uint128::new(5),
+                        accumulated_quote: Uint128::new(10 + 490),
+                        accumulated_fee: Uint128::zero(),
                         fee: None,
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
@@ -1952,14 +1918,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(10),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: Some(Coin {
                     amount: Uint128::new(100),
                     denom: "quote_1".to_string(),
@@ -2057,51 +2025,21 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
-                    BidOrderV2 {
+                    BidOrderV3 {
                         id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                         owner: Addr::unchecked("bidder"),
                         base: Coin {
                             amount: Uint128::new(10),
                             denom: "base_1".into(),
                         },
-                        events: vec![
-                            Event {
-                                action: Action::Fill {
-                                    base: Coin {
-                                        denom: "base_1".to_string(),
-                                        amount: Uint128::new(5),
-                                    },
-                                    fee: Some(Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(1),
-                                    }),
-                                    price: "2.000000000000000000".to_string(),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(10),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            },
-                            Event {
-                                action: Action::Refund {
-                                    fee: Some(Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(49),
-                                    }),
-                                    quote: Coin {
-                                        denom: "quote_1".to_string(),
-                                        amount: Uint128::new(490),
-                                    },
-                                },
-                                block_info: mock_env().block.into(),
-                            }
-                        ],
+                        accumulated_base: Uint128::new(5),
+                        accumulated_quote: Uint128::new(10 + 490),
+                        accumulated_fee: Uint128::new(1 + 49),
                         fee: Some(Coin {
                             amount: Uint128::new(100),
                             denom: "quote_1".to_string(),
@@ -2196,14 +2134,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(5),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(500),
@@ -2290,7 +2230,7 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -2337,14 +2277,16 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 quote: Coin {
                     amount: Uint128::new(400),
@@ -2415,7 +2357,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -2467,12 +2409,14 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
@@ -2552,7 +2496,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -2632,14 +2576,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -2714,7 +2659,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -2794,14 +2739,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -2876,7 +2822,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -2987,14 +2933,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3072,7 +3019,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -3190,14 +3137,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3282,7 +3230,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -3368,12 +3316,14 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
@@ -3456,7 +3406,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -3606,14 +3556,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -3701,7 +3652,7 @@ mod execute_match_tests {
             .is_err());
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_err());
@@ -3846,14 +3797,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -3917,14 +3869,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -4100,14 +4053,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(200),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "2".into(),
@@ -4182,14 +4136,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -4229,7 +4184,7 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order still exists
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_ok());
@@ -4276,14 +4231,15 @@ mod execute_match_tests {
         // store valid bid order
         store_test_bid(
             &mut deps.storage,
-            &BidOrderV2 {
+            &BidOrderV3 {
                 base: Coin {
                     amount: Uint128::new(100),
                     denom: "base_1".into(),
                 },
-                events: vec![],
+                accumulated_base: Uint128::zero(),
+                accumulated_quote: Uint128::zero(),
+                accumulated_fee: Uint128::zero(),
                 fee: None,
-
                 id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
                 owner: Addr::unchecked("bidder"),
                 price: "4".into(),
@@ -4323,7 +4279,7 @@ mod execute_match_tests {
             .is_ok());
 
         // verify bid order still exists
-        let bid_storage = get_bid_storage_read(&deps.storage);
+        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage
             .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
             .is_ok());
