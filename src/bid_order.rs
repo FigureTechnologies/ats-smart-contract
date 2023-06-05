@@ -227,23 +227,22 @@ pub fn migrate_bid_orders(
 
     require_version(">=0.16.2", &current_version)?;
 
-    // Migrate BidOrderV2 -> BidOrderV2
-    if VersionReq::parse(">=0.16.2, <0.18.2")?.matches(&current_version) {
-        // get all bid ids
-        let existing_bid_order_ids: Vec<Vec<u8>> = get_bid_storage_read::<BidOrderV2>(store)
+    // Migrate only BidOrderV2 -> BidOrderV3
+    if VersionReq::parse(">=0.16.2, <0.19.1")?.matches(&current_version) {
+        // get all bid ids for orders in a BidOrderV2 format
+        let existing_bid_order_v2_ids: Vec<Vec<u8>> = get_bid_storage_read::<BidOrderV2>(store)
             .range(None, None, Order::Ascending)
-            .map(|kv_bid| {
-                let (bid_key, _) = kv_bid.unwrap();
-                bid_key
-            })
+            // Get only the orders that are in a BidOrderV2 format
+            .filter_map(|kv_bid| kv_bid.ok().map(|record| record.0))
             .collect();
 
-        for existing_bid_order_id in existing_bid_order_ids {
+        // Load the BidOrderV2 items, convert to BidOrderV3, save as BidOrderV3
+        for existing_bid_order_v2_id in existing_bid_order_v2_ids {
             let bid_order_v2: BidOrderV2 =
-                bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_id)?;
+                bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_v2_id)?;
             let bid_order_v3: BidOrderV3 = bid_order_v2.into();
 
-            get_bid_storage::<BidOrderV3>(store).save(&existing_bid_order_id, &bid_order_v3)?
+            get_bid_storage::<BidOrderV3>(store).save(&existing_bid_order_v2_id, &bid_order_v3)?
         }
     }
 
@@ -373,7 +372,7 @@ mod tests {
             &mut deps.storage,
             &VersionInfoV1 {
                 definition: CRATE_NAME.to_string(),
-                version: "0.16.2".to_string(), // version too old
+                version: "0.16.2".to_string(), // version is minimum supported
             },
         )?;
 
@@ -663,6 +662,299 @@ mod tests {
             },
             bid_2_v3
         );
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    pub fn migrate_contract_v0_19_0_bid_order_v2_to_bid_order_v3() -> Result<(), ContractError> {
+        // Setup
+        let mut deps = mock_dependencies(&[]);
+
+        set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: CRATE_NAME.to_string(),
+                version: "0.19.0".to_string(), // Version with broken conversion
+            },
+        )?;
+
+        // Store some v2 bid orders:
+        // Orders that were unsuccessfully migrated
+        let mut bid_order_v2_storage = get_bid_storage::<BidOrderV2>(&mut deps.storage);
+        let bid1 = BidOrderV2 {
+            base: Coin {
+                amount: Uint128::new(8),
+                denom: "base_1".to_string(),
+            },
+            events: vec![
+                Event {
+                    action: Action::Fill {
+                        base: Coin {
+                            denom: "base_1".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Some(Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(2),
+                        }),
+                        price: "2".to_string(),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(20),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Refund {
+                        fee: Some(Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(8),
+                        }),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(80),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Reject {
+                        base: Coin {
+                            denom: "base_1".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Default::default(),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(100),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+            ],
+            fee: None,
+            id: "bid-1".to_string(),
+            owner: Addr::unchecked("bidder"),
+            price: "10".to_string(),
+            quote: Coin {
+                amount: Uint128::new(100),
+                denom: "quote_1".to_string(),
+            },
+        };
+
+        let bid2 = BidOrderV2 {
+            base: Coin {
+                amount: Uint128::new(16),
+                denom: "base_2".to_string(),
+            },
+            events: vec![
+                Event {
+                    action: Action::Fill {
+                        base: Coin {
+                            denom: "base_2".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Some(Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(2),
+                        }),
+                        price: "2".to_string(),
+                        quote: Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(15),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Fill {
+                        base: Coin {
+                            denom: "base_2".to_string(),
+                            amount: Uint128::new(50),
+                        },
+                        fee: Some(Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(4),
+                        }),
+                        price: "2".to_string(),
+                        quote: Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(60),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Refund {
+                        fee: Some(Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(7),
+                        }),
+                        quote: Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(300),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Refund {
+                        fee: Some(Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(15),
+                        }),
+                        quote: Coin {
+                            denom: "quote_1".to_string(),
+                            amount: Uint128::new(1000),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Reject {
+                        base: Coin {
+                            denom: "base_2".to_string(),
+                            amount: Uint128::new(10),
+                        },
+                        fee: Default::default(),
+                        quote: Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(600),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+                Event {
+                    action: Action::Reject {
+                        base: Coin {
+                            denom: "base_2".to_string(),
+                            amount: Uint128::new(13),
+                        },
+                        fee: Default::default(),
+                        quote: Coin {
+                            denom: "quote_2".to_string(),
+                            amount: Uint128::new(198),
+                        },
+                    },
+                    block_info: Default::default(),
+                },
+            ],
+            fee: Some(Coin {
+                denom: "base_2".to_string(),
+                amount: Uint128::new(5),
+            }),
+            id: "bid-2".to_string(),
+            owner: Addr::unchecked("bidder"),
+            price: "15".to_string(),
+            quote: Coin {
+                amount: Uint128::new(200),
+                denom: "quote_2".to_string(),
+            },
+        };
+        bid_order_v2_storage.save(&bid1.id.as_bytes(), &bid1)?;
+        bid_order_v2_storage.save(&bid2.id.as_bytes(), &bid2)?;
+
+        // Orders on latest version
+        let mut bid_order_v3_storage = get_bid_storage::<BidOrderV3>(&mut deps.storage);
+        // Example of order with new version
+        let bid3 = BidOrderV3 {
+            base: Coin {
+                amount: Uint128::new(280000000000),
+                denom: "base_2".to_string(),
+            },
+            accumulated_base: Uint128::new(190000000000),
+            accumulated_quote: Uint128::new(4560),
+            accumulated_fee: Uint128::new(0),
+            fee: Some(Coin {
+                denom: "base_2".to_string(),
+                amount: Uint128::new(5),
+            }),
+            id: "bid-3".to_string(),
+            owner: Addr::unchecked("bidder"),
+            price: "0.000000024".to_string(),
+            quote: Coin {
+                amount: Uint128::new(6720),
+                denom: "quote_2".to_string(),
+            },
+        };
+        bid_order_v3_storage.save(&bid3.id.as_bytes(), &bid3)?;
+
+        // Migrate:
+        let response = {
+            let response = Response::new();
+            migrate_bid_orders(
+                deps.as_mut(),
+                mock_env(),
+                &MigrateMsg {
+                    approvers: None,
+                    ask_fee_rate: None,
+                    ask_fee_account: None,
+                    bid_fee_rate: None,
+                    bid_fee_account: None,
+                    ask_required_attributes: None,
+                    bid_required_attributes: None,
+                },
+                response,
+            )?
+        };
+
+        assert_eq!(response, Response::new());
+
+        // Fetch and verify:
+        let bid_order_v3_storage = get_bid_storage_read::<BidOrderV3>(&mut deps.storage);
+        let bid_1_v3 = bid_order_v3_storage.load(b"bid-1").unwrap();
+        let bid_2_v3 = bid_order_v3_storage.load(b"bid-2").unwrap();
+        let bid_3_v3 = bid_order_v3_storage.load(b"bid-3").unwrap();
+
+        assert_eq!(
+            BidOrderV3 {
+                base: Coin {
+                    denom: "base_1".to_owned(),
+                    amount: Uint128::new(8)
+                },
+                accumulated_base: Uint128::new(10 + 10),
+                accumulated_quote: Uint128::new(20 + 80 + 100),
+                accumulated_fee: Uint128::new(2 + 8),
+                fee: None,
+                id: "bid-1".to_owned(),
+                owner: Addr::unchecked("bidder"),
+                price: "10".to_owned(),
+                quote: Coin {
+                    denom: "quote_1".to_owned(),
+                    amount: Uint128::new(100)
+                },
+            },
+            bid_1_v3
+        );
+        assert_eq!(
+            BidOrderV3 {
+                base: Coin {
+                    denom: "base_2".to_owned(),
+                    amount: Uint128::new(16)
+                },
+                accumulated_base: Uint128::new(10 + 50 + 10 + 13),
+                accumulated_quote: Uint128::new(15 + 60 + 300 + 1000 + 600 + 198),
+                accumulated_fee: Uint128::new(2 + 4 + 7 + 15),
+                fee: Some(Coin {
+                    denom: "base_2".to_owned(),
+                    amount: Uint128::new(5)
+                }),
+                id: "bid-2".to_owned(),
+                owner: Addr::unchecked("bidder"),
+                price: "15".to_owned(),
+                quote: Coin {
+                    denom: "quote_2".to_owned(),
+                    amount: Uint128::new(200)
+                },
+            },
+            bid_2_v3
+        );
+
+        // Should be the same as before
+        assert_eq!(bid3, bid_3_v3);
 
         Ok(())
     }
