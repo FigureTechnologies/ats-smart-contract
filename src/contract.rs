@@ -397,6 +397,12 @@ fn create_ask(
             fields: vec![String::from("price")],
         })?;
 
+    if ask_price.is_zero() || ask_price.is_sign_negative() {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        });
+    }
+
     // error if price smaller than allow price precision
     if is_invalid_price_precision(ask_price.clone(), contract_info.price_precision.clone()) {
         return Err(ContractError::InvalidFields {
@@ -475,6 +481,12 @@ fn create_bid(
         Decimal::from_str(&bid_order.price).map_err(|_| ContractError::InvalidFields {
             fields: vec![String::from("price")],
         })?;
+
+    if bid_price.is_zero() || bid_price.is_sign_negative() {
+        return Err(ContractError::InvalidFields {
+            fields: vec![String::from("price")],
+        });
+    }
 
     // error if price smaller than allow price precision
     if is_invalid_price_precision(bid_price.clone(), contract_info.price_precision.clone()) {

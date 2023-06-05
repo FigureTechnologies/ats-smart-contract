@@ -1478,6 +1478,112 @@ mod create_bid_tests {
     }
 
     #[test]
+    fn create_bid_invalid_price_negative() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            base: "base_1".into(),
+            fee: None,
+            price: "-2.5".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("bidder", &coins(250, "quote_1")),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"price".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
+    fn create_bid_invalid_price_zero() {
+        let mut deps = mock_dependencies(&[]);
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_1".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec![],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        // create bid data
+        let create_bid_msg = ExecuteMsg::CreateBid {
+            id: "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".into(),
+            base: "base_1".into(),
+            fee: None,
+            price: "0".into(),
+            quote: "quote_1".into(),
+            quote_size: Uint128::new(250),
+            size: Uint128::new(100),
+        };
+
+        // execute create bid
+        let create_bid_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("bidder", &coins(250, "quote_1")),
+            create_bid_msg.clone(),
+        );
+
+        // verify execute create bid response
+        match create_bid_response {
+            Ok(_) => panic!("expected error, but ok"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert!(fields.contains(&"price".into()))
+                }
+                error => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
     fn create_bid_invalid_price_precision() {
         let mut deps = mock_dependencies(&[]);
         setup_test_base(
