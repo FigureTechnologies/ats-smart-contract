@@ -1,8 +1,5 @@
-use cosmwasm_std::{
-    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
-    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
-};
-use provwasm_std::{transfer_marker_coins, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery};
+use cosmwasm_std::{attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Order, Record, Response, StdError, StdResult, Uint128};
+// use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
 
 use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
@@ -17,7 +14,7 @@ use crate::contract_info::{
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
-use crate::util::{is_invalid_price_precision, is_restricted_marker};
+use crate::util::{is_invalid_price_precision, is_restricted_marker, get_attributes, transfer_marker_coins};
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
@@ -26,15 +23,16 @@ use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
 
 // smart contract initialization entrypoint
 #[entry_point]
 pub fn instantiate(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // Validate and convert approvers to addresses
@@ -131,11 +129,11 @@ pub fn instantiate(
 // smart contract execute entrypoint
 #[entry_point]
 pub fn execute(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     // validate execute message
     msg.validate()?;
 
@@ -239,13 +237,13 @@ pub fn execute(
 }
 
 fn approve_ask(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
     base: String,
     size: Uint128,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     if !contract_info.approvers.contains(&info.sender) {
@@ -339,11 +337,11 @@ fn approve_ask(
 
 // create ask entrypoint
 fn create_ask(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     mut ask_order: AskOrderV1,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     // error if order base is not contract base nor contract convertible base
@@ -412,11 +410,9 @@ fn create_ask(
 
     // error if asker does not have required account attributes
     if !contract_info.ask_required_attributes.is_empty() {
-        let querier = ProvenanceQuerier::new(&deps.querier);
-        let none: Option<String> = None;
-        let attributes_container = querier.get_attributes(info.sender.clone(), none)?;
-        let attributes_names: HashSet<String> = attributes_container
-            .attributes
+        let querier = AttributeQuerier::new(&deps.querier);
+        let attributes = get_attributes(info.sender.to_string(), &querier)?;
+        let attributes_names: HashSet<String> = attributes
             .into_iter()
             .map(|item| item.name)
             .collect();
@@ -470,11 +466,11 @@ fn create_ask(
 
 // create bid entrypoint
 fn create_bid(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: &MessageInfo,
     mut bid_order: BidOrderV3,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     let bid_price =
@@ -572,11 +568,9 @@ fn create_bid(
 
     // error if bidder does not have required account attributes
     if !contract_info.bid_required_attributes.is_empty() {
-        let querier = ProvenanceQuerier::new(&deps.querier);
-        let none: Option<String> = None;
-        let attributes_container = querier.get_attributes(info.sender.clone(), none)?;
-        let attributes_names: HashSet<String> = attributes_container
-            .attributes
+        let querier = AttributeQuerier::new(&deps.querier);
+        let attributes = get_attributes(info.sender.to_string(), &querier)?;
+        let attributes_names: HashSet<String> = attributes
             .into_iter()
             .map(|item| item.name)
             .collect();
@@ -656,11 +650,11 @@ fn create_bid(
 
 // cancel ask entrypoint
 fn cancel_ask(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     // return error if funds sent
     if !info.funds.is_empty() {
         return Err(ContractError::CancelWithFunds);
@@ -733,13 +727,13 @@ fn cancel_ask(
 
 // reverse ask entrypoint
 fn reverse_ask(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
     action: String,
     cancel_size: Option<Uint128>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     // return error if id is empty
     if id.is_empty() {
         return Err(ContractError::Unauthorized);
@@ -850,13 +844,13 @@ fn reverse_ask(
 
 // reverse bid entrypoint
 fn reverse_bid(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     id: String,
     action: String,
     cancel_size: Option<Uint128>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     // return error if id is empty
     if id.is_empty() {
         return Err(ContractError::Unauthorized);
@@ -1025,7 +1019,7 @@ fn reverse_bid(
 }
 
 fn modify_contract(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     _env: Env,
     info: &MessageInfo,
     approvers: Option<Vec<String>>,
@@ -1036,7 +1030,7 @@ fn modify_contract(
     bid_fee_account: Option<String>,
     ask_required_attributes: Option<Vec<String>>,
     bid_required_attributes: Option<Vec<String>>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     if !contract_info.executors.contains(&info.sender) {
@@ -1127,14 +1121,14 @@ fn modify_contract(
 
 // match and execute an ask and bid order
 fn execute_match(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     ask_id: String,
     bid_id: String,
     price: String,
     execute_size: Uint128,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     // only executors may execute matches
@@ -1601,14 +1595,14 @@ fn execute_match(
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
 pub fn migrate(
-    mut deps: DepsMut<ProvenanceQuery>,
+    mut deps: DepsMut,
     env: Env,
     msg: MigrateMsg,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // build response
-    let mut response: Response<ProvenanceMsg> = Response::new();
+    let mut response: Response = Response::new();
 
     // migrate contract_info
     migrate_contract_info(deps.branch(), &msg)?;
@@ -1627,7 +1621,7 @@ pub fn migrate(
 
 // smart contract query entrypoint
 #[entry_point]
-pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     msg.validate()?;
 
     match msg {
@@ -1651,12 +1645,12 @@ mod tests {
     use cosmwasm_std::{Addr, Storage, Uint128};
 
     use super::*;
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     fn query_contract_info() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {

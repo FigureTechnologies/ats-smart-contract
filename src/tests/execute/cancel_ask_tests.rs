@@ -9,16 +9,17 @@ mod cancel_ask_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base_contract_v3, store_test_ask, store_test_bid,
     };
+    use crate::util::{transfer_marker_coins};
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{
         attr, coin, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128,
     };
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::{transfer_marker_coins, Marker};
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
 
     #[test]
     fn cancel_ask_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -78,7 +79,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_empty_id_string_returns_err() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // cancel ask order
@@ -105,7 +106,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_valid_legacy_unhyphenated_id_then_cancels_order() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -165,7 +166,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let marker_json = b"{
@@ -198,8 +199,8 @@ mod cancel_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
+        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
 
         // create bid data
         store_test_ask(
@@ -260,7 +261,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_convertible_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -334,7 +335,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_convertible_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let convertible_marker_json = b"{
@@ -397,11 +398,10 @@ mod cancel_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let base_marker: Marker = from_binary(&Binary::from(base_marker_json)).unwrap();
-        let convertible_marker: Marker =
+        let _base_marker: MarkerAccount = from_binary(&Binary::from(base_marker_json)).unwrap();
+        let _convertible_marker: MarkerAccount =
             from_binary(&Binary::from(convertible_marker_json)).unwrap();
-        deps.querier
-            .with_markers(vec![base_marker, convertible_marker]);
+        // deps.querier.with_markers(vec![base_marker, convertible_marker]); // TODO: find alternative function
 
         // store valid ask order
         store_test_ask(
@@ -481,7 +481,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_invalid_data() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -505,7 +505,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_non_exist() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -530,7 +530,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_sender_notequal() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -568,7 +568,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_with_sent_funds() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // cancel ask order with sent_funds returns ContractError::CancelWithFunds
@@ -592,7 +592,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_partial() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let bid_id = "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b";

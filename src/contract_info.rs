@@ -9,7 +9,6 @@ use crate::common::FeeInfo;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use provwasm_std::ProvenanceQuery;
 use semver::{Version, VersionReq};
 
 const CONTRACT_INFO_NAMESPACE: &str = "contract_info";
@@ -61,7 +60,7 @@ pub fn get_contract_info(store: &dyn Storage) -> Result<ContractInfoV3, Contract
 }
 
 pub fn migrate_contract_info(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     msg: &MigrateMsg,
 ) -> Result<ContractInfoV3, ContractError> {
     let store = deps.storage;
@@ -146,7 +145,7 @@ pub fn migrate_contract_info(
 }
 
 pub fn modify_contract_info(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     approvers: Option<Vec<String>>,
     executors: Option<Vec<String>>,
     ask_fee_rate: Option<String>,
@@ -254,7 +253,7 @@ pub fn modify_contract_info(
 
 #[cfg(test)]
 mod tests {
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[allow(deprecated)]
     use super::{
@@ -269,7 +268,7 @@ mod tests {
 
     #[test]
     pub fn set_contract_info_with_valid_data() -> Result<(), ContractError> {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         set_contract_info(
             &mut deps.storage,
@@ -347,7 +346,7 @@ mod tests {
 
     #[test]
     fn old_contract_versions_are_not_supported() -> Result<(), ContractError> {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         set_version_info(
             &mut deps.storage,
             &VersionInfoV1 {
@@ -368,7 +367,7 @@ mod tests {
 
     #[test]
     fn newer_contract_versions_are_supported() -> Result<(), ContractError> {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         set_version_info(
             &mut deps.storage,
             &VersionInfoV1 {
@@ -390,7 +389,7 @@ mod tests {
     #[test]
     fn migrate_without_data_is_unchanged() -> Result<(), ContractError> {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         set_version_info(
             &mut deps.storage,
@@ -471,7 +470,7 @@ mod tests {
     #[test]
     fn migrate_with_data_is_changed() -> Result<(), ContractError> {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         set_version_info(
             &mut deps.storage,

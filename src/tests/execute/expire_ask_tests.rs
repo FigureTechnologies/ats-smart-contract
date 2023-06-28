@@ -6,14 +6,15 @@ mod expire_ask_tests {
     use crate::msg::ExecuteMsg;
     use crate::tests::test_constants::{HYPHENATED_ASK_ID, UNHYPHENATED_ASK_ID};
     use crate::tests::test_setup_utils::{setup_test_base_contract_v3, store_test_ask};
+    use crate::util::{transfer_marker_coins};
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, BankMsg, Binary, CosmosMsg, Uint128};
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::{transfer_marker_coins, Marker};
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
 
     #[test]
     fn expire_ask_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -76,7 +77,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_legacy_unhyphenated_id_then_expires_ask() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -139,7 +140,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let marker_json = b"{
@@ -172,8 +173,8 @@ mod expire_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
+        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
 
         // create bid data
         store_test_ask(
@@ -241,7 +242,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_convertible_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -318,7 +319,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_convertible_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let convertible_marker_json = b"{
@@ -381,11 +382,10 @@ mod expire_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let base_marker: Marker = from_binary(&Binary::from(base_marker_json)).unwrap();
-        let convertible_marker: Marker =
+        let _base_marker: MarkerAccount = from_binary(&Binary::from(base_marker_json)).unwrap();
+        let _convertible_marker: MarkerAccount =
             from_binary(&Binary::from(convertible_marker_json)).unwrap();
-        deps.querier
-            .with_markers(vec![base_marker, convertible_marker]);
+        // deps.querier.with_markers(vec![base_marker, convertible_marker]); // TODO: find alternative function
 
         // store valid ask order
         store_test_ask(
@@ -467,7 +467,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_invalid_data() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let exec_info = mock_info("exec_1", &[]);
@@ -491,7 +491,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_non_exist() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let exec_info = mock_info("exec_1", &[]);
@@ -516,7 +516,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_sender_notequal_to_owner() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let exec_info = mock_info("not_exec", &[]);
@@ -554,7 +554,7 @@ mod expire_ask_tests {
 
     #[test]
     fn expire_ask_with_sent_funds() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // expire ask order with sent_funds returns ContractError::ExpireWithFunds

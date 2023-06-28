@@ -12,14 +12,15 @@ mod approve_ask_tests {
         setup_test_base, setup_test_base_contract_v3, store_test_ask,
     };
     use crate::tests::test_utils::validate_execute_invalid_id_field;
+    use crate::util::{transfer_marker_coins};
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, from_binary, Addr, Binary, Uint128};
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::{transfer_marker_coins, Marker};
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
 
     #[test]
     fn approve_ask_invalid_input_unhyphenated_id() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let approve_ask_response = execute(
@@ -40,7 +41,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_valid() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -152,7 +153,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_already_approved_return_err() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -228,7 +229,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_restricted_marker() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -279,8 +280,8 @@ mod approve_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
+        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
 
         // store valid ask order
         store_test_ask(
@@ -384,7 +385,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_wrong_id() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -471,7 +472,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_wrong_converted_base_denom() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -556,7 +557,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_wrong_converted_base_amount() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -641,7 +642,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_converted_base_amount_sent_funds_mismatch() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -726,7 +727,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_restricted_marker_with_funds() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -777,8 +778,8 @@ mod approve_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
+        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
 
         // store valid ask order
         store_test_ask(
@@ -820,7 +821,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_restricted_marker_order_size_mismatch() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -871,8 +872,8 @@ mod approve_ask_tests {
               \"supply_fixed\": false
             }";
 
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
+        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
 
         // store valid ask order
         store_test_ask(
@@ -938,7 +939,7 @@ mod approve_ask_tests {
     #[test]
     fn approve_ask_not_approver() {
         // setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
         setup_test_base(
             &mut deps.storage,
@@ -1022,7 +1023,7 @@ mod approve_ask_tests {
 
     #[test]
     fn approve_ask_with_basic_class_returns_err() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order

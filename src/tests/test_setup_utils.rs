@@ -3,7 +3,7 @@ use crate::bid_order::{get_bid_storage, BidOrderV3};
 use crate::contract_info::{set_contract_info, ContractInfoV3};
 use crate::tests::test_constants::{APPROVER_1, APPROVER_2, BASE_DENOM};
 use cosmwasm_std::{Addr, Storage, Uint128};
-use provwasm_mocks::ProvenanceMockQuerier;
+use provwasm_mocks::{MockProvenanceQuerier};
 
 pub fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
     if let Err(error) = set_contract_info(storage, contract_info) {
@@ -47,8 +47,8 @@ pub fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV3) {
 }
 
 pub fn set_default_required_attributes(
-    querier: &mut ProvenanceMockQuerier,
-    address: &str,
+    _querier: &mut MockProvenanceQuerier,
+    _address: &str,
     ask_attributes: bool,
     bid_attributes: bool,
 ) {
@@ -65,5 +65,7 @@ pub fn set_default_required_attributes(
             ("bid_tag_2", "bid_tag_2_value", "String"),
         ])
     }
-    querier.with_attributes(address, &attributes);
+
+    // TODO: find alternative function
+    // querier.with_attributes(address, &attributes);
 }

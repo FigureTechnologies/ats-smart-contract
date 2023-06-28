@@ -1,18 +1,59 @@
+use std::convert::TryFrom;
 use crate::error::ContractError;
-use cosmwasm_std::{QuerierWrapper, Uint128};
-use provwasm_std::{Marker, MarkerType, ProvenanceQuerier, ProvenanceQuery};
+use cosmwasm_std::{Addr, BankMsg, CosmosMsg, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
+use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
 use rust_decimal::prelude::Zero;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-pub fn is_restricted_marker(querier: &QuerierWrapper<ProvenanceQuery>, denom: String) -> bool {
+pub fn is_restricted_marker(querier: &QuerierWrapper, denom: String) -> bool {
     matches!(
-        ProvenanceQuerier::new(querier).get_marker_by_denom(denom),
-        Ok(Marker {
-            marker_type: MarkerType::Restricted,
+        get_marker(denom.clone(), &MarkerQuerier::new(&querier)),
+        Ok(MarkerAccount {
+            marker_type: 2, // 2 is Restricted
             ..
         })
     )
+}
+
+fn get_marker(id: String, querier: &MarkerQuerier<Empty>) -> StdResult<MarkerAccount> {
+    let response = querier.marker(id)?;
+    if let Some(marker) = response.marker {
+        return if let Ok(account) = MarkerAccount::try_from(marker) {
+            Ok(account)
+        } else {
+            Err(StdError::generic_err("unable to type-cast marker account"))
+        };
+    } else {
+        Err(StdError::generic_err("no marker found for id"))
+    }
+}
+
+// TODO: temporary function, need to find alternative function
+pub fn get_attributes(account: String, querier: &AttributeQuerier<Empty>) -> StdResult<Vec<Attribute>> {
+    let response = querier.attributes(account, None)?;
+    Ok(response.attributes)
+}
+
+// TODO: dummy function, need to find alternative function
+pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
+    amount: u128,
+    denom: S,
+    to: H,
+    from: H,
+) -> StdResult<CosmosMsg> {
+    if amount == 0 {
+        return Err(StdError::generic_err("transfer amount must be > 0"));
+    }
+    let _denom = denom.into();
+    let _to_addr = to.into();
+    let _from = from.into();
+    let msg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: "".to_string(),
+        amount: vec![],
+    });
+    Ok(msg)
 }
 
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {
