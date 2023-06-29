@@ -84,45 +84,54 @@ _NOTE: Address bech32 values may vary._
 3. Checkout [provenance v1.14.1](https://github.com/provenance-io/provenance/releases/tag/v1.14.1), clear all existing state, install the `provenanced` command, and start localnet:
 
     ```bash
-    $ git clone https://github.com/provenance-io/provenance.git
-    $ git checkout v1.14.1
-    $ make clean
-    $ make build
-    $ make install
+    git clone https://github.com/provenance-io/provenance.git
+    git checkout v1.14.1
+    make clean
+    make build
+    make install
     # Run the blockchain locally (this is an independent network)
     # `localnet-start` runs 4 nodes, `run` runs 1 node
-    $ make localnet-start OR make run
+    make localnet-start OR make run
     ```
-
+#### Please make sure you are under provenance dir before continue
 4. Set the directory of the Provenance node you will be communicating with (private keys will be stored here as well):
 
     ```bash
+    export PIO_HOME=<<where your provenance project located, without double quotes>>
+   
     # If using `make localnet-start`:
-    $ export PIO_NODE="$PIO_HOME/build/node0"
-
+    export PIO_NODE="$PIO_HOME/build/node0"
     # If using `make run`:
-    $ export PIO_NODE="$PIO_HOME/build/run/provenanced"
+    export PIO_NODE="$PIO_HOME/build/run/provenanced"
     ```
 
 5. Set an environment variable for the validator node (`node0`) of your local Provenance network:
 
     ```bash
     # If using `make localnet-start`:
-    $ export NODE0=$(provenanced keys show -a node0 --home $PIO_NODE --keyring-backend test --testnet)
+    export NODE0=$(provenanced keys show -a node0 --home $PIO_NODE --keyring-backend test --testnet)
 
     # If using `make run`:
-    $ export NODE0=$(provenanced keys show -a validator --home $PIO_NODE --keyring-backend test --testnet)
+    export NODE0=$(provenanced keys show -a validator --home $PIO_NODE --keyring-backend test --testnet)
     ```
 
 6. Set an environment variable for the `chain-id` argument:
 
     ```bash
     # If using `make localnet-start`:
-    $ export CHAIN_ID="chain-local"
+    export CHAIN_ID="chain-local"
 
     # If using `make run`:
-    $ export CHAIN_ID="testing"
+    export CHAIN_ID="testing"
     ```
+
+7. Set node argument:
+
+    ```bash
+    export NODE="tcp://localhost:26657"
+    ```
+
+_NOTE: You can use `export -p` to check if all the values above set correctly before moving forward._
 
 ### 2. Create markers
 
@@ -131,9 +140,20 @@ The example requires two markers: base (gme) and quote (usd).
 1. Set up the marker for the base denomination `gme.local`:
 
     ```bash
-    $ provenanced tx marker new "1000gme.local" \
+    provenanced tx marker new "1000gme.local" \
         --type COIN \
         --from "$NODE0" \
+        --node "$NODE" \
+        --home "$PIO_NODE" \
+        --keyring-backend test \
+        --chain-id "$CHAIN_ID" \
+        --fees 100381000000nhash \
+        --testnet \
+        --yes
+
+    provenanced tx marker grant "$NODE0" "gme.local" "mint,burn,admin,withdraw,deposit" \
+        --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -143,8 +163,9 @@ The example requires two markers: base (gme) and quote (usd).
         --testnet \
         --yes
 
-    $ provenanced tx marker grant "$NODE0" "gme.local" "mint,burn,admin,withdraw,deposit" \
+    provenanced tx marker finalize "gme.local" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -154,19 +175,9 @@ The example requires two markers: base (gme) and quote (usd).
         --testnet \
         --yes
 
-    $ provenanced tx marker finalize "gme.local" \
+    provenanced tx marker activate "gme.local" \
         --from "$NODE0" \
-        --home "$PIO_NODE" \
-        --keyring-backend test \
-        --chain-id "$CHAIN_ID" \
-        --gas auto \
-        --gas-prices 1905nhash \
-        --gas-adjustment 2 \
-        --testnet \
-        --yes
-
-    $ provenanced tx marker activate "gme.local" \
-        --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -180,9 +191,20 @@ The example requires two markers: base (gme) and quote (usd).
 2. Set up marker for the quote denomination `usd.local`:
 
     ```bash
-    $ provenanced tx marker new "1000usd.local" \
+    provenanced tx marker new "1000usd.local" \
         --type COIN \
         --from "$NODE0" \
+        --node "$NODE" \
+        --home "$PIO_NODE" \
+        --keyring-backend test \
+        --chain-id "$CHAIN_ID" \
+        --fees 100381000000nhash \
+        --testnet \
+        --yes
+
+    provenanced tx marker grant "$NODE0" "usd.local" "mint,burn,admin,withdraw,deposit" \
+        --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -192,8 +214,9 @@ The example requires two markers: base (gme) and quote (usd).
         --testnet \
         --yes
 
-    $ provenanced tx marker grant "$NODE0" "usd.local mint,burn,admin,withdraw,deposit" \
+    provenanced tx marker finalize "usd.local" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -203,19 +226,9 @@ The example requires two markers: base (gme) and quote (usd).
         --testnet \
         --yes
 
-    $ provenanced tx marker finalize "usd.local" \
+    provenanced tx marker activate "usd.local" \
         --from "$NODE0" \
-        --home "$PIO_NODE" \
-        --keyring-backend test \
-        --chain-id "$CHAIN_ID" \
-        --gas auto \
-        --gas-prices 1905nhash \
-        --gas-adjustment 2 \
-        --testnet \
-        --yes
-
-    $ provenanced tx marker activate "usd.local" \
-        --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -233,28 +246,26 @@ The example requires two trading accounts: `buyer` and `seller`:
 1. Create the `buyer` account:
 
     ```bash
-    $ provenanced keys add buyer \
+    provenanced keys add buyer \
         --home "$PIO_HOME" \
         --keyring-backend test \
-        --chain-id "$CHAIN_ID" \
         --testnet
     ```
 
 2. Create the `seller` account:
 
     ```shell
-    $ provenanced keys add seller \
+    provenanced keys add seller \
         --home "$PIO_HOME" \
         --keyring-backend test \
-        --chain-id "$CHAIN_ID" \
         --testnet
     ```
 
 3. Store the `buyer` and `seller` account addresses:
 
     ```bash
-    $ export BUYER=$(provenanced keys show -a "buyer" --home "$PIO_HOME" --keyring-backend test --testnet)
-    $ export SELLER=$(provenanced keys show -a "seller" --home "$PIO_HOME" --keyring-backend test --testnet)
+    export BUYER=$(provenanced keys show -a "buyer" --home "$PIO_HOME" --keyring-backend test --testnet)
+    export SELLER=$(provenanced keys show -a "seller" --home "$PIO_HOME" --keyring-backend test --testnet)
     ```
 
 ### 4. Fund the accounts
@@ -262,8 +273,9 @@ The example requires two trading accounts: `buyer` and `seller`:
 1. Fund the `buyer` account with `nhash` for transaction fees and `usd.local` (quote):
 
     ```bash
-    $ provenanced tx bank send "$NODE0" "$BUYER" 100000000000nhash \
+    provenanced tx bank send "$NODE0" "$BUYER" 100000000000nhash \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -273,8 +285,9 @@ The example requires two trading accounts: `buyer` and `seller`:
         --testnet \
         --yes
 
-    $ provenanced tx marker withdraw "usd.local" "1000usd.local" "$BUYER" \
+    provenanced tx marker withdraw "usd.local" "1000usd.local" "$BUYER" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -283,13 +296,22 @@ The example requires two trading accounts: `buyer` and `seller`:
         --gas-adjustment 2 \
         --testnet \
         --yes
+    ```
+
+   Check the `buyer` account balance:
+    ```bash
+    provenanced q bank balances "$BUYER" \
+      --chain-id "$CHAIN_ID" \
+      --node "$NODE" \
+      --testnet
     ```
 
 2. Fund the `seller` account with nhash for transaction fees and `gme.local` (base) to sell:
 
     ```bash
-    $ provenanced tx bank send "$NODE0" "$SELLER" 100000000000nhash \
+    provenanced tx bank send "$NODE0" "$SELLER" 100000000000nhash \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -299,8 +321,9 @@ The example requires two trading accounts: `buyer` and `seller`:
         --testnet \
         --yes
 
-    $ provenanced tx marker withdraw "gme.local" "500gme.local" "$SELLER" \
+    provenanced tx marker withdraw "gme.local" "500gme.local" "$SELLER" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --keyring-backend test \
         --chain-id "$CHAIN_ID" \
@@ -310,82 +333,134 @@ The example requires two trading accounts: `buyer` and `seller`:
         --testnet \
         --yes
     ```
+   Check the `seller` account balance:
+
+    ```bash
+    provenanced q bank balances "$SELLER" \
+      --chain-id "$CHAIN_ID" \
+      --node "$NODE" \
+      --testnet
+    ```
 
 ### 5. Store and Instantiate the `ats-smart-contract`
 
-1. Copy the previously built `artifacts/ats-smart-contract.wasm` to the root directory of the Provenance git project:
+1. Copy the previously built `artifacts/ats_smart_contract.wasm` to the root directory of the Provenance git project:
 
     ```bash
-    $ cp ats-smart-contract/artifacts/ats-smart-contract.wasm "$PIO_HOME"
-    $ cd "$PIO_HOME"
+    cp <<Your sc project dir>>/ats-smart-contract/artifacts/ats_smart_contract.wasm "$PIO_HOME"
+    cd "$PIO_HOME"
     ```
 
 2. Deploy the `ats-smart-contract` to Provenance and store the resulting code ID:
 
     ```bash
-    $ store_result=$(provenanced tx wasm store "ats_smart_contract.wasm" \
+    # under provenance direct run
+    provenanced tx wasm store "ats_smart_contract.wasm" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --chain-id "$CHAIN_ID" \
         --keyring-backend test \
         --gas auto \
         --gas-prices 1905nhash \
-        --gas-adjustment 2 \
+        --gas-adjustment 1.2 \
         --testnet \
-        --yes)
-    $ export CODE_ID=$(jq '.logs[0].events[] | select(.type == "store_code").attributes[] | select(.key == "code_id").value | tonumber' <<< "$store_result")
+        --yes \
+        --output json | jq
     ```
+   Find code_id in the result and set
+   ```bash
+   $ export CODE_ID=<<code_id>>
+   ```
 
-3. Instantiate the contract, binding the name `ats-ex.sc.pb` to the contract address:
+   <details>
+      <summary>NOTE: advanced</summary>
+   
+      ```bash
+        store_result=$(provenanced tx wasm store "ats_smart_contract.wasm" \
+        --from "$NODE0" \
+        --node "$NODE" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend test \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 1.2 \
+        --testnet \
+        --yes \
+        --output json | jq)
+      ```
+      then export code_id
+
+      ```bash
+        export CODE_ID=$(jq '.logs[0].events[] | select(.type == "store_code").attributes[] | select(.key == "code_id").value | tonumber' <<< "$store_result")
+      ```
+   </details>
+
+3. Instantiate the contract
 
     ```bash
-    $ provenanced tx wasm instantiate "$CODE_ID" \
-       '{"name":"ats-ex", "bind_name":"ats-ex.sc.pb", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
+    provenanced tx wasm instantiate "$CODE_ID" \
+       '{"name":"ats-ex", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
         --admin "$NODE0" \
         --label "ats-ex" \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --chain-id "$CHAIN_ID" \
         --keyring-backend test \
         --gas auto \
         --gas-prices 1905nhash \
-        --gas-adjustment 2 \
+        --gas-adjustment 1.2 \
         --testnet \
-        --yes
+        --yes \
+        --output json | jq
     ```
 
-   _NOTE: It is assumed that the parent name `sc.pb` already exists and is unrestricted._
-
    <details>
-     <summary>If the name `sc.pb` does not exist, it can be created like so:</summary>
-
-   ```bash
-   $ provenanced tx name bind "sc" "$NODE0" "pb" \
-       --unrestrict \
-       --from "$NODE0" \
-       --keyring-backend test \
-       --home "$PIO_NODE" \
-       --chain-id "$CHAIN_ID" \
-       --gas-prices 1905nhash \
-       --gas-adjustment 2 \
-       --testnet \
-       --yes
-   ```
+      <summary>NOTE: advanced</summary>
+   
+      ```bash
+       instantiate_result=$(provenanced tx wasm instantiate "$CODE_ID" \
+       '{"name":"ats-ex", "base_denom":"gme.local", "convertible_base_denoms":[], "supported_quote_denoms":["usd.local"], "approvers":[], "executors":["'$NODE0'"], "ask_required_attributes":[], "bid_required_attributes":[], "price_precision": "0", "size_increment": "1"}' \
+        --admin "$NODE0" \
+        --label "ats-ex" \
+        --from "$NODE0" \
+        --node "$NODE" \
+        --home "$PIO_NODE" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend test \
+        --gas auto \
+        --gas-prices 1905nhash \
+        --gas-adjustment 1.2 \
+        --testnet \
+        --yes \
+        --output json | jq)
+      ```
+      then export contract_address
+      ```bash
+        export CONTRACT_ADDRESS=$(jq --raw-output '.logs[0].events[] | select(.type == "instantiate").attributes[] | select(.key == "_contract_address").value' <<< "$instantiate_result")
+      ```
    </details>
 
-4. Get the address of the instantiated contract:
+4. Get the address of the instantiated contract.
+
+   _NOTE: the result when you instantiate sc in step 3 contain the contract_address. OR, `provenanced query wasm list-contracts-by-code $CODE_ID` and get the last one._
+
+   Then do:
 
    ```bash
-   $ CONTRACT_ADDRESS=$(provenanced q name resolve "ats-ex.sc.pb" --chain-id "$CHAIN_ID" --testnet | awk '{print $2}')
+   $ export CONTRACT_ADDRESS=<<contract_address>>
    ```
 
 ### 6. Create an `ask` order
 
 ```bash
-$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
+provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"create_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "base":"gme.local", "quote":"usd.local", "price": "2", "size":"500"}}' \
     --from seller \
     --amount "500gme.local" \
+    --node "$NODE" \
     --home "$PIO_HOME" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
@@ -396,13 +471,22 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     --yes
 ```
 
+   Check ask order information
+
+```bash
+provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
+  --node "$NODE" \
+  '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
+  --testnet
+```
 ### 7. Create a `bid` order
 
 ```bash
-$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
+provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"create_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277", "base":"gme.local", "price": "2", "quote":"usd.local", "quote_size":"1000", "size":"500"}}' \
     --amount "1000usd.local" \
     --from buyer \
+    --node "$NODE" \
     --home "$PIO_HOME" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
@@ -411,14 +495,24 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     --gas-adjustment 2 \
     --testnet \
     --yes
+```
+
+   Check bid order information
+
+```bash
+provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
+  --node "$NODE" \
+  '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+  --testnet
 ```
 
 ### 8. Match and execute the `ask` and `bid` orders
 
 ```bash
-$ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
+provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"execute_match":{"ask_id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca", "bid_id":"6a25ffc2-181e-4187-9ac6-572c17038277", "price":"2", "size": "500"}}' \
     --from "$NODE0" \
+    --node "$NODE" \
     --home "$PIO_NODE" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
@@ -431,27 +525,34 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
 
 ### 9. Query account balances to verify trade has executed
 
-1. Check the `buyer` account balance:
+1. Check the `buyer` account balance again:
     ```bash
-    $ provenanced q bank balances "$BUYER" \
+    provenanced q bank balances "$BUYER" \
       --chain-id "$CHAIN_ID" \
+      --node "$NODE" \
       --testnet
     ```
 
-2. Check the `seller` account balance:
+2. Check the `seller` account balance again:
 
     ```bash
-    $ provenanced q bank balances "$SELLER" \
+    provenanced q bank balances "$SELLER" \
       --chain-id "$CHAIN_ID" \
+      --node "$NODE" \
       --testnet
     ```
 
 ## Contract Queries
+### Contracts list
+```bash
+$  provenanced query wasm list-contract-by-code $CODE_ID --node "$NODE" -t -o json | jq
+```
 
 ### Contract general information
 
 ```bash
 $ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
+  --node "$NODE" \
   '{"get_contract_info":{}}' \
   --testnet
 ```
@@ -461,22 +562,7 @@ $ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
 ```bash
 $ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
   '{"get_version_info":{}}' \
-  --testnet
-```
-
-### Ask order information
-
-```bash
-$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
-  '{"get_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
-  --testnet
-```
-
-### Bid order information
-
-```bash
-$ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
-  '{"get_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
+  --node "$NODE" \
   --testnet
 ```
 
@@ -488,6 +574,7 @@ $ provenanced query wasm contract-state smart "$CONTRACT_ADDRESS" \
 $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"cancel_ask":{"id":"02ee2ed1-939d-40ed-9e1b-bb96f76f0fca"}}' \
     --from seller \
+    --node "$NODE" \
     --home "$PIO_HOME" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
@@ -504,6 +591,7 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
 $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     '{"cancel_bid":{"id":"6a25ffc2-181e-4187-9ac6-572c17038277"}}' \
     --from buyer \
+    --node "$NODE" \
     --home "$PIO_HOME" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
@@ -521,6 +609,7 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
 	```bash
     $ store_result = $(provenanced tx wasm store ats_smart_contract.wasm \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --chain-id "$CHAIN_ID" \
         --keyring-backend test \
@@ -538,6 +627,7 @@ $ provenanced tx wasm execute "$CONTRACT_ADDRESS" \
     $ provenanced tx wasm migrate "$CONTRACT_ADDRESS" "$CODE_ID" \
     '{"migrate":{}}' \
         --from "$NODE0" \
+        --node "$NODE" \
         --home "$PIO_NODE" \
         --chain-id "$CHAIN_ID" \
         --keyring-backend test \
