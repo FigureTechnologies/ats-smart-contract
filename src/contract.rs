@@ -1120,7 +1120,7 @@ fn modify_contract(
         bid_required_attributes,
     )?;
 
-    let response = Response::new();
+    let response = Response::new().add_attribute("action", "modify_contract");
 
     Ok(response)
 }

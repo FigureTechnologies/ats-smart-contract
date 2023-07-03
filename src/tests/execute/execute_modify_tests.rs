@@ -9,8 +9,13 @@ mod execute_modify_test {
     use crate::tests::test_setup_utils::{setup_test_base, store_test_ask};
     use crate::version_info::{set_version_info, VersionInfoV1};
     use cosmwasm_std::testing::{mock_env, mock_info};
-    use cosmwasm_std::{coin, Addr, MessageInfo, Uint128};
+    use cosmwasm_std::{coin, Addr, MessageInfo, Response, Uint128};
     use provwasm_mocks::mock_dependencies;
+    use provwasm_std::ProvenanceMsg;
+
+    fn get_expected_modify_contract_response() -> Response<ProvenanceMsg> {
+        Response::new().add_attribute("action", "modify_contract")
+    }
 
     #[test]
     fn execute_modify_contract_valid() {
@@ -78,7 +83,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -603,7 +610,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -853,7 +862,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -1007,7 +1018,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
     }
@@ -1194,7 +1207,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -1306,8 +1321,10 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
-            Ok(_) => {}
         }
 
         let contract_info = get_contract_info(&deps.storage);
@@ -1643,7 +1660,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
