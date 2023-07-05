@@ -35,7 +35,7 @@ jobs:
       - name: cargo tarpaulin xml report
         uses: actions-rs/tarpaulin@v0.1
         with:
-          version: '0.19.1'
+          version: '0.19.2'
           out-type: Xml
           args: '--ignore-config --ignore-tests'
       - name: upload to codecov.io
