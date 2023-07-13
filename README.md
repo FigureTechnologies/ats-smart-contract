@@ -98,10 +98,12 @@ _NOTE: Address bech32 values may vary._
 
     ```bash
     export PIO_HOME=<<where your provenance project located, without double quotes>>
-   
-    # If using `make localnet-start`:
+    ```
+    ```bash
+    # If using `make localnet-start`
     export PIO_NODE="$PIO_HOME/build/node0"
-    # If using `make run`:
+   
+    # If using `make run`
     export PIO_NODE="$PIO_HOME/build/run/provenanced"
     ```
 
