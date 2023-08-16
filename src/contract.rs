@@ -9,7 +9,7 @@ use crate::ask_order::{
     AskOrderV1,
 };
 use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV3};
-use crate::common::{Action, FeeInfo};
+use crate::common::{Action, ContractAction, FeeInfo};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
     ContractInfoV3,
@@ -124,7 +124,7 @@ pub fn instantiate(
             "contract_info",
             format!("{:?}", get_contract_info(deps.storage)?),
         ),
-        attr("action", "init"),
+        attr("action", ContractAction::Init.to_string()),
     ]))
 }
 
@@ -193,7 +193,7 @@ pub fn execute(
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
         ExecuteMsg::CancelBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("cancel_bid"), None)
+            reverse_bid(deps, env, info, id, ContractAction::CancelBid, None)
         }
         ExecuteMsg::ExecuteMatch {
             ask_id,
@@ -202,16 +202,16 @@ pub fn execute(
             size,
         } => execute_match(deps, env, info, ask_id, bid_id, price, size),
         ExecuteMsg::ExpireAsk { id } => {
-            reverse_ask(deps, env, info, id, String::from("expire_ask"), None)
+            reverse_ask(deps, env, info, id, ContractAction::ExpireAsk, None)
         }
         ExecuteMsg::ExpireBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("expire_bid"), None)
+            reverse_bid(deps, env, info, id, ContractAction::ExpireBid, None)
         }
         ExecuteMsg::RejectAsk { id, size } => {
-            reverse_ask(deps, env, info, id, String::from("reject_ask"), size)
+            reverse_ask(deps, env, info, id, ContractAction::RejectAsk, size)
         }
         ExecuteMsg::RejectBid { id, size } => {
-            reverse_bid(deps, env, info, id, String::from("reject_bid"), size)
+            reverse_bid(deps, env, info, id, ContractAction::RejectBid, size)
         }
         ExecuteMsg::ModifyContract {
             approvers,
@@ -317,7 +317,7 @@ fn approve_ask(
 
     // build response
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "approve_ask"),
+        attr("action", ContractAction::ApproveAsk.to_string()),
         attr("id", &updated_ask_order.id),
         attr("class", serde_json::to_string(&updated_ask_order.class)?),
         attr("quote", &updated_ask_order.quote),
@@ -446,7 +446,7 @@ fn create_ask(
     ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
 
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "create_ask"),
+        attr("action", ContractAction::CreateAsk.to_string()),
         attr("id", &ask_order.id),
         attr("class", serde_json::to_string(&ask_order.class)?),
         attr("target_base", &contract_info.base_denom),
@@ -623,7 +623,7 @@ fn create_bid(
     bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
 
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "create_bid"),
+        attr("action", ContractAction::CreateBid.to_string()),
         attr("base", &bid_order.base.denom),
         attr("id", &bid_order.id),
         attr(
@@ -700,7 +700,10 @@ fn cancel_ask(
             }
             .into(),
         })
-        .add_attributes(vec![attr("action", "cancel_ask"), attr("id", id)]);
+        .add_attributes(vec![
+            attr("action", ContractAction::CancelAsk.to_string()),
+            attr("id", id),
+        ]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -737,7 +740,7 @@ fn reverse_ask(
     env: Env,
     info: MessageInfo,
     id: String,
-    action: String,
+    action: ContractAction,
     cancel_size: Option<Uint128>,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // return error if id is empty
@@ -803,7 +806,7 @@ fn reverse_ask(
             .into(),
         })
         .add_attributes(vec![
-            attr("action", action),
+            attr("action", action.to_string()),
             attr("id", id),
             attr("reverse_size", effective_cancel_size),
         ]);
@@ -854,7 +857,7 @@ fn reverse_bid(
     env: Env,
     info: MessageInfo,
     id: String,
-    action: String,
+    action: ContractAction,
     cancel_size: Option<Uint128>,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // return error if id is empty
@@ -876,7 +879,7 @@ fn reverse_bid(
         .load(id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
-    if action == "cancel_bid" {
+    if action.eq(&ContractAction::CancelBid) {
         if !info.sender.eq(&bid_order.owner) {
             return Err(ContractError::Unauthorized);
         }
@@ -983,7 +986,7 @@ fn reverse_bid(
             .into(),
         })
         .add_attributes(vec![
-            attr("action", action),
+            attr("action", action.to_string()),
             attr("id", id),
             attr("reverse_size", effective_cancel_size),
         ]);
@@ -1120,7 +1123,8 @@ fn modify_contract(
         bid_required_attributes,
     )?;
 
-    let response = Response::new().add_attribute("action", "modify_contract");
+    let response =
+        Response::new().add_attribute("action", ContractAction::ModifyContract.to_string());
 
     Ok(response)
 }
@@ -1235,7 +1239,7 @@ fn execute_match(
 
     let mut response = Response::new();
     response = response.add_attributes(vec![
-        attr("action", "execute"),
+        attr("action", ContractAction::Execute.to_string()),
         attr("ask_id", &ask_id),
         attr("bid_id", &bid_id),
         attr("base", &bid_order.base.denom),
