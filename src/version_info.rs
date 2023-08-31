@@ -28,9 +28,7 @@ pub fn get_version_info(store: &dyn Storage) -> Result<VersionInfoV1, ContractEr
     VERSION_INFO.load(store).map_err(ContractError::Std)
 }
 
-pub fn migrate_version_info(
-    deps: DepsMut,
-) -> Result<VersionInfoV1, ContractError> {
+pub fn migrate_version_info(deps: DepsMut) -> Result<VersionInfoV1, ContractError> {
     let version_info = VersionInfoV1 {
         definition: CRATE_NAME.to_string(),
         version: PACKAGE_VERSION.to_string(),

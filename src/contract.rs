@@ -1,4 +1,7 @@
-use cosmwasm_std::{attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Order, Record, Response, StdError, StdResult, Uint128};
+use cosmwasm_std::{
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
+    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
+};
 // use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
 
 use crate::ask_order::{
@@ -14,16 +17,23 @@ use crate::contract_info::{
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
-use crate::util::{is_invalid_price_precision, is_restricted_marker, get_attributes, transfer_marker_coins};
+use crate::util::{
+    get_attributes, is_invalid_price_precision, is_restricted_marker, transfer_marker_coins,
+};
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
+};
+use provwasm_std::types::{
+    // cosmos::base::v1beta1::Coin,
+    provenance::attribute::v1::AttributeQuerier,
+    provenance::marker::v1::MsgTransferRequest,
 };
 use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
+// use std::convert::TryFrom;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -323,6 +333,27 @@ fn approve_ask(
         attr("size", &updated_ask_order.size.to_string()),
     ]);
 
+    // let coin = provwasm_std::types::cosmos::base::v1beta1::Coin {
+    //     denom: base.clone(),
+    //     amount: size.into().to_string(),
+    //     // amount: size.to_string(), //  expected `Uint128`, found `String`
+    // };
+    //
+    // if is_base_restricted_marker {
+    //     response = response.add_message(
+    //         MsgTransferRequest {
+    //             amount: Some(coin),
+    //             administrator: env.contract.address.to_string(),
+    //             from_address: info.sender.to_string(),
+    //             to_address: env.contract.address.to_string(),
+    //         }, //     transfer_marker_coins(
+    //         //     size.into(),
+    //         //     base,
+    //         //     env.contract.address,
+    //         //     info.sender,
+    //         // )?
+    //     );
+    // ^ is to replace below
     if is_base_restricted_marker {
         response = response.add_message(transfer_marker_coins(
             size.into(),
@@ -412,10 +443,8 @@ fn create_ask(
     if !contract_info.ask_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .ask_required_attributes
             .iter()
@@ -570,10 +599,8 @@ fn create_bid(
     if !contract_info.bid_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .bid_required_attributes
             .iter()
@@ -1594,11 +1621,7 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(
-    mut deps: DepsMut,
-    env: Env,
-    msg: MigrateMsg,
-) -> Result<Response, ContractError> {
+pub fn migrate(mut deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // build response

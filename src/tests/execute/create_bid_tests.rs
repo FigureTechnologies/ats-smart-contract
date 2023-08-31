@@ -13,7 +13,7 @@ mod create_bid_tests {
         set_default_required_attributes, setup_test_base, setup_test_base_contract_v3,
     };
     use crate::tests::test_utils::validate_execute_invalid_id_field;
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Coin, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;

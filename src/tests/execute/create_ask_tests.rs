@@ -8,10 +8,13 @@ mod create_ask_tests {
     use crate::tests::test_constants::UNHYPHENATED_ASK_ID;
     use crate::tests::test_setup_utils::{setup_test_base, setup_test_base_contract_v3};
     use crate::tests::test_utils::validate_execute_invalid_id_field;
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::attribute::v1::{
+        Attribute, AttributeType, QueryAttributeRequest, QueryAttributeResponse,
+    };
     use provwasm_std::types::provenance::marker::v1::MarkerAccount;
 
     #[test]
@@ -64,14 +67,27 @@ mod create_ask_tests {
             },
         );
 
-        // TODO: find alternative function
-        // deps.querier.with_attributes(
-        //     "asker",
-        //     &[
-        //         ("ask_tag_1", "ask_tag_1_value", "String"),
-        //         ("ask_tag_2", "ask_tag_2_value", "String"),
-        //     ],
-        // );
+        QueryAttributeRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributeResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
@@ -175,14 +191,27 @@ mod create_ask_tests {
             },
         );
 
-        // TODO: find alternative function
-        // deps.querier.with_attributes(
-        //     "asker",
-        //     &[
-        //         ("ask_tag_1", "ask_tag_1_value", "String"),
-        //         ("ask_tag_2", "ask_tag_2_value", "String"),
-        //     ],
-        // );
+        QueryAttributeRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributeResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {

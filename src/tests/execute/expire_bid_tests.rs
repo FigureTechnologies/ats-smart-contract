@@ -10,7 +10,7 @@ mod expire_bid_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_bid,
     };
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;

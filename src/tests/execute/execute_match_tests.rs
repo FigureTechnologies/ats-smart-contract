@@ -11,12 +11,15 @@ mod execute_match_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_ask, store_test_bid,
     };
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{
         attr, coin, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Storage, Uint128,
     };
-    use provwasm_mocks::{mock_provenance_dependencies, mock_provenance_dependencies_with_custom_querier, MockProvenanceQuerier};
+    use provwasm_mocks::{
+        mock_provenance_dependencies, mock_provenance_dependencies_with_custom_querier,
+        MockProvenanceQuerier,
+    };
     use provwasm_std::types::provenance::marker::v1::MarkerAccount;
 
     pub fn setup_custom_test_base_contract_v3(
@@ -932,7 +935,8 @@ mod execute_match_tests {
     fn execute_partial_ask_order() {
         // setup
         let mut deps = mock_provenance_dependencies_with_custom_querier(
-            MockProvenanceQuerier::new(&[(MOCK_CONTRACT_ADDR, &[coin(30, "base_1")])]));
+            MockProvenanceQuerier::new(&[(MOCK_CONTRACT_ADDR, &[coin(30, "base_1")])]),
+        );
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -3094,7 +3098,8 @@ mod execute_match_tests {
             }";
 
         let _marker_base_1: MarkerAccount = from_binary(&Binary::from(restricted_base_1)).unwrap();
-        let _marker_con_base_1: MarkerAccount = from_binary(&Binary::from(restricted_con_base_1)).unwrap();
+        let _marker_con_base_1: MarkerAccount =
+            from_binary(&Binary::from(restricted_con_base_1)).unwrap();
         // deps.querier.with_markers(vec![marker_base_1, marker_con_base_1]); // TODO: find alternative function
 
         setup_test_base(
@@ -3510,7 +3515,8 @@ mod execute_match_tests {
             }";
 
         let _marker_base_1: MarkerAccount = from_binary(&Binary::from(restricted_base_1)).unwrap();
-        let _marker_con_base_1: MarkerAccount = from_binary(&Binary::from(restricted_con_base_1)).unwrap();
+        let _marker_con_base_1: MarkerAccount =
+            from_binary(&Binary::from(restricted_con_base_1)).unwrap();
         let _marker_quote_1: MarkerAccount =
             from_binary(&Binary::from(restricted_quote_marker_json)).unwrap();
         // TODO: find alternative function

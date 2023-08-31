@@ -3,7 +3,7 @@ use crate::bid_order::{get_bid_storage, BidOrderV3};
 use crate::contract_info::{set_contract_info, ContractInfoV3};
 use crate::tests::test_constants::{APPROVER_1, APPROVER_2, BASE_DENOM};
 use cosmwasm_std::{Addr, Storage, Uint128};
-use provwasm_mocks::{MockProvenanceQuerier};
+use provwasm_mocks::MockProvenanceQuerier;
 
 pub fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
     if let Err(error) = set_contract_info(storage, contract_info) {
