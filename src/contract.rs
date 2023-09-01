@@ -8,7 +8,7 @@ use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
 };
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV3};
+use crate::bid_order::{migrate_bid_orders, BidOrderV3, BIDS_V3};
 use crate::common::{Action, ContractAction, FeeInfo};
 use crate::contract_info::{
     get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
@@ -612,15 +612,16 @@ fn create_bid(
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
-    let mut bid_storage = get_bid_storage(deps.storage);
-
-    if bid_storage.may_load(bid_order.id.as_bytes())?.is_some() {
+    if BIDS_V3
+        .may_load(deps.storage, bid_order.id.as_bytes())?
+        .is_some()
+    {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("id")],
         });
     }
 
-    bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
+    BIDS_V3.save(deps.storage, bid_order.id.as_bytes(), &bid_order)?;
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", ContractAction::CreateBid.to_string()),
@@ -872,11 +873,9 @@ fn reverse_bid(
 
     let contract_info = get_contract_info(deps.storage)?;
 
-    let bid_storage = get_bid_storage_read::<BidOrderV3>(deps.storage);
-
     //load the bid order
-    let mut bid_order = bid_storage
-        .load(id.as_bytes())
+    let mut bid_order = BIDS_V3
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     if action.eq(&ContractAction::CancelBid) {
@@ -1010,16 +1009,14 @@ fn reverse_bid(
         }
     }
 
-    let mut bid_storage = get_bid_storage::<BidOrderV3>(deps.storage);
-
     // remove the bid order from storage if remaining size is 0, otherwise, store updated order
     match bid_order.get_remaining_base().is_zero() {
         true => {
-            bid_storage.remove(bid_order.id.as_bytes());
+            BIDS_V3.remove(deps.storage, bid_order.id.as_bytes());
             response = response.add_attributes(vec![attr("order_open", "false")]);
         }
         false => {
-            bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
+            BIDS_V3.save(deps.storage, bid_order.id.as_bytes(), &bid_order)?;
             response = response.add_attributes(vec![attr("order_open", "true")]);
         }
     }
@@ -1065,15 +1062,10 @@ fn modify_contract(
         }
     }
 
-    let bid_storage = get_bid_storage_read(deps.storage);
-    let bid_orders: Vec<BidOrderV3> = bid_storage
-        .range(None, None, Order::Ascending)
-        .map(|kv_bid: StdResult<Record<BidOrderV3>>| {
-            let (_, bid_order) = kv_bid.unwrap();
-            bid_order
-        })
-        .collect();
-    if !bid_orders.is_empty() {
+    // Option 1 (Requires migrating Bucket -> Map)
+    let contains_bid = !BIDS_V3.is_empty(deps.storage);
+
+    if contains_bid {
         match &bid_required_attributes {
             None => {}
             Some(_) => {
@@ -1092,7 +1084,7 @@ fn modify_contract(
         }
     }
 
-    if !ask_orders.is_empty() || !bid_orders.is_empty() {
+    if !ask_orders.is_empty() || contains_bid {
         match &approvers {
             None => {}
             Some(approvers) => {
@@ -1156,9 +1148,8 @@ fn execute_match(
         .load(ask_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
-    let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
-    let mut bid_order = bid_storage_read
-        .load(bid_id.as_bytes())
+    let mut bid_order = BIDS_V3
+        .load(deps.storage, bid_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     // Validate the requested quote denom in the ask order matches the offered quote denom in the bid order
@@ -1593,10 +1584,11 @@ fn execute_match(
     }
 
     if bid_order.get_remaining_base().eq(&Uint128::zero()) {
-        get_bid_storage::<BidOrderV3>(deps.storage).remove(bid_id.as_bytes());
+        BIDS_V3.remove(deps.storage, bid_id.as_bytes());
     } else {
-        get_bid_storage(deps.storage)
-            .update(bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
+        BIDS_V3.update(deps.storage, bid_id.as_bytes(), |_| -> StdResult<_> {
+            Ok(bid_order)
+        })?;
     }
 
     Ok(response)
@@ -1640,8 +1632,7 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
             return to_binary(&ask_storage_read.load(id.as_bytes())?);
         }
         QueryMsg::GetBid { id } => {
-            let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
-            return to_binary(&bid_storage_read.load(id.as_bytes())?);
+            return to_binary(&BIDS_V3.load(deps.storage, id.as_bytes())?);
         }
         QueryMsg::GetContractInfo {} => to_binary(&get_contract_info(deps.storage)?),
         QueryMsg::GetVersionInfo {} => to_binary(&get_version_info(deps.storage)?),

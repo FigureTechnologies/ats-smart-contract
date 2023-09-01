@@ -641,6 +641,23 @@ mod execute_modify_test {
             Ok(_) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
         }
+        let create_ask_msg_2 = ExecuteMsg::CreateAsk {
+            base: "base_denom".into(),
+            id: "aaaaaaaa-f6fc-46d1-aa84-51ccc51ec367".into(),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            size: Uint128::new(100),
+        };
+        let create_ask_response_2 = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg_2.clone(),
+        );
+        match create_ask_response_2 {
+            Ok(_) => {}
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
 
         // modify ask_required_attributes with active ask
         let exec_info = mock_info("exec_1", &[]);

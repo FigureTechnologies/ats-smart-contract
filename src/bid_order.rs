@@ -3,17 +3,19 @@ use crate::contract_info::require_version;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Coin, DepsMut, Env, Order, Response, Storage, Uint128};
-use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
+use cosmwasm_std::{Addr, Coin, DepsMut, Env, Order, Response, Uint128};
+use cw_storage_plus::Map;
 use provwasm_std::{ProvenanceMsg, ProvenanceQuery};
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
 use schemars::JsonSchema;
 use semver::{Version, VersionReq};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-pub static NAMESPACE_ORDER_BID: &[u8] = b"bid";
+pub const NAMESPACE_ORDER_BID: &str = "bid";
+
+pub const BIDS_V2: Map<&[u8], BidOrderV2> = Map::new(NAMESPACE_ORDER_BID);
+pub const BIDS_V3: Map<&[u8], BidOrderV3> = Map::new(NAMESPACE_ORDER_BID);
 
 #[deprecated(since = "0.18.2")]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -230,44 +232,29 @@ pub fn migrate_bid_orders(
     // Migrate only BidOrderV2 -> BidOrderV3
     if VersionReq::parse(">=0.16.2, <0.19.1")?.matches(&current_version) {
         // get all bid ids for orders in a BidOrderV2 format
-        let existing_bid_order_v2_ids: Vec<Vec<u8>> = get_bid_storage_read::<BidOrderV2>(store)
-            .range(None, None, Order::Ascending)
-            // Get only the orders that are in a BidOrderV2 format
+        let existing_bid_order_v2_ids: Vec<Vec<u8>> = BIDS_V2
+            .range(store, None, None, Order::Ascending)
             .filter_map(|kv_bid| kv_bid.ok().map(|record| record.0))
             .collect();
 
         // Load the BidOrderV2 items, convert to BidOrderV3, save as BidOrderV3
         for existing_bid_order_v2_id in existing_bid_order_v2_ids {
-            let bid_order_v2: BidOrderV2 =
-                bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_v2_id)?;
+            let bid_order_v2: BidOrderV2 = BIDS_V2.load(store, &existing_bid_order_v2_id)?;
+            // bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_v2_id)?;
             let bid_order_v3: BidOrderV3 = bid_order_v2.into();
 
-            get_bid_storage::<BidOrderV3>(store).save(&existing_bid_order_v2_id, &bid_order_v3)?
+            BIDS_V3.save(store, &existing_bid_order_v2_id, &bid_order_v3)?
         }
     }
 
     Ok(response)
 }
 
-pub fn get_bid_storage<T>(storage: &mut dyn Storage) -> Bucket<T>
-where
-    T: Serialize + DeserializeOwned,
-{
-    bucket(storage, NAMESPACE_ORDER_BID)
-}
-
-pub fn get_bid_storage_read<T>(storage: &dyn Storage) -> ReadonlyBucket<T>
-where
-    T: Serialize + DeserializeOwned,
-{
-    bucket_read(storage, NAMESPACE_ORDER_BID)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{get_bid_storage, get_bid_storage_read};
     #[allow(deprecated)]
     use super::{migrate_bid_orders, BidOrderV2, BidOrderV3};
+    use crate::bid_order::{BIDS_V2, BIDS_V3};
     use crate::common::{Action, Event};
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
@@ -415,8 +402,6 @@ mod tests {
         )?;
 
         // Store some v2 bid orders:
-        let mut bid_order_v2_storage = get_bid_storage::<BidOrderV2>(&mut deps.storage);
-
         let bid1 = BidOrderV2 {
             base: Coin {
                 amount: Uint128::new(8),
@@ -590,8 +575,8 @@ mod tests {
         };
 
         // Store:
-        bid_order_v2_storage.save(&bid1.id.as_bytes(), &bid1)?;
-        bid_order_v2_storage.save(&bid2.id.as_bytes(), &bid2)?;
+        BIDS_V2.save(&mut deps.storage, &bid1.id.as_bytes(), &bid1)?;
+        BIDS_V2.save(&mut deps.storage, &bid2.id.as_bytes(), &bid2)?;
 
         // Migrate:
         let response = {
@@ -615,9 +600,8 @@ mod tests {
         assert_eq!(response, Response::new());
 
         // Fetch and verify:
-        let bid_order_v3_storage = get_bid_storage_read::<BidOrderV3>(&mut deps.storage);
-        let bid_1_v3 = bid_order_v3_storage.load(b"bid-1").unwrap();
-        let bid_2_v3 = bid_order_v3_storage.load(b"bid-2").unwrap();
+        let bid_1_v3 = BIDS_V3.load(&deps.storage, b"bid-1").unwrap();
+        let bid_2_v3 = BIDS_V3.load(&deps.storage, b"bid-2").unwrap();
 
         assert_eq!(
             BidOrderV3 {
@@ -682,7 +666,6 @@ mod tests {
 
         // Store some v2 bid orders:
         // Orders that were unsuccessfully migrated
-        let mut bid_order_v2_storage = get_bid_storage::<BidOrderV2>(&mut deps.storage);
         let bid1 = BidOrderV2 {
             base: Coin {
                 amount: Uint128::new(8),
@@ -854,11 +837,10 @@ mod tests {
                 denom: "quote_2".to_string(),
             },
         };
-        bid_order_v2_storage.save(&bid1.id.as_bytes(), &bid1)?;
-        bid_order_v2_storage.save(&bid2.id.as_bytes(), &bid2)?;
+        BIDS_V2.save(&mut deps.storage, &bid1.id.as_bytes(), &bid1)?;
+        BIDS_V2.save(&mut deps.storage, &bid2.id.as_bytes(), &bid2)?;
 
         // Orders on latest version
-        let mut bid_order_v3_storage = get_bid_storage::<BidOrderV3>(&mut deps.storage);
         // Example of order with new version
         let bid3 = BidOrderV3 {
             base: Coin {
@@ -880,7 +862,7 @@ mod tests {
                 denom: "quote_2".to_string(),
             },
         };
-        bid_order_v3_storage.save(&bid3.id.as_bytes(), &bid3)?;
+        BIDS_V3.save(&mut deps.storage, &bid3.id.as_bytes(), &bid3)?;
 
         // Migrate:
         let response = {
@@ -904,10 +886,9 @@ mod tests {
         assert_eq!(response, Response::new());
 
         // Fetch and verify:
-        let bid_order_v3_storage = get_bid_storage_read::<BidOrderV3>(&mut deps.storage);
-        let bid_1_v3 = bid_order_v3_storage.load(b"bid-1").unwrap();
-        let bid_2_v3 = bid_order_v3_storage.load(b"bid-2").unwrap();
-        let bid_3_v3 = bid_order_v3_storage.load(b"bid-3").unwrap();
+        let bid_1_v3 = BIDS_V3.load(&deps.storage, b"bid-1").unwrap();
+        let bid_2_v3 = BIDS_V3.load(&deps.storage, b"bid-2").unwrap();
+        let bid_3_v3 = BIDS_V3.load(&deps.storage, b"bid-3").unwrap();
 
         assert_eq!(
             BidOrderV3 {
