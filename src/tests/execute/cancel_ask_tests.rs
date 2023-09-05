@@ -197,6 +197,7 @@ mod cancel_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -370,6 +371,7 @@ mod cancel_ask_tests {
               \"denom\": \"con_base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -400,6 +402,7 @@ mod cancel_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
