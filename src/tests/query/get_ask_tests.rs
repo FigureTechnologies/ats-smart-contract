@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod get_ask_tests {
-    use crate::ask_order::{get_ask_storage, get_ask_storage_read, AskOrderClass, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderV1, ASKS_V1};
     use crate::contract::query;
     use crate::msg::QueryMsg;
     use crate::tests::test_constants::{HYPHENATED_ASK_ID, UNHYPHENATED_ASK_ID};
@@ -26,14 +26,16 @@ mod get_ask_tests {
             size: Uint128::new(200),
         };
 
-        let mut ask_storage = get_ask_storage(&mut deps.storage);
-        if let Err(error) = ask_storage.save(HYPHENATED_ASK_ID.as_bytes(), &ask_order) {
+        if let Err(error) =
+            ASKS_V1.save(&mut deps.storage, HYPHENATED_ASK_ID.as_bytes(), &ask_order)
+        {
             panic!("unexpected error: {:?}", error)
         };
 
         // verify ask order still exists
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(HYPHENATED_ASK_ID.as_bytes()).is_ok());
+        assert!(ASKS_V1
+            .load(&deps.storage, HYPHENATED_ASK_ID.as_bytes())
+            .is_ok());
 
         // query for ask order
         let query_ask_response = query(
@@ -63,14 +65,18 @@ mod get_ask_tests {
             quote: "quote_1".into(),
             size: Uint128::new(200),
         };
-        let mut ask_storage = get_ask_storage(&mut deps.storage);
-        if let Err(error) = ask_storage.save(UNHYPHENATED_ASK_ID.as_bytes(), &ask_order) {
+        if let Err(error) = ASKS_V1.save(
+            &mut deps.storage,
+            UNHYPHENATED_ASK_ID.as_bytes(),
+            &ask_order,
+        ) {
             panic!("unexpected error: {:?}", error)
         };
 
         // verify ask order still exists
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(UNHYPHENATED_ASK_ID.as_bytes()).is_ok());
+        assert!(ASKS_V1
+            .load(&deps.storage, UNHYPHENATED_ASK_ID.as_bytes())
+            .is_ok());
 
         // query for ask order
         let query_ask_response = query(
