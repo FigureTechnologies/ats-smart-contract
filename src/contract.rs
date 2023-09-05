@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
-    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
+    MessageInfo, Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{transfer_marker_coins, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery};
 
@@ -8,11 +8,11 @@ use crate::ask_order::{migrate_ask_orders, AskOrderClass, AskOrderStatus, AskOrd
 use crate::bid_order::{migrate_bid_orders, BidOrderV3, BIDS_V3};
 use crate::common::{Action, ContractAction, FeeInfo};
 use crate::contract_info::{
-    get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
-    ContractInfoV3,
+    get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
+use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::util::{is_invalid_price_precision, is_restricted_marker};
 use crate::version_info::{
@@ -1011,102 +1011,6 @@ fn reverse_bid(
             response = response.add_attributes(vec![attr("order_open", "true")]);
         }
     }
-
-    Ok(response)
-}
-
-fn modify_contract(
-    deps: DepsMut<ProvenanceQuery>,
-    _env: Env,
-    info: &MessageInfo,
-    approvers: Option<Vec<String>>,
-    executors: Option<Vec<String>>,
-    ask_fee_rate: Option<String>,
-    ask_fee_account: Option<String>,
-    bid_fee_rate: Option<String>,
-    bid_fee_account: Option<String>,
-    ask_required_attributes: Option<Vec<String>>,
-    bid_required_attributes: Option<Vec<String>>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
-    let contract_info = get_contract_info(deps.storage)?;
-
-    if !contract_info.executors.contains(&info.sender) {
-        return Err(ContractError::Unauthorized);
-    }
-
-    let ask_orders: Vec<AskOrderV1> = ASKS_V1
-        .range(deps.storage, None, None, Order::Ascending)
-        .map(|kv_ask: StdResult<Record<AskOrderV1>>| {
-            let (_, ask_order) = kv_ask.unwrap();
-            ask_order
-        })
-        .collect();
-    if !ask_orders.is_empty() {
-        match &ask_required_attributes {
-            None => (),
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["ask_required_attributes".to_string()],
-                });
-            }
-        }
-    }
-
-    // Option 1 (Requires migrating Bucket -> Map)
-    let contains_bid = !BIDS_V3.is_empty(deps.storage);
-
-    if contains_bid {
-        match &bid_required_attributes {
-            None => {}
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_required_attributes".to_string()],
-                });
-            }
-        }
-        match (&bid_fee_rate, &bid_fee_account) {
-            (None, None) => {}
-            (_, _) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_fee".to_string()],
-                });
-            }
-        }
-    }
-
-    if !ask_orders.is_empty() || contains_bid {
-        match &approvers {
-            None => {}
-            Some(approvers) => {
-                let current_approvers: HashSet<String> = contract_info
-                    .approvers
-                    .into_iter()
-                    .map(|item| item.into_string())
-                    .collect();
-                let new_approvers: HashSet<String> = approvers.clone().into_iter().collect();
-                if !current_approvers.is_subset(&new_approvers) {
-                    return Err(ContractError::InvalidFields {
-                        fields: vec!["approvers".to_string()],
-                    });
-                }
-            }
-        }
-    }
-
-    modify_contract_info(
-        deps,
-        approvers,
-        executors,
-        ask_fee_rate,
-        ask_fee_account,
-        bid_fee_rate,
-        bid_fee_account,
-        ask_required_attributes,
-        bid_required_attributes,
-    )?;
-
-    let response =
-        Response::new().add_attribute("action", ContractAction::ModifyContract.to_string());
 
     Ok(response)
 }
