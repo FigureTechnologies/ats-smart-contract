@@ -1062,9 +1062,7 @@ fn modify_contract(
         }
     }
 
-    // Option 1 (Requires migrating Bucket -> Map)
     let contains_bid = !BIDS_V3.is_empty(deps.storage);
-
     if contains_bid {
         match &bid_required_attributes {
             None => {}

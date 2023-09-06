@@ -240,7 +240,6 @@ pub fn migrate_bid_orders(
         // Load the BidOrderV2 items, convert to BidOrderV3, save as BidOrderV3
         for existing_bid_order_v2_id in existing_bid_order_v2_ids {
             let bid_order_v2: BidOrderV2 = BIDS_V2.load(store, &existing_bid_order_v2_id)?;
-            // bucket_read(store, NAMESPACE_ORDER_BID).load(&existing_bid_order_v2_id)?;
             let bid_order_v3: BidOrderV3 = bid_order_v2.into();
 
             BIDS_V3.save(store, &existing_bid_order_v2_id, &bid_order_v3)?
