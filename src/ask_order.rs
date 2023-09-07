@@ -9,10 +9,9 @@ use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-pub static NAMESPACE_ORDER_ASK: &[u8] = b"ask";
-pub const NAMESPACE_ORDER_ASK_V2: &str = "ask";
+pub const NAMESPACE_ORDER_ASK: &str = "ask";
 
-pub const ASKS_V1: Map<&[u8], AskOrderV1> = Map::new(NAMESPACE_ORDER_ASK_V2);
+pub const ASKS_V1: Map<&[u8], AskOrderV1> = Map::new(NAMESPACE_ORDER_ASK);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub enum AskOrderStatus {
