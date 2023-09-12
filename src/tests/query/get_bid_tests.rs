@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod get_bid_tests {
-    use crate::bid_order::{get_bid_storage, BidOrderV3};
+    use crate::bid_order::{BidOrderV3, BIDS_V3};
     use crate::contract::query;
     use crate::msg::QueryMsg;
     use crate::tests::test_constants::{HYPHENATED_BID_ID, UNHYPHENATED_BID_ID};
@@ -34,8 +34,7 @@ mod get_bid_tests {
             },
         };
 
-        let mut bid_storage = get_bid_storage(&mut deps.storage);
-        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = BIDS_V3.save(&mut deps.storage, bid_order.id.as_bytes(), &bid_order) {
             panic!("unexpected error: {:?}", error);
         };
 
@@ -76,8 +75,7 @@ mod get_bid_tests {
             },
         };
 
-        let mut bid_storage = get_bid_storage(&mut deps.storage);
-        if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), &bid_order) {
+        if let Err(error) = BIDS_V3.save(&mut deps.storage, bid_order.id.as_bytes(), &bid_order) {
             panic!("unexpected error: {:?}", error);
         };
 
