@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod execute_match_tests {
-    use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
     use crate::bid_order::{BidOrderV3, BIDS_V3};
     use crate::common::FeeInfo;
     use crate::contract::execute;
@@ -130,9 +130,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order removed from storage
@@ -277,9 +279,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -405,9 +409,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -533,9 +539,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -664,9 +672,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -785,9 +795,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -927,9 +939,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -1055,8 +1069,10 @@ mod execute_match_tests {
         }
 
         // verify ask order updated
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -1231,9 +1247,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 
@@ -1351,8 +1369,10 @@ mod execute_match_tests {
         }
 
         // verify ask order updated
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -1531,8 +1551,10 @@ mod execute_match_tests {
         }
 
         // verify ask order updated
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -1719,9 +1741,11 @@ mod execute_match_tests {
         }
 
         // verify ask order IS NOT removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order removed from storage
@@ -1859,9 +1883,11 @@ mod execute_match_tests {
         }
 
         // verify ask order IS NOT removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order update
@@ -2045,9 +2071,11 @@ mod execute_match_tests {
         }
 
         // verify ask order IS NOT removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order removed from storage
@@ -2139,6 +2167,7 @@ mod execute_match_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -2252,9 +2281,11 @@ mod execute_match_tests {
         }
 
         // verify ask order IS NOT removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order removed from storage
@@ -2381,9 +2412,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -2522,9 +2555,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -2587,6 +2622,7 @@ mod execute_match_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -2687,9 +2723,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -2752,6 +2790,7 @@ mod execute_match_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -2852,9 +2891,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -2917,6 +2958,7 @@ mod execute_match_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -2947,6 +2989,7 @@ mod execute_match_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3051,9 +3094,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -3098,6 +3143,7 @@ mod execute_match_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3128,6 +3174,7 @@ mod execute_match_tests {
               \"denom\": \"con_base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3264,9 +3311,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -3311,6 +3360,7 @@ mod execute_match_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3442,9 +3492,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -3489,6 +3541,7 @@ mod execute_match_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3519,6 +3572,7 @@ mod execute_match_tests {
               \"denom\": \"con_base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3549,6 +3603,7 @@ mod execute_match_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -3690,9 +3745,11 @@ mod execute_match_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
 
         // verify bid order removed from storage
@@ -4224,9 +4281,11 @@ mod execute_match_tests {
         }
 
         // verify ask order still exists
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order still exists
@@ -4321,9 +4380,11 @@ mod execute_match_tests {
         }
 
         // verify ask order still exists
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_ok());
 
         // verify bid order still exists

@@ -1,21 +1,18 @@
 use cosmwasm_std::{
     attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
-    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
+    MessageInfo, Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::{transfer_marker_coins, ProvenanceMsg, ProvenanceQuerier, ProvenanceQuery};
 
-use crate::ask_order::{
-    get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
-    AskOrderV1,
-};
+use crate::ask_order::{migrate_ask_orders, AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
 use crate::bid_order::{migrate_bid_orders, BidOrderV3, BIDS_V3};
 use crate::common::{Action, ContractAction, FeeInfo};
 use crate::contract_info::{
-    get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
-    ContractInfoV3,
+    get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
+use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::util::{is_invalid_price_precision, is_restricted_marker};
 use crate::version_info::{
@@ -271,10 +268,9 @@ fn approve_ask(
         }
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     // update ask order
-    let updated_ask_order = ask_storage.update(
+    let updated_ask_order = ASKS_V1.update(
+        deps.storage,
         id.as_bytes(),
         |stored_ask_order| -> Result<AskOrderV1, ContractError> {
             match stored_ask_order {
@@ -429,21 +425,22 @@ fn create_ask(
         }
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     if ask_order.base.ne(&contract_info.base_denom) {
         ask_order.class = AskOrderClass::Convertible {
             status: AskOrderStatus::PendingIssuerApproval,
         };
     };
 
-    if ask_storage.may_load(ask_order.id.as_bytes())?.is_some() {
+    if ASKS_V1
+        .may_load(deps.storage, ask_order.id.as_bytes())?
+        .is_some()
+    {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("id")],
         });
     }
 
-    ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+    ASKS_V1.save(deps.storage, ask_order.id.as_bytes(), &ask_order)?;
 
     let mut response = Response::new().add_attributes(vec![
         attr("action", ContractAction::CreateAsk.to_string()),
@@ -667,7 +664,6 @@ fn cancel_ask(
         return Err(ContractError::CancelWithFunds);
     }
 
-    let ask_storage = get_ask_storage_read(deps.storage);
     let AskOrderV1 {
         id,
         owner,
@@ -675,16 +671,15 @@ fn cancel_ask(
         base,
         size,
         ..
-    } = ask_storage
-        .load(id.as_bytes())
+    } = ASKS_V1
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
 
     // remove the ask order from storage
-    let mut ask_storage = get_ask_storage(deps.storage);
-    ask_storage.remove(id.as_bytes());
+    ASKS_V1.remove(deps.storage, id.as_bytes());
 
     // is ask base a marker
     let is_base_restricted_marker = is_restricted_marker(&deps.querier, base.clone());
@@ -760,11 +755,9 @@ fn reverse_ask(
         return Err(ContractError::Unauthorized);
     }
 
-    let ask_storage = get_ask_storage_read(deps.storage);
-
     // retrieve the order
-    let mut ask_order = ask_storage
-        .load(id.as_bytes())
+    let mut ask_order = ASKS_V1
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     // determine the effective cancel size
@@ -838,14 +831,12 @@ fn reverse_ask(
         });
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     // remove the ask order from storage if remaining size is 0, otherwise, store updated order
     if ask_order.size.is_zero() {
-        ask_storage.remove(ask_order.id.as_bytes());
+        ASKS_V1.remove(deps.storage, ask_order.id.as_bytes());
         response = response.add_attributes(vec![attr("order_open", "false")]);
     } else {
-        ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+        ASKS_V1.save(deps.storage, ask_order.id.as_bytes(), &ask_order)?;
         response = response.add_attributes(vec![attr("order_open", "true")]);
     }
 
@@ -1024,101 +1015,6 @@ fn reverse_bid(
     Ok(response)
 }
 
-fn modify_contract(
-    deps: DepsMut<ProvenanceQuery>,
-    _env: Env,
-    info: &MessageInfo,
-    approvers: Option<Vec<String>>,
-    executors: Option<Vec<String>>,
-    ask_fee_rate: Option<String>,
-    ask_fee_account: Option<String>,
-    bid_fee_rate: Option<String>,
-    bid_fee_account: Option<String>,
-    ask_required_attributes: Option<Vec<String>>,
-    bid_required_attributes: Option<Vec<String>>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
-    let contract_info = get_contract_info(deps.storage)?;
-
-    if !contract_info.executors.contains(&info.sender) {
-        return Err(ContractError::Unauthorized);
-    }
-
-    let ask_storage = get_ask_storage_read(deps.storage);
-    let ask_orders: Vec<AskOrderV1> = ask_storage
-        .range(None, None, Order::Ascending)
-        .map(|kv_ask: StdResult<Record<AskOrderV1>>| {
-            let (_, ask_order) = kv_ask.unwrap();
-            ask_order
-        })
-        .collect();
-    if !ask_orders.is_empty() {
-        match &ask_required_attributes {
-            None => (),
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["ask_required_attributes".to_string()],
-                });
-            }
-        }
-    }
-
-    let contains_bid = !BIDS_V3.is_empty(deps.storage);
-    if contains_bid {
-        match &bid_required_attributes {
-            None => {}
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_required_attributes".to_string()],
-                });
-            }
-        }
-        match (&bid_fee_rate, &bid_fee_account) {
-            (None, None) => {}
-            (_, _) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_fee".to_string()],
-                });
-            }
-        }
-    }
-
-    if !ask_orders.is_empty() || contains_bid {
-        match &approvers {
-            None => {}
-            Some(approvers) => {
-                let current_approvers: HashSet<String> = contract_info
-                    .approvers
-                    .into_iter()
-                    .map(|item| item.into_string())
-                    .collect();
-                let new_approvers: HashSet<String> = approvers.clone().into_iter().collect();
-                if !current_approvers.is_subset(&new_approvers) {
-                    return Err(ContractError::InvalidFields {
-                        fields: vec!["approvers".to_string()],
-                    });
-                }
-            }
-        }
-    }
-
-    modify_contract_info(
-        deps,
-        approvers,
-        executors,
-        ask_fee_rate,
-        ask_fee_account,
-        bid_fee_rate,
-        bid_fee_account,
-        ask_required_attributes,
-        bid_required_attributes,
-    )?;
-
-    let response =
-        Response::new().add_attribute("action", ContractAction::ModifyContract.to_string());
-
-    Ok(response)
-}
-
 // match and execute an ask and bid order
 fn execute_match(
     deps: DepsMut<ProvenanceQuery>,
@@ -1141,9 +1037,8 @@ fn execute_match(
         return Err(ContractError::ExecuteWithFunds);
     }
 
-    let ask_storage_read = get_ask_storage_read(deps.storage);
-    let mut ask_order = ask_storage_read
-        .load(ask_id.as_bytes())
+    let mut ask_order = ASKS_V1
+        .load(deps.storage, ask_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     let mut bid_order = BIDS_V3
@@ -1575,10 +1470,11 @@ fn execute_match(
 
     // finally update or remove the orders from storage
     if ask_order.size.is_zero() {
-        get_ask_storage(deps.storage).remove(ask_id.as_bytes());
+        ASKS_V1.remove(deps.storage, ask_id.as_bytes());
     } else {
-        get_ask_storage(deps.storage)
-            .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
+        ASKS_V1.update(deps.storage, ask_id.as_bytes(), |_| -> StdResult<_> {
+            Ok(ask_order)
+        })?;
     }
 
     if bid_order.get_remaining_base().eq(&Uint128::zero()) {
@@ -1626,8 +1522,7 @@ pub fn query(deps: Deps<ProvenanceQuery>, _env: Env, msg: QueryMsg) -> StdResult
 
     match msg {
         QueryMsg::GetAsk { id } => {
-            let ask_storage_read = get_ask_storage_read(deps.storage);
-            return to_binary(&ask_storage_read.load(id.as_bytes())?);
+            return to_binary(&ASKS_V1.load(deps.storage, id.as_bytes())?);
         }
         QueryMsg::GetBid { id } => {
             return to_binary(&BIDS_V3.load(deps.storage, id.as_bytes())?);

@@ -2,14 +2,16 @@ use crate::contract_info::require_version;
 use crate::error::ContractError;
 use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
-use cosmwasm_std::{Addr, Coin, DepsMut, Storage, Uint128};
-use cosmwasm_storage::{bucket, bucket_read, Bucket, ReadonlyBucket};
+use cosmwasm_std::{Addr, Coin, DepsMut, Uint128};
+use cw_storage_plus::Map;
 use provwasm_std::ProvenanceQuery;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-pub static NAMESPACE_ORDER_ASK: &[u8] = b"ask";
+pub const NAMESPACE_ORDER_ASK: &str = "ask";
+
+pub const ASKS_V1: Map<&[u8], AskOrderV1> = Map::new(NAMESPACE_ORDER_ASK);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub enum AskOrderStatus {
@@ -35,14 +37,6 @@ pub struct AskOrderV1 {
     pub quote: String,
     pub price: String,
     pub size: Uint128,
-}
-
-pub fn get_ask_storage(storage: &mut dyn Storage) -> Bucket<AskOrderV1> {
-    bucket(storage, NAMESPACE_ORDER_ASK)
-}
-
-pub fn get_ask_storage_read(storage: &dyn Storage) -> ReadonlyBucket<AskOrderV1> {
-    bucket_read(storage, NAMESPACE_ORDER_ASK)
 }
 
 pub fn migrate_ask_orders(

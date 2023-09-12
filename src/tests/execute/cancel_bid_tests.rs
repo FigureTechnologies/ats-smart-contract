@@ -221,6 +221,7 @@ mod cancel_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -569,6 +570,7 @@ mod cancel_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 

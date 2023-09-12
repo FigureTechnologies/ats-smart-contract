@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod cancel_ask_tests {
-    use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
     use crate::bid_order::BidOrderV3;
     use crate::contract::execute;
     use crate::error::ContractError;
@@ -72,8 +72,9 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(HYPHENATED_ASK_ID.as_bytes()).is_err());
+        assert!(ASKS_V1
+            .load(&deps.storage, HYPHENATED_ASK_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -159,8 +160,9 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(UNHYPHENATED_ASK_ID.as_bytes()).is_err());
+        assert!(ASKS_V1
+            .load(&deps.storage, UNHYPHENATED_ASK_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -195,6 +197,7 @@ mod cancel_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -252,9 +255,11 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 
@@ -326,9 +331,11 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 
@@ -364,6 +371,7 @@ mod cancel_ask_tests {
               \"denom\": \"con_base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -394,6 +402,7 @@ mod cancel_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -473,9 +482,11 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 
@@ -685,7 +696,6 @@ mod cancel_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(ask_id.as_bytes()).is_err());
+        assert!(ASKS_V1.load(&deps.storage, ask_id.as_bytes()).is_err());
     }
 }
