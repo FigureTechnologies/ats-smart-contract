@@ -32,7 +32,7 @@ checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 
 [[package]]
 name = "ats-smart-contract"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
