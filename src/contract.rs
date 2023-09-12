@@ -1,9 +1,7 @@
 use cosmwasm_std::{
-    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
     MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
 };
-// use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
-
 use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
@@ -25,7 +23,6 @@ use crate::version_info::{
     PACKAGE_VERSION,
 };
 use provwasm_std::types::{
-    // cosmos::base::v1beta1::Coin,
     provenance::attribute::v1::AttributeQuerier,
     provenance::marker::v1::MsgTransferRequest,
 };
@@ -33,7 +30,7 @@ use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-// use std::convert::TryFrom;
+use std::convert::TryInto;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -333,33 +330,13 @@ fn approve_ask(
         attr("size", &updated_ask_order.size.to_string()),
     ]);
 
-    // let coin = provwasm_std::types::cosmos::base::v1beta1::Coin {
-    //     denom: base.clone(),
-    //     amount: size.into().to_string(),
-    //     // amount: size.to_string(), //  expected `Uint128`, found `String`
-    // };
-    //
-    // if is_base_restricted_marker {
-    //     response = response.add_message(
-    //         MsgTransferRequest {
-    //             amount: Some(coin),
-    //             administrator: env.contract.address.to_string(),
-    //             from_address: info.sender.to_string(),
-    //             to_address: env.contract.address.to_string(),
-    //         }, //     transfer_marker_coins(
-    //         //     size.into(),
-    //         //     base,
-    //         //     env.contract.address,
-    //         //     info.sender,
-    //         // )?
-    //     );
-    // ^ is to replace below
     if is_base_restricted_marker {
         response = response.add_message(transfer_marker_coins(
             size.into(),
             base,
-            env.contract.address,
+            env.contract.address.clone(),
             info.sender,
+            env.contract.address,
         )?);
     }
 
@@ -443,8 +420,10 @@ fn create_ask(
     if !contract_info.ask_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> =
-            attributes.into_iter().map(|item| item.name).collect();
+        let attributes_names: HashSet<String> = attributes
+            .into_iter()
+            .map(|item| item.name)
+            .collect();
         if contract_info
             .ask_required_attributes
             .iter()
@@ -485,8 +464,9 @@ fn create_ask(
         response = response.add_message(transfer_marker_coins(
             ask_order.size.into(),
             ask_order.base.to_owned(),
-            env.contract.address,
+            env.contract.address.clone(),
             ask_order.owner,
+            env.contract.address,
         )?);
     }
 
@@ -599,8 +579,10 @@ fn create_bid(
     if !contract_info.bid_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> =
-            attributes.into_iter().map(|item| item.name).collect();
+        let attributes_names: HashSet<String> = attributes
+            .into_iter()
+            .map(|item| item.name)
+            .collect();
         if contract_info
             .bid_required_attributes
             .iter()
@@ -667,8 +649,9 @@ fn create_bid(
                 _ => bid_order.quote.amount.into(),
             },
             bid_order.quote.denom.to_owned(),
-            env.contract.address,
+            env.contract.address.clone(),
             bid_order.owner,
+            env.contract.address,
         )?);
     }
 
@@ -712,9 +695,14 @@ fn cancel_ask(
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
         .add_message(match is_base_restricted_marker {
-            true => {
-                transfer_marker_coins(size.into(), base, owner, env.contract.address.to_owned())?
-            }
+            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+                size.into(),
+                base,
+                owner,
+                env.contract.address.to_owned(),
+                env.contract.address.clone(),
+            )?)
+            .unwrap(),
             false => BankMsg::Send {
                 to_address: owner.to_string(),
                 amount: coins(u128::from(size), base),
@@ -735,12 +723,14 @@ fn cancel_ask(
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
-            true => transfer_marker_coins(
+            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
                 converted_base.amount.into(),
                 converted_base.denom,
                 approver,
+                env.contract.address.clone(),
                 env.contract.address,
-            )?,
+            )?)
+            .unwrap(),
             false => BankMsg::Send {
                 to_address: approver.to_string(),
                 amount: vec![converted_base],
@@ -811,12 +801,14 @@ fn reverse_ask(
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
         .add_message(match is_base_restricted_marker {
-            true => transfer_marker_coins(
+            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
                 effective_cancel_size.into(),
                 ask_order.base.to_owned(),
                 ask_order.owner.to_owned(),
                 env.contract.address.to_owned(),
-            )?,
+                env.contract.address.clone(),
+            )?)
+            .unwrap(),
             false => BankMsg::Send {
                 to_address: ask_order.owner.to_string(),
                 amount: coins(u128::from(effective_cancel_size), ask_order.base.to_owned()),
@@ -841,12 +833,14 @@ fn reverse_ask(
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
-            true => transfer_marker_coins(
+            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
                 effective_cancel_size.into(),
                 converted_base.denom,
                 approver,
+                env.contract.address.clone(),
                 env.contract.address,
-            )?,
+            )?)
+            .unwrap(),
             false => BankMsg::Send {
                 to_address: approver.to_string(),
                 amount: coins(u128::from(effective_cancel_size), converted_base.denom),
@@ -988,12 +982,14 @@ fn reverse_bid(
     // 'send quote back to owner' message
     let mut response = Response::new()
         .add_message(match is_quote_restricted_marker {
-            true => transfer_marker_coins(
+            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
                 effective_cancel_quote_size.u128(),
                 bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
                 env.contract.address.to_owned(),
-            )?,
+                env.contract.address.clone(),
+            )?)
+            .unwrap(),
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(
@@ -1013,12 +1009,14 @@ fn reverse_bid(
     if let Some(fee) = effective_cancel_fee_size {
         if fee.amount.gt(&Uint128::zero()) {
             response = response.add_message(match is_quote_restricted_marker {
-                true => transfer_marker_coins(
+                true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
                     fee.amount.u128(),
                     bid_order.quote.denom.to_owned(),
                     bid_order.owner.to_owned(),
+                    env.contract.address.clone(),
                     env.contract.address,
-                )?,
+                )?)
+                .unwrap(),
                 false => BankMsg::Send {
                     to_address: bid_order.owner.to_string(),
                     amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
@@ -1283,7 +1281,7 @@ fn execute_match(
                 fee_total => {
                     let ask_fee = Coin {
                         denom: bid_order.quote.denom.to_owned(),
-                        amount: Uint128::new(fee_total),
+                        amount: Uint128::new(fee_total.clone()),
                     };
 
                     match is_quote_restricted_marker {
@@ -1293,6 +1291,7 @@ fn execute_match(
                                 bid_order.quote.denom.to_owned(),
                                 ask_fee_info.account,
                                 env.contract.address.to_owned(),
+                                env.contract.address.clone(),
                             )?);
                         }
                         false => {
@@ -1347,6 +1346,7 @@ fn execute_match(
                             bid_fee.denom.to_owned(),
                             bid_fee_info.account,
                             env.contract.address.to_owned(),
+                            env.contract.address.clone(),
                         )?);
                     }
                     false => {
@@ -1380,6 +1380,7 @@ fn execute_match(
                         bid_order.quote.denom.to_owned(),
                         ask_order.owner.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                 }
                 false => {
@@ -1399,6 +1400,7 @@ fn execute_match(
                         ask_order.base.to_owned(),
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                 }
                 false => {
@@ -1426,12 +1428,14 @@ fn execute_match(
                         converted_base.to_owned().denom,
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                     response = response.add_message(transfer_marker_coins(
                         execute_size.into(),
                         ask_order.base.to_owned(),
                         approver.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                 }
                 false => {
@@ -1458,6 +1462,7 @@ fn execute_match(
                         bid_order.quote.denom.clone(),
                         approver.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                 }
                 false => {
@@ -1529,6 +1534,7 @@ fn execute_match(
                         bid_order.quote.denom.to_owned(),
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
+                        env.contract.address.clone(),
                     )?);
                     // add the fee refund
                     if let Some(fee_refund) = &bid_fee_refund {
@@ -1536,6 +1542,7 @@ fn execute_match(
                             fee_refund.amount.u128(),
                             fee_refund.denom.to_owned(),
                             bid_order.owner.to_owned(),
+                            env.contract.address.clone(),
                             env.contract.address,
                         )?);
                     }
@@ -1621,7 +1628,11 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(mut deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(
+    mut deps: DepsMut,
+    env: Env,
+    msg: MigrateMsg,
+) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // build response

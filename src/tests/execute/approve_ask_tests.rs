@@ -14,15 +14,20 @@ mod approve_ask_tests {
     use crate::tests::test_utils::validate_execute_invalid_id_field;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{attr, coin, from_binary, Addr, Binary, Uint128};
+    use cosmwasm_std::{attr, coin, Addr, Uint128};
     use prost::Message;
     use provwasm_mocks::mock_provenance_dependencies;
     use provwasm_std::shim::Any;
     use provwasm_std::types::cosmos::auth::v1beta1::BaseAccount;
     use provwasm_std::types::provenance::marker::v1::{
-        AccessGrant, MarkerAccount, MarkerStatus, MarkerType, QueryMarkerRequest,
+        AccessGrant,
+        MarkerAccount,
+        MarkerStatus,
+        MarkerType,
+        QueryMarkerRequest,
         QueryMarkerResponse,
     };
+    use std::convert::TryInto;
 
     #[test]
     fn approve_ask_invalid_input_unhyphenated_id() {
@@ -322,8 +327,11 @@ mod approve_ask_tests {
                         100,
                         "base_1",
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
-                        Addr::unchecked("approver_1")
+                        Addr::unchecked("approver_1"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -948,7 +956,7 @@ mod approve_ask_tests {
                 id: HYPHENATED_ASK_ID.into(),
                 owner: Addr::unchecked("asker"),
                 price: "2".into(),
-                quote: "quote_01".into(),
+                quote: "quote_1".into(),
                 size: Uint128::new(100),
             },
         );
@@ -991,10 +999,9 @@ mod approve_ask_tests {
                 permissions: vec![1, 2, 3, 4, 5, 6, 7],
             }],
             status: MarkerStatus::Active.into(),
-            // denom: ASSET_DENOM.to_string(),
             denom: "base_1".to_string(),
             supply: "1000".to_string(),
-            marker_type: MarkerType::Coin.into(),
+            marker_type: MarkerType::Restricted.into(),
             supply_fixed: false,
             allow_governance_control: true,
             allow_forced_transfer: false,

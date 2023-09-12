@@ -14,8 +14,15 @@ mod cancel_bid_tests {
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128};
+    use prost::Message;
     use provwasm_mocks::mock_provenance_dependencies;
-    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
+    use provwasm_std::shim::Any;
+    use provwasm_std::types::cosmos::auth::v1beta1::BaseAccount;
+    use provwasm_std::types::provenance::marker::v1::{
+        AccessGrant, MarkerAccount, MarkerStatus, MarkerType, QueryMarkerRequest,
+        QueryMarkerResponse,
+    };
+    use std::convert::TryInto;
 
     #[test]
     fn cancel_bid_valid() {
@@ -193,38 +200,7 @@ mod cancel_bid_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"quote_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"quote_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(&mut deps.querier, setup_asset_marker());
 
         // create bid data
         store_test_bid(
@@ -284,8 +260,11 @@ mod cancel_bid_tests {
                         200,
                         "quote_1",
                         Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -535,38 +514,7 @@ mod cancel_bid_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"quote_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"quote_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(&mut deps.querier, setup_asset_marker());
 
         // create bid data
         store_test_bid(
@@ -629,8 +577,11 @@ mod cancel_bid_tests {
                         200,
                         "quote_1",
                         Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
                 assert_eq!(
@@ -639,8 +590,11 @@ mod cancel_bid_tests {
                         20,
                         "quote_1",
                         Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -896,5 +850,36 @@ mod cancel_bid_tests {
         // verify bid order removed from storage
         let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         assert!(bid_storage.load(bid_id.as_bytes()).is_err());
+    }
+
+    fn setup_asset_marker() -> QueryMarkerResponse {
+        let expected_marker: MarkerAccount = MarkerAccount {
+            base_account: Some(BaseAccount {
+                address: "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                pub_key: None,
+                account_number: 10,
+                sequence: 0,
+            }),
+            manager: "".to_string(),
+            access_control: vec![AccessGrant {
+                address: "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                permissions: vec![1, 2, 3, 4, 5, 6, 7],
+            }],
+            status: MarkerStatus::Active.into(),
+            denom: "quote_1".to_string(),
+            supply: "1000".to_string(),
+            marker_type: MarkerType::Restricted.into(),
+            supply_fixed: false,
+            allow_governance_control: true,
+            allow_forced_transfer: false,
+            required_attributes: vec![],
+        };
+
+        QueryMarkerResponse {
+            marker: Some(Any {
+                type_url: "/provenance.marker.v1.MarkerAccount".to_string(),
+                value: expected_marker.encode_to_vec(),
+            }),
+        }
     }
 }

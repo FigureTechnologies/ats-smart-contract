@@ -1,7 +1,10 @@
 use crate::error::ContractError;
 use cosmwasm_std::{Addr, BankMsg, CosmosMsg, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use provwasm_std::types::cosmos::base::v1beta1::Coin;
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
-use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
+use provwasm_std::types::provenance::marker::v1::{
+    MarkerAccount, MarkerQuerier, MsgTransferRequest,
+};
 use rust_decimal::prelude::Zero;
 use rust_decimal::Decimal;
 use std::convert::TryFrom;
@@ -35,28 +38,36 @@ pub fn get_attributes(
     account: String,
     querier: &AttributeQuerier<Empty>,
 ) -> StdResult<Vec<Attribute>> {
-    let response = querier.attributes(account, None)?;
-    Ok(response.attributes)
+    return match querier.attributes(account, None) {
+        Ok(response) => Ok(response.attributes),
+        Err(error) => Err(error),
+    }
 }
 
-// TODO: dummy function, need to find alternative function
 pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
     amount: u128,
     denom: S,
     to: H,
     from: H,
-) -> StdResult<CosmosMsg> {
+    contract_address: H,
+) -> StdResult<MsgTransferRequest> {
     if amount == 0 {
         return Err(StdError::generic_err("transfer amount must be > 0"));
     }
-    let _denom = denom.into();
-    let _to_addr = to.into();
-    let _from = from.into();
-    let msg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: "".to_string(),
-        amount: vec![],
-    });
-    Ok(msg)
+
+    let coin = Coin {
+        denom: denom.into().to_string(),
+        amount: amount.to_string(),
+    };
+
+    let request = MsgTransferRequest {
+        amount: Some(coin),
+        administrator: contract_address.into().to_string(),
+        from_address: from.into().to_string(),
+        to_address: to.into().to_string(),
+    };
+
+    Ok(request)
 }
 
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {
