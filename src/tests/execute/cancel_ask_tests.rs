@@ -317,7 +317,7 @@ mod cancel_ask_tests {
         let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
-        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
             setup_asset_marker(

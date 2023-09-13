@@ -2817,7 +2817,7 @@ mod execute_match_tests {
                 size_increment: Uint128::new(100),
             },
         );
-        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
             setup_asset_marker(
@@ -2956,7 +2956,7 @@ mod execute_match_tests {
         let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
 
-        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
             setup_asset_marker(
@@ -3302,7 +3302,7 @@ mod execute_match_tests {
         let mut deps = mock_provenance_dependencies();
         let mock_env = mock_env();
 
-        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
             setup_asset_marker(

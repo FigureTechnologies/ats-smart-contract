@@ -303,13 +303,13 @@ mod expire_ask_tests {
         let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
-        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
             setup_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
-                "base_1".to_string(),
+                "con_base_1".to_string(),
             ),
         );
         QueryMarkerRequest::mock_response(
@@ -317,7 +317,7 @@ mod expire_ask_tests {
             setup_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
-                "con_base_1".to_string(),
+                "base_1".to_string(),
             ),
         );
 
