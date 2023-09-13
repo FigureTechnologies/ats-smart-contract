@@ -33,7 +33,6 @@ fn get_marker(id: String, querier: &MarkerQuerier<Empty>) -> StdResult<MarkerAcc
     }
 }
 
-// TODO: temporary function, need to find alternative function
 pub fn get_attributes(
     account: String,
     querier: &AttributeQuerier<Empty>,

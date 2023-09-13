@@ -14,7 +14,7 @@ mod create_ask_tests {
     use cosmwasm_std::{attr, coin, coins, Addr, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
     use provwasm_std::types::provenance::attribute::v1::{
-        Attribute, AttributeType, QueryAttributeRequest, QueryAttributeResponse,
+        Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
     };
     use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
     use std::convert::TryInto;
@@ -69,9 +69,9 @@ mod create_ask_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {
@@ -193,9 +193,9 @@ mod create_ask_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {

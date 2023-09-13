@@ -12,7 +12,7 @@ mod execute_modify_test {
     use cosmwasm_std::{coin, Addr, MessageInfo, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
     use provwasm_std::types::provenance::attribute::v1::{
-        Attribute, AttributeType, QueryAttributeRequest, QueryAttributeResponse,
+        Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
     };
 
     #[test]
@@ -610,9 +610,9 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {
@@ -679,9 +679,9 @@ mod execute_modify_test {
             },
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -817,9 +817,9 @@ mod execute_modify_test {
             }
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {
@@ -1096,9 +1096,9 @@ mod execute_modify_test {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {
@@ -1448,9 +1448,9 @@ mod execute_modify_test {
             }
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "asker".to_string(),
                 attributes: vec![
                     Attribute {
@@ -1507,9 +1507,9 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -1626,9 +1626,9 @@ mod execute_modify_test {
             }
         }
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {

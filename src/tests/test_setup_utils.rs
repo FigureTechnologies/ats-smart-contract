@@ -5,7 +5,7 @@ use crate::tests::test_constants::{APPROVER_1, APPROVER_2, BASE_DENOM};
 use cosmwasm_std::{Addr, Storage, Uint128};
 use provwasm_mocks::MockProvenanceQuerier;
 use provwasm_std::types::provenance::attribute::v1::{
-    Attribute, AttributeType, QueryAttributeRequest, QueryAttributeResponse,
+    Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
 };
 
 pub fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
@@ -89,9 +89,9 @@ pub fn set_default_required_attributes(
         ])
     }
 
-    QueryAttributeRequest::mock_response(
+    QueryAttributesRequest::mock_response(
         _querier,
-        QueryAttributeResponse {
+        QueryAttributesResponse {
             account: _address.to_string(),
             attributes: attributes,
             pagination: None,

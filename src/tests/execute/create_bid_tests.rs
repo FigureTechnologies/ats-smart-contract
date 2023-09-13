@@ -19,7 +19,7 @@ mod create_bid_tests {
     use cosmwasm_std::{attr, coin, coins, Addr, Coin, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
     use provwasm_std::types::provenance::attribute::v1::{
-        Attribute, AttributeType, QueryAttributeRequest, QueryAttributeResponse,
+        Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
     };
     use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
     use std::convert::TryInto;
@@ -208,9 +208,9 @@ mod create_bid_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -473,9 +473,9 @@ mod create_bid_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -621,9 +621,9 @@ mod create_bid_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -769,9 +769,9 @@ mod create_bid_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
@@ -1121,9 +1121,9 @@ mod create_bid_tests {
             },
         );
 
-        QueryAttributeRequest::mock_response(
+        QueryAttributesRequest::mock_response(
             &mut deps.querier,
-            QueryAttributeResponse {
+            QueryAttributesResponse {
                 account: "bidder".to_string(),
                 attributes: vec![
                     Attribute {
