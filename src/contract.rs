@@ -331,7 +331,7 @@ fn approve_ask(
         response = response.add_message(transfer_marker_coins(
             size.into(),
             base,
-            env.contract.address.clone(),
+            env.contract.address.to_owned(),
             info.sender,
             env.contract.address,
         )?);
@@ -459,7 +459,7 @@ fn create_ask(
         response = response.add_message(transfer_marker_coins(
             ask_order.size.into(),
             ask_order.base.to_owned(),
-            env.contract.address.clone(),
+            env.contract.address.to_owned(),
             ask_order.owner,
             env.contract.address,
         )?);
@@ -642,7 +642,7 @@ fn create_bid(
                 _ => bid_order.quote.amount.into(),
             },
             bid_order.quote.denom.to_owned(),
-            env.contract.address.clone(),
+            env.contract.address.to_owned(),
             bid_order.owner,
             env.contract.address,
         )?);
@@ -693,7 +693,7 @@ fn cancel_ask(
                 base,
                 owner,
                 env.contract.address.to_owned(),
-                env.contract.address.clone(),
+                env.contract.address.to_owned(),
             )?)
             .unwrap(),
             false => BankMsg::Send {
@@ -720,7 +720,7 @@ fn cancel_ask(
                 converted_base.amount.into(),
                 converted_base.denom,
                 approver,
-                env.contract.address.clone(),
+                env.contract.address.to_owned(),
                 env.contract.address,
             )?)
             .unwrap(),
@@ -799,7 +799,7 @@ fn reverse_ask(
                 ask_order.base.to_owned(),
                 ask_order.owner.to_owned(),
                 env.contract.address.to_owned(),
-                env.contract.address.clone(),
+                env.contract.address.to_owned(),
             )?)
             .unwrap(),
             false => BankMsg::Send {
@@ -830,7 +830,7 @@ fn reverse_ask(
                 effective_cancel_size.into(),
                 converted_base.denom,
                 approver,
-                env.contract.address.clone(),
+                env.contract.address.to_owned(),
                 env.contract.address,
             )?)
             .unwrap(),
@@ -980,7 +980,7 @@ fn reverse_bid(
                 bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
                 env.contract.address.to_owned(),
-                env.contract.address.clone(),
+                env.contract.address.to_owned(),
             )?)
             .unwrap(),
             false => BankMsg::Send {
@@ -1006,7 +1006,7 @@ fn reverse_bid(
                     fee.amount.u128(),
                     bid_order.quote.denom.to_owned(),
                     bid_order.owner.to_owned(),
-                    env.contract.address.clone(),
+                    env.contract.address.to_owned(),
                     env.contract.address,
                 )?)
                 .unwrap(),
@@ -1284,7 +1284,7 @@ fn execute_match(
                                 bid_order.quote.denom.to_owned(),
                                 ask_fee_info.account,
                                 env.contract.address.to_owned(),
-                                env.contract.address.clone(),
+                                env.contract.address.to_owned(),
                             )?);
                         }
                         false => {
@@ -1339,7 +1339,7 @@ fn execute_match(
                             bid_fee.denom.to_owned(),
                             bid_fee_info.account,
                             env.contract.address.to_owned(),
-                            env.contract.address.clone(),
+                            env.contract.address.to_owned(),
                         )?);
                     }
                     false => {
@@ -1373,7 +1373,7 @@ fn execute_match(
                         bid_order.quote.denom.to_owned(),
                         ask_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                 }
                 false => {
@@ -1393,7 +1393,7 @@ fn execute_match(
                         ask_order.base.to_owned(),
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                 }
                 false => {
@@ -1421,14 +1421,14 @@ fn execute_match(
                         converted_base.to_owned().denom,
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                     response = response.add_message(transfer_marker_coins(
                         execute_size.into(),
                         ask_order.base.to_owned(),
                         approver.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                 }
                 false => {
@@ -1455,7 +1455,7 @@ fn execute_match(
                         bid_order.quote.denom.clone(),
                         approver.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                 }
                 false => {
@@ -1527,7 +1527,7 @@ fn execute_match(
                         bid_order.quote.denom.to_owned(),
                         bid_order.owner.to_owned(),
                         env.contract.address.to_owned(),
-                        env.contract.address.clone(),
+                        env.contract.address.to_owned(),
                     )?);
                     // add the fee refund
                     if let Some(fee_refund) = &bid_fee_refund {
@@ -1535,7 +1535,7 @@ fn execute_match(
                             fee_refund.amount.u128(),
                             fee_refund.denom.to_owned(),
                             bid_order.owner.to_owned(),
-                            env.contract.address.clone(),
+                            env.contract.address.to_owned(),
                             env.contract.address,
                         )?);
                     }
