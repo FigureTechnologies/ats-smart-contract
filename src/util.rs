@@ -1,10 +1,10 @@
-use std::convert::TryFrom;
 use crate::error::ContractError;
 use cosmwasm_std::{Addr, BankMsg, CosmosMsg, Empty, QuerierWrapper, StdError, StdResult, Uint128};
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
 use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
 use rust_decimal::prelude::Zero;
 use rust_decimal::Decimal;
+use std::convert::TryFrom;
 use uuid::Uuid;
 
 pub fn is_restricted_marker(querier: &QuerierWrapper, denom: String) -> bool {
@@ -31,7 +31,10 @@ fn get_marker(id: String, querier: &MarkerQuerier<Empty>) -> StdResult<MarkerAcc
 }
 
 // TODO: temporary function, need to find alternative function
-pub fn get_attributes(account: String, querier: &AttributeQuerier<Empty>) -> StdResult<Vec<Attribute>> {
+pub fn get_attributes(
+    account: String,
+    querier: &AttributeQuerier<Empty>,
+) -> StdResult<Vec<Attribute>> {
     let response = querier.attributes(account, None)?;
     Ok(response.attributes)
 }

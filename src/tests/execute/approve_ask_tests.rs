@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod approve_ask_tests {
-    use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
@@ -12,7 +12,7 @@ mod approve_ask_tests {
         setup_test_base, setup_test_base_contract_v3, store_test_ask,
     };
     use crate::tests::test_utils::validate_execute_invalid_id_field;
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, from_binary, Addr, Binary, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
@@ -123,8 +123,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order update
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -215,8 +217,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order the same
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(stored_order, existing_ask_order)
             }
@@ -277,6 +281,7 @@ mod approve_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -355,8 +360,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order update
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -445,8 +452,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -530,8 +539,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -615,8 +626,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -700,8 +713,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -775,6 +790,7 @@ mod approve_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -869,6 +885,7 @@ mod approve_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -912,8 +929,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order update
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,
@@ -997,8 +1016,10 @@ mod approve_ask_tests {
         }
 
         // verify ask order unchanged
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,

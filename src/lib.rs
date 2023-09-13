@@ -4,6 +4,7 @@ pub mod common;
 pub mod contract;
 pub mod contract_info;
 pub mod error;
+pub mod execute;
 pub mod msg;
 pub mod tests;
 pub mod util;

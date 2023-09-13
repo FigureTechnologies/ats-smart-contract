@@ -1,29 +1,29 @@
-use cosmwasm_std::{attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Order, Record, Response, StdError, StdResult, Uint128};
-// use provwasm_std::types::provenance::marker::v1::{MarkerAccount, MarkerQuerier};
-
-use crate::ask_order::{
-    get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
-    AskOrderV1,
-};
-use crate::bid_order::{get_bid_storage, get_bid_storage_read, migrate_bid_orders, BidOrderV3};
-use crate::common::{Action, FeeInfo};
+use crate::ask_order::{migrate_ask_orders, AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
+use crate::bid_order::{migrate_bid_orders, BidOrderV3, BIDS_V3};
+use crate::common::{Action, ContractAction, FeeInfo};
 use crate::contract_info::{
-    get_contract_info, migrate_contract_info, modify_contract_info, set_contract_info,
-    ContractInfoV3,
+    get_contract_info, migrate_contract_info, set_contract_info, ContractInfoV3,
 };
 use crate::error::ContractError;
 use crate::error::ContractError::InvalidPricePrecisionSizePair;
+use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
-use crate::util::{is_invalid_price_precision, is_restricted_marker, get_attributes, transfer_marker_coins};
+use crate::util::{
+    get_attributes, is_invalid_price_precision, is_restricted_marker, transfer_marker_coins,
+};
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
 };
+use cosmwasm_std::{
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env,
+    MessageInfo, Response, StdError, StdResult, Uint128,
+};
+use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
 use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -122,7 +122,7 @@ pub fn instantiate(
             "contract_info",
             format!("{:?}", get_contract_info(deps.storage)?),
         ),
-        attr("action", "init"),
+        attr("action", ContractAction::Init.to_string()),
     ]))
 }
 
@@ -191,7 +191,7 @@ pub fn execute(
         ),
         ExecuteMsg::CancelAsk { id } => cancel_ask(deps, env, info, id),
         ExecuteMsg::CancelBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("cancel_bid"), None)
+            reverse_bid(deps, env, info, id, ContractAction::CancelBid, None)
         }
         ExecuteMsg::ExecuteMatch {
             ask_id,
@@ -200,16 +200,16 @@ pub fn execute(
             size,
         } => execute_match(deps, env, info, ask_id, bid_id, price, size),
         ExecuteMsg::ExpireAsk { id } => {
-            reverse_ask(deps, env, info, id, String::from("expire_ask"), None)
+            reverse_ask(deps, env, info, id, ContractAction::ExpireAsk, None)
         }
         ExecuteMsg::ExpireBid { id } => {
-            reverse_bid(deps, env, info, id, String::from("expire_bid"), None)
+            reverse_bid(deps, env, info, id, ContractAction::ExpireBid, None)
         }
         ExecuteMsg::RejectAsk { id, size } => {
-            reverse_ask(deps, env, info, id, String::from("reject_ask"), size)
+            reverse_ask(deps, env, info, id, ContractAction::RejectAsk, size)
         }
         ExecuteMsg::RejectBid { id, size } => {
-            reverse_bid(deps, env, info, id, String::from("reject_bid"), size)
+            reverse_bid(deps, env, info, id, ContractAction::RejectBid, size)
         }
         ExecuteMsg::ModifyContract {
             approvers,
@@ -269,10 +269,9 @@ fn approve_ask(
         }
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     // update ask order
-    let updated_ask_order = ask_storage.update(
+    let updated_ask_order = ASKS_V1.update(
+        deps.storage,
         id.as_bytes(),
         |stored_ask_order| -> Result<AskOrderV1, ContractError> {
             match stored_ask_order {
@@ -315,7 +314,7 @@ fn approve_ask(
 
     // build response
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "approve_ask"),
+        attr("action", ContractAction::ApproveAsk.to_string()),
         attr("id", &updated_ask_order.id),
         attr("class", serde_json::to_string(&updated_ask_order.class)?),
         attr("quote", &updated_ask_order.quote),
@@ -412,10 +411,8 @@ fn create_ask(
     if !contract_info.ask_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .ask_required_attributes
             .iter()
@@ -425,24 +422,25 @@ fn create_ask(
         }
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     if ask_order.base.ne(&contract_info.base_denom) {
         ask_order.class = AskOrderClass::Convertible {
             status: AskOrderStatus::PendingIssuerApproval,
         };
     };
 
-    if ask_storage.may_load(ask_order.id.as_bytes())?.is_some() {
+    if ASKS_V1
+        .may_load(deps.storage, ask_order.id.as_bytes())?
+        .is_some()
+    {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("id")],
         });
     }
 
-    ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+    ASKS_V1.save(deps.storage, ask_order.id.as_bytes(), &ask_order)?;
 
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "create_ask"),
+        attr("action", ContractAction::CreateAsk.to_string()),
         attr("id", &ask_order.id),
         attr("class", serde_json::to_string(&ask_order.class)?),
         attr("target_base", &contract_info.base_denom),
@@ -570,10 +568,8 @@ fn create_bid(
     if !contract_info.bid_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .bid_required_attributes
             .iter()
@@ -606,18 +602,19 @@ fn create_bid(
         return Err(ContractError::SentFundsOrderMismatch);
     }
 
-    let mut bid_storage = get_bid_storage(deps.storage);
-
-    if bid_storage.may_load(bid_order.id.as_bytes())?.is_some() {
+    if BIDS_V3
+        .may_load(deps.storage, bid_order.id.as_bytes())?
+        .is_some()
+    {
         return Err(ContractError::InvalidFields {
             fields: vec![String::from("id")],
         });
     }
 
-    bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
+    BIDS_V3.save(deps.storage, bid_order.id.as_bytes(), &bid_order)?;
 
     let mut response = Response::new().add_attributes(vec![
-        attr("action", "create_bid"),
+        attr("action", ContractAction::CreateBid.to_string()),
         attr("base", &bid_order.base.denom),
         attr("id", &bid_order.id),
         attr(
@@ -660,7 +657,6 @@ fn cancel_ask(
         return Err(ContractError::CancelWithFunds);
     }
 
-    let ask_storage = get_ask_storage_read(deps.storage);
     let AskOrderV1 {
         id,
         owner,
@@ -668,16 +664,15 @@ fn cancel_ask(
         base,
         size,
         ..
-    } = ask_storage
-        .load(id.as_bytes())
+    } = ASKS_V1
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
     if !info.sender.eq(&owner) {
         return Err(ContractError::Unauthorized);
     }
 
     // remove the ask order from storage
-    let mut ask_storage = get_ask_storage(deps.storage);
-    ask_storage.remove(id.as_bytes());
+    ASKS_V1.remove(deps.storage, id.as_bytes());
 
     // is ask base a marker
     let is_base_restricted_marker = is_restricted_marker(&deps.querier, base.clone());
@@ -694,7 +689,10 @@ fn cancel_ask(
             }
             .into(),
         })
-        .add_attributes(vec![attr("action", "cancel_ask"), attr("id", id)]);
+        .add_attributes(vec![
+            attr("action", ContractAction::CancelAsk.to_string()),
+            attr("id", id),
+        ]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -731,7 +729,7 @@ fn reverse_ask(
     env: Env,
     info: MessageInfo,
     id: String,
-    action: String,
+    action: ContractAction,
     cancel_size: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     // return error if id is empty
@@ -750,11 +748,9 @@ fn reverse_ask(
         return Err(ContractError::Unauthorized);
     }
 
-    let ask_storage = get_ask_storage_read(deps.storage);
-
     // retrieve the order
-    let mut ask_order = ask_storage
-        .load(id.as_bytes())
+    let mut ask_order = ASKS_V1
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     // determine the effective cancel size
@@ -797,7 +793,7 @@ fn reverse_ask(
             .into(),
         })
         .add_attributes(vec![
-            attr("action", action),
+            attr("action", action.to_string()),
             attr("id", id),
             attr("reverse_size", effective_cancel_size),
         ]);
@@ -828,14 +824,12 @@ fn reverse_ask(
         });
     }
 
-    let mut ask_storage = get_ask_storage(deps.storage);
-
     // remove the ask order from storage if remaining size is 0, otherwise, store updated order
     if ask_order.size.is_zero() {
-        ask_storage.remove(ask_order.id.as_bytes());
+        ASKS_V1.remove(deps.storage, ask_order.id.as_bytes());
         response = response.add_attributes(vec![attr("order_open", "false")]);
     } else {
-        ask_storage.save(ask_order.id.as_bytes(), &ask_order)?;
+        ASKS_V1.save(deps.storage, ask_order.id.as_bytes(), &ask_order)?;
         response = response.add_attributes(vec![attr("order_open", "true")]);
     }
 
@@ -848,7 +842,7 @@ fn reverse_bid(
     env: Env,
     info: MessageInfo,
     id: String,
-    action: String,
+    action: ContractAction,
     cancel_size: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     // return error if id is empty
@@ -863,14 +857,12 @@ fn reverse_bid(
 
     let contract_info = get_contract_info(deps.storage)?;
 
-    let bid_storage = get_bid_storage_read::<BidOrderV3>(deps.storage);
-
     //load the bid order
-    let mut bid_order = bid_storage
-        .load(id.as_bytes())
+    let mut bid_order = BIDS_V3
+        .load(deps.storage, id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
-    if action == "cancel_bid" {
+    if action.eq(&ContractAction::CancelBid) {
         if !info.sender.eq(&bid_order.owner) {
             return Err(ContractError::Unauthorized);
         }
@@ -977,7 +969,7 @@ fn reverse_bid(
             .into(),
         })
         .add_attributes(vec![
-            attr("action", action),
+            attr("action", action.to_string()),
             attr("id", id),
             attr("reverse_size", effective_cancel_size),
         ]);
@@ -1001,120 +993,17 @@ fn reverse_bid(
         }
     }
 
-    let mut bid_storage = get_bid_storage::<BidOrderV3>(deps.storage);
-
     // remove the bid order from storage if remaining size is 0, otherwise, store updated order
     match bid_order.get_remaining_base().is_zero() {
         true => {
-            bid_storage.remove(bid_order.id.as_bytes());
+            BIDS_V3.remove(deps.storage, bid_order.id.as_bytes());
             response = response.add_attributes(vec![attr("order_open", "false")]);
         }
         false => {
-            bid_storage.save(bid_order.id.as_bytes(), &bid_order)?;
+            BIDS_V3.save(deps.storage, bid_order.id.as_bytes(), &bid_order)?;
             response = response.add_attributes(vec![attr("order_open", "true")]);
         }
     }
-
-    Ok(response)
-}
-
-fn modify_contract(
-    deps: DepsMut,
-    _env: Env,
-    info: &MessageInfo,
-    approvers: Option<Vec<String>>,
-    executors: Option<Vec<String>>,
-    ask_fee_rate: Option<String>,
-    ask_fee_account: Option<String>,
-    bid_fee_rate: Option<String>,
-    bid_fee_account: Option<String>,
-    ask_required_attributes: Option<Vec<String>>,
-    bid_required_attributes: Option<Vec<String>>,
-) -> Result<Response, ContractError> {
-    let contract_info = get_contract_info(deps.storage)?;
-
-    if !contract_info.executors.contains(&info.sender) {
-        return Err(ContractError::Unauthorized);
-    }
-
-    let ask_storage = get_ask_storage_read(deps.storage);
-    let ask_orders: Vec<AskOrderV1> = ask_storage
-        .range(None, None, Order::Ascending)
-        .map(|kv_ask: StdResult<Record<AskOrderV1>>| {
-            let (_, ask_order) = kv_ask.unwrap();
-            ask_order
-        })
-        .collect();
-    if !ask_orders.is_empty() {
-        match &ask_required_attributes {
-            None => (),
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["ask_required_attributes".to_string()],
-                });
-            }
-        }
-    }
-
-    let bid_storage = get_bid_storage_read(deps.storage);
-    let bid_orders: Vec<BidOrderV3> = bid_storage
-        .range(None, None, Order::Ascending)
-        .map(|kv_bid: StdResult<Record<BidOrderV3>>| {
-            let (_, bid_order) = kv_bid.unwrap();
-            bid_order
-        })
-        .collect();
-    if !bid_orders.is_empty() {
-        match &bid_required_attributes {
-            None => {}
-            Some(_) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_required_attributes".to_string()],
-                });
-            }
-        }
-        match (&bid_fee_rate, &bid_fee_account) {
-            (None, None) => {}
-            (_, _) => {
-                return Err(ContractError::InvalidFields {
-                    fields: vec!["bid_fee".to_string()],
-                });
-            }
-        }
-    }
-
-    if !ask_orders.is_empty() || !bid_orders.is_empty() {
-        match &approvers {
-            None => {}
-            Some(approvers) => {
-                let current_approvers: HashSet<String> = contract_info
-                    .approvers
-                    .into_iter()
-                    .map(|item| item.into_string())
-                    .collect();
-                let new_approvers: HashSet<String> = approvers.clone().into_iter().collect();
-                if !current_approvers.is_subset(&new_approvers) {
-                    return Err(ContractError::InvalidFields {
-                        fields: vec!["approvers".to_string()],
-                    });
-                }
-            }
-        }
-    }
-
-    modify_contract_info(
-        deps,
-        approvers,
-        executors,
-        ask_fee_rate,
-        ask_fee_account,
-        bid_fee_rate,
-        bid_fee_account,
-        ask_required_attributes,
-        bid_required_attributes,
-    )?;
-
-    let response = Response::new();
 
     Ok(response)
 }
@@ -1141,14 +1030,12 @@ fn execute_match(
         return Err(ContractError::ExecuteWithFunds);
     }
 
-    let ask_storage_read = get_ask_storage_read(deps.storage);
-    let mut ask_order = ask_storage_read
-        .load(ask_id.as_bytes())
+    let mut ask_order = ASKS_V1
+        .load(deps.storage, ask_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
-    let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
-    let mut bid_order = bid_storage_read
-        .load(bid_id.as_bytes())
+    let mut bid_order = BIDS_V3
+        .load(deps.storage, bid_id.as_bytes())
         .map_err(|error| ContractError::LoadOrderFailed { error })?;
 
     // Validate the requested quote denom in the ask order matches the offered quote denom in the bid order
@@ -1229,7 +1116,7 @@ fn execute_match(
 
     let mut response = Response::new();
     response = response.add_attributes(vec![
-        attr("action", "execute"),
+        attr("action", ContractAction::Execute.to_string()),
         attr("ask_id", &ask_id),
         attr("bid_id", &bid_id),
         attr("base", &bid_order.base.denom),
@@ -1576,17 +1463,19 @@ fn execute_match(
 
     // finally update or remove the orders from storage
     if ask_order.size.is_zero() {
-        get_ask_storage(deps.storage).remove(ask_id.as_bytes());
+        ASKS_V1.remove(deps.storage, ask_id.as_bytes());
     } else {
-        get_ask_storage(deps.storage)
-            .update(ask_id.as_bytes(), |_| -> StdResult<_> { Ok(ask_order) })?;
+        ASKS_V1.update(deps.storage, ask_id.as_bytes(), |_| -> StdResult<_> {
+            Ok(ask_order)
+        })?;
     }
 
     if bid_order.get_remaining_base().eq(&Uint128::zero()) {
-        get_bid_storage::<BidOrderV3>(deps.storage).remove(bid_id.as_bytes());
+        BIDS_V3.remove(deps.storage, bid_id.as_bytes());
     } else {
-        get_bid_storage(deps.storage)
-            .update(bid_id.as_bytes(), |_| -> StdResult<_> { Ok(bid_order) })?;
+        BIDS_V3.update(deps.storage, bid_id.as_bytes(), |_| -> StdResult<_> {
+            Ok(bid_order)
+        })?;
     }
 
     Ok(response)
@@ -1594,11 +1483,7 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(
-    mut deps: DepsMut,
-    env: Env,
-    msg: MigrateMsg,
-) -> Result<Response, ContractError> {
+pub fn migrate(mut deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // build response
@@ -1626,12 +1511,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
     match msg {
         QueryMsg::GetAsk { id } => {
-            let ask_storage_read = get_ask_storage_read(deps.storage);
-            return to_binary(&ask_storage_read.load(id.as_bytes())?);
+            return to_binary(&ASKS_V1.load(deps.storage, id.as_bytes())?);
         }
         QueryMsg::GetBid { id } => {
-            let bid_storage_read = get_bid_storage_read::<BidOrderV3>(deps.storage);
-            return to_binary(&bid_storage_read.load(id.as_bytes())?);
+            return to_binary(&BIDS_V3.load(deps.storage, id.as_bytes())?);
         }
         QueryMsg::GetContractInfo {} => to_binary(&get_contract_info(deps.storage)?),
         QueryMsg::GetVersionInfo {} => to_binary(&get_version_info(deps.storage)?),

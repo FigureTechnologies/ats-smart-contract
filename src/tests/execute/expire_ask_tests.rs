@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod expire_ask_tests {
-    use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
     use crate::contract::execute;
     use crate::error::ContractError;
     use crate::msg::ExecuteMsg;
     use crate::tests::test_constants::{HYPHENATED_ASK_ID, UNHYPHENATED_ASK_ID};
     use crate::tests::test_setup_utils::{setup_test_base_contract_v3, store_test_ask};
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, BankMsg, Binary, CosmosMsg, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
@@ -71,8 +71,9 @@ mod expire_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(HYPHENATED_ASK_ID.as_bytes()).is_err());
+        assert!(ASKS_V1
+            .load(&deps.storage, HYPHENATED_ASK_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -134,8 +135,9 @@ mod expire_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage.load(UNHYPHENATED_ASK_ID.as_bytes()).is_err());
+        assert!(ASKS_V1
+            .load(&deps.storage, UNHYPHENATED_ASK_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -170,6 +172,7 @@ mod expire_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -234,9 +237,11 @@ mod expire_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()
+            )
             .is_err());
     }
 
@@ -311,9 +316,11 @@ mod expire_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 
@@ -349,6 +356,7 @@ mod expire_ask_tests {
               \"denom\": \"con_base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -379,6 +387,7 @@ mod expire_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -459,9 +468,11 @@ mod expire_ask_tests {
         }
 
         // verify ask order removed from storage
-        let ask_storage = get_ask_storage_read(&deps.storage);
-        assert!(ask_storage
-            .load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes())
+        assert!(ASKS_V1
+            .load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()
+            )
             .is_err());
     }
 

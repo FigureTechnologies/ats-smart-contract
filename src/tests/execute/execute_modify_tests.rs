@@ -9,8 +9,12 @@ mod execute_modify_test {
     use crate::tests::test_setup_utils::{setup_test_base, store_test_ask};
     use crate::version_info::{set_version_info, VersionInfoV1};
     use cosmwasm_std::testing::{mock_env, mock_info};
-    use cosmwasm_std::{coin, Addr, MessageInfo, Uint128};
+    use cosmwasm_std::{coin, Addr, MessageInfo, Response, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
+
+    fn get_expected_modify_contract_response() -> Response {
+        Response::new().add_attribute("action", "modify_contract")
+    }
 
     #[test]
     fn execute_modify_contract_valid() {
@@ -78,7 +82,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -603,7 +609,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -630,6 +638,23 @@ mod execute_modify_test {
             create_ask_msg.clone(),
         );
         match create_ask_response {
+            Ok(_) => {}
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+        let create_ask_msg_2 = ExecuteMsg::CreateAsk {
+            base: "base_denom".into(),
+            id: "aaaaaaaa-f6fc-46d1-aa84-51ccc51ec367".into(),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            size: Uint128::new(100),
+        };
+        let create_ask_response_2 = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg_2.clone(),
+        );
+        match create_ask_response_2 {
             Ok(_) => {}
             Err(error) => panic!("unexpected error: {:?}", error),
         }
@@ -856,7 +881,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -953,8 +980,8 @@ mod execute_modify_test {
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
             executors: Some(vec![]),
-            ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_rate: None,
+            ask_fee_account: None,
             bid_fee_rate: None,
             bid_fee_account: None,
             ask_required_attributes: Some(vec!["ask_tag_3".into(), "ask_tag_4".into()]),
@@ -977,8 +1004,8 @@ mod execute_modify_test {
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec![]),
             executors: None,
-            ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_rate: None,
+            ask_fee_account: None,
             bid_fee_rate: None,
             bid_fee_account: None,
             ask_required_attributes: Some(vec!["ask_tag_3".into(), "ask_tag_4".into()]),
@@ -1000,8 +1027,8 @@ mod execute_modify_test {
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: None,
             executors: None,
-            ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_rate: None,
+            ask_fee_account: None,
             bid_fee_rate: None,
             bid_fee_account: None,
             ask_required_attributes: None,
@@ -1010,7 +1037,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
     }
@@ -1198,7 +1227,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
@@ -1310,8 +1341,10 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
-            Ok(_) => {}
         }
 
         let contract_info = get_contract_info(&deps.storage);
@@ -1468,8 +1501,8 @@ mod execute_modify_test {
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
             executors: Some(vec!["exec_1".into(), "exec_3".into()]),
-            ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_rate: None,
+            ask_fee_account: None,
             bid_fee_rate: None,
             bid_fee_account: None,
             ask_required_attributes: None,
@@ -1482,6 +1515,127 @@ mod execute_modify_test {
             Err(error) => match error {
                 ContractError::InvalidFields { fields } => {
                     assert_eq!(fields, vec!["bid_required_attributes".to_string()]);
+                }
+                _ => panic!("unexpected error: {:?}", error),
+            },
+        }
+    }
+
+    #[test]
+    fn execute_modify_contract_existing_ask_order_invalid_ask_fee_change() {
+        let mut deps = mock_provenance_dependencies();
+
+        let version_info = set_version_info(
+            &mut deps.storage,
+            &VersionInfoV1 {
+                definition: "def".to_string(),
+                version: "0.16.2".to_string(),
+            },
+        );
+
+        match version_info {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(_) => {}
+        }
+        setup_test_base(
+            &mut deps.storage,
+            &ContractInfoV3 {
+                name: "contract_name".into(),
+                bind_name: "contract_bind_name".into(),
+                base_denom: "base_denom".into(),
+                convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
+                supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
+                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                ask_fee_info: None,
+                bid_fee_info: None,
+                ask_required_attributes: vec![],
+                bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
+                price_precision: Uint128::new(2),
+                size_increment: Uint128::new(100),
+            },
+        );
+
+        let contract_info = get_contract_info(&deps.storage);
+        match contract_info {
+            Err(error) => panic!("unexpected error: {:?}", error),
+            Ok(contract_info) => {
+                assert_eq!(
+                    contract_info.executors,
+                    Vec::from([Addr::unchecked("exec_1"), Addr::unchecked("exec_2")])
+                );
+                assert_eq!(
+                    contract_info.convertible_base_denoms,
+                    vec!["con_base_1".to_string(), "con_base_2".to_string()]
+                );
+                assert_eq!(contract_info.ask_fee_info, None);
+            }
+        }
+
+        // Store 1 ask order
+        // TODO: find alternative function
+        // deps.querier.with_attributes(
+        //     "asker",
+        //     &[
+        //         ("ask_tag_1", "ask_tag_1_value", "String"),
+        //         ("ask_tag_2", "ask_tag_2_value", "String"),
+        //     ],
+        // );
+        let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
+        let create_ask_msg = ExecuteMsg::CreateAsk {
+            base: "base_denom".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
+            price: "2".into(),
+            quote: "quote_1".into(),
+            size: Uint128::new(100),
+        };
+        let create_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg.clone(),
+        );
+        match create_ask_response {
+            Ok(_) => {}
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        let create_ask_msg = ExecuteMsg::CreateAsk {
+            base: "base_denom".into(),
+            id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec368".into(),
+            price: "3".into(),
+            quote: "quote_2".into(),
+            size: Uint128::new(100),
+        };
+        let create_ask_response = execute(
+            deps.as_mut(),
+            mock_env(),
+            asker_info.clone(),
+            create_ask_msg.clone(),
+        );
+        match create_ask_response {
+            Ok(_) => {}
+            Err(error) => panic!("unexpected error: {:?}", error),
+        }
+
+        let exec_info = mock_info("exec_1", &[]);
+        let modify_contract_msg = ExecuteMsg::ModifyContract {
+            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
+            executors: Some(vec!["exec_1".into(), "exec_3".into()]),
+            ask_fee_rate: Some("0.123".into()),
+            ask_fee_account: Some("fee_acct_1".into()),
+            bid_fee_rate: None,
+            bid_fee_account: None,
+            ask_required_attributes: None,
+            bid_required_attributes: None,
+        };
+        let modify_contract_response =
+            execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
+        match modify_contract_response {
+            Ok(_) => panic!("expected modifyContract validation to fail"),
+            Err(error) => match error {
+                ContractError::InvalidFields { fields } => {
+                    assert_eq!(fields, vec!["ask_fee".to_string()]);
                 }
                 _ => panic!("unexpected error: {:?}", error),
             },
@@ -1650,7 +1804,9 @@ mod execute_modify_test {
         let modify_contract_response =
             execute(deps.as_mut(), mock_env(), exec_info, modify_contract_msg);
         match modify_contract_response {
-            Ok(_) => {}
+            Ok(response) => {
+                assert_eq!(response, get_expected_modify_contract_response())
+            }
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 

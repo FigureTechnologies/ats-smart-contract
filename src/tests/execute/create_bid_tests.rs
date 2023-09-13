@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod create_bid_tests {
-    use crate::bid_order::{get_bid_storage_read, BidOrderV3};
+    use crate::bid_order::{BidOrderV3, BIDS_V3};
     use crate::common::FeeInfo;
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
@@ -13,7 +13,7 @@ mod create_bid_tests {
         set_default_required_attributes, setup_test_base, setup_test_base_contract_v3,
     };
     use crate::tests::test_utils::validate_execute_invalid_id_field;
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Coin, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
@@ -46,6 +46,7 @@ mod create_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -138,7 +139,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -149,7 +149,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -285,7 +288,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -296,7 +298,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -409,7 +414,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let ask_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -420,7 +424,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -544,7 +551,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -555,7 +561,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -679,7 +688,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             id,
             base,
@@ -690,7 +698,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -814,7 +825,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -825,7 +835,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -909,6 +922,7 @@ mod create_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -985,7 +999,6 @@ mod create_bid_tests {
         }
 
         // verify bid order stored
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
         if let ExecuteMsg::CreateBid {
             base,
             fee,
@@ -996,7 +1009,10 @@ mod create_bid_tests {
             size,
         } = create_bid_msg
         {
-            match bid_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match BIDS_V3.load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -1077,6 +1093,7 @@ mod create_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -1192,9 +1209,10 @@ mod create_bid_tests {
         }
 
         // verify bid order stored is the original order
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
-
-        match bid_storage.load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()) {
+        match BIDS_V3.load(
+            &deps.storage,
+            "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,

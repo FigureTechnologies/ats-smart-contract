@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod expire_bid_tests {
-    use crate::bid_order::{get_bid_storage_read, BidOrderV3};
+    use crate::bid_order::{BidOrderV3, BIDS_V3};
     use crate::common::FeeInfo;
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
@@ -10,7 +10,7 @@ mod expire_bid_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_bid,
     };
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
@@ -84,8 +84,9 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
-        assert!(bid_storage.load(HYPHENATED_BID_ID.as_bytes()).is_err());
+        assert!(BIDS_V3
+            .load(&deps.storage, HYPHENATED_BID_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -156,8 +157,9 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
-        assert!(bid_storage.load(UNHYPHENATED_BID_ID.as_bytes()).is_err());
+        assert!(BIDS_V3
+            .load(&deps.storage, UNHYPHENATED_BID_ID.as_bytes())
+            .is_err());
     }
 
     #[test]
@@ -192,6 +194,7 @@ mod expire_bid_tests {
               \"denom\": \"quote_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -264,9 +267,11 @@ mod expire_bid_tests {
         }
 
         // verify bid order removed from storage
-        let bid_storage = get_bid_storage_read::<BidOrderV3>(&deps.storage);
-        assert!(bid_storage
-            .load("c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes())
+        assert!(BIDS_V3
+            .load(
+                &deps.storage,
+                "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b".as_bytes()
+            )
             .is_err());
     }
 

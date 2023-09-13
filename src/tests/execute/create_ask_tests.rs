@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod create_ask_tests {
-    use crate::ask_order::{get_ask_storage_read, AskOrderClass, AskOrderStatus, AskOrderV1};
+    use crate::ask_order::{AskOrderClass, AskOrderStatus, AskOrderV1, ASKS_V1};
     use crate::contract::execute;
     use crate::contract_info::ContractInfoV3;
     use crate::error::ContractError;
@@ -8,7 +8,7 @@ mod create_ask_tests {
     use crate::tests::test_constants::UNHYPHENATED_ASK_ID;
     use crate::tests::test_setup_utils::{setup_test_base, setup_test_base_contract_v3};
     use crate::tests::test_utils::validate_execute_invalid_id_field;
-    use crate::util::{transfer_marker_coins};
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
@@ -120,7 +120,6 @@ mod create_ask_tests {
         }
 
         // verify ask order stored
-        let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk {
             id,
             base,
@@ -129,7 +128,10 @@ mod create_ask_tests {
             size,
         } = create_ask_msg
         {
-            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match ASKS_V1.load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -234,7 +236,6 @@ mod create_ask_tests {
         }
 
         // verify ask order stored
-        let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk {
             id,
             base,
@@ -243,7 +244,10 @@ mod create_ask_tests {
             size,
         } = create_ask_msg
         {
-            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match ASKS_V1.load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -318,6 +322,7 @@ mod create_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -383,7 +388,6 @@ mod create_ask_tests {
         }
 
         // verify ask order stored
-        let ask_storage = get_ask_storage_read(&deps.storage);
         if let ExecuteMsg::CreateAsk {
             id,
             base,
@@ -392,7 +396,10 @@ mod create_ask_tests {
             size,
         } = create_ask_msg
         {
-            match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+            match ASKS_V1.load(
+                &deps.storage,
+                "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+            ) {
                 Ok(stored_order) => {
                     assert_eq!(
                         stored_order,
@@ -465,6 +472,7 @@ mod create_ask_tests {
               \"denom\": \"base_1\",
               \"total_supply\": \"1000\",
               \"marker_type\": \"restricted\",
+              \"allow_forced_transfer\": false,
               \"supply_fixed\": false
             }";
 
@@ -565,9 +573,10 @@ mod create_ask_tests {
         }
 
         // verify ask order stored is the original order
-        let ask_storage = get_ask_storage_read(&deps.storage);
-
-        match ask_storage.load("ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes()) {
+        match ASKS_V1.load(
+            &deps.storage,
+            "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".as_bytes(),
+        ) {
             Ok(stored_order) => {
                 assert_eq!(
                     stored_order,

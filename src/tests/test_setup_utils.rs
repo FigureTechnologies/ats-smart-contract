@@ -1,9 +1,9 @@
-use crate::ask_order::{get_ask_storage, AskOrderV1};
-use crate::bid_order::{get_bid_storage, BidOrderV3};
+use crate::ask_order::{AskOrderV1, ASKS_V1};
+use crate::bid_order::{BidOrderV3, BIDS_V3};
 use crate::contract_info::{set_contract_info, ContractInfoV3};
 use crate::tests::test_constants::{APPROVER_1, APPROVER_2, BASE_DENOM};
 use cosmwasm_std::{Addr, Storage, Uint128};
-use provwasm_mocks::{MockProvenanceQuerier};
+use provwasm_mocks::MockProvenanceQuerier;
 
 pub fn setup_test_base(storage: &mut dyn Storage, contract_info: &ContractInfoV3) {
     if let Err(error) = set_contract_info(storage, contract_info) {
@@ -33,15 +33,13 @@ pub fn setup_test_base_contract_v3(storage: &mut dyn Storage) {
 }
 
 pub fn store_test_ask(storage: &mut dyn Storage, ask_order: &AskOrderV1) {
-    let mut ask_storage = get_ask_storage(storage);
-    if let Err(error) = ask_storage.save(ask_order.id.as_bytes(), ask_order) {
+    if let Err(error) = ASKS_V1.save(storage, ask_order.id.as_bytes(), ask_order) {
         panic!("unexpected error: {:?}", error)
     };
 }
 
 pub fn store_test_bid(storage: &mut dyn Storage, bid_order: &BidOrderV3) {
-    let mut bid_storage = get_bid_storage(storage);
-    if let Err(error) = bid_storage.save(bid_order.id.as_bytes(), bid_order) {
+    if let Err(error) = BIDS_V3.save(storage, bid_order.id.as_bytes(), bid_order) {
         panic!("unexpected error: {:?}", error);
     };
 }
