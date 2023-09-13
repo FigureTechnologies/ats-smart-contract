@@ -6,17 +6,12 @@ mod expire_ask_tests {
     use crate::msg::ExecuteMsg;
     use crate::tests::test_constants::{HYPHENATED_ASK_ID, UNHYPHENATED_ASK_ID};
     use crate::tests::test_setup_utils::{setup_test_base_contract_v3, store_test_ask};
+    use crate::tests::test_utils::setup_asset_marker;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{attr, coin, coins, from_binary, Addr, BankMsg, Binary, CosmosMsg, Uint128};
-    use prost::Message;
+    use cosmwasm_std::{attr, coin, coins, Addr, BankMsg, CosmosMsg, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
-    use provwasm_std::shim::Any;
-    use provwasm_std::types::cosmos::auth::v1beta1::BaseAccount;
-    use provwasm_std::types::provenance::marker::v1::{
-        AccessGrant, MarkerAccount, MarkerStatus, MarkerType, QueryMarkerRequest,
-        QueryMarkerResponse,
-    };
+    use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
     use std::convert::TryInto;
 
     #[test]
@@ -150,7 +145,14 @@ mod expire_ask_tests {
         let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
-        QueryMarkerRequest::mock_response(&mut deps.querier, setup_asset_marker());
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // create bid data
         store_test_ask(
@@ -300,8 +302,24 @@ mod expire_ask_tests {
     fn expire_ask_convertible_restricted_marker() {
         let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
-        // todo should mock 2 markers
-        QueryMarkerRequest::mock_response(&mut deps.querier, setup_asset_marker());
+
+        // TODO - a different response should be returned each time. only the latest mock is getting returned
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "con_base_1".to_string(),
+            ),
+        );
 
         // store valid ask order
         store_test_ask(
@@ -495,37 +513,6 @@ mod expire_ask_tests {
                 }
             },
             Ok(_) => panic!("expected error, but ok"),
-        }
-    }
-
-    fn setup_asset_marker() -> QueryMarkerResponse {
-        let expected_marker: MarkerAccount = MarkerAccount {
-            base_account: Some(BaseAccount {
-                address: "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
-                pub_key: None,
-                account_number: 10,
-                sequence: 0,
-            }),
-            manager: "".to_string(),
-            access_control: vec![AccessGrant {
-                address: "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
-                permissions: vec![1, 2, 3, 4, 5, 6, 7],
-            }],
-            status: MarkerStatus::Active.into(),
-            denom: "base_1".to_string(),
-            supply: "1000".to_string(),
-            marker_type: MarkerType::Restricted.into(),
-            supply_fixed: false,
-            allow_governance_control: true,
-            allow_forced_transfer: false,
-            required_attributes: vec![],
-        };
-
-        QueryMarkerResponse {
-            marker: Some(Any {
-                type_url: "/provenance.marker.v1.MarkerAccount".to_string(),
-                value: expected_marker.encode_to_vec(),
-            }),
         }
     }
 }

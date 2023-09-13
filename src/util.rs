@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Addr, BankMsg, CosmosMsg, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, Empty, QuerierWrapper, StdError, StdResult, Uint128};
 use provwasm_std::types::cosmos::base::v1beta1::Coin;
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
 use provwasm_std::types::provenance::marker::v1::{
@@ -41,7 +41,7 @@ pub fn get_attributes(
     return match querier.attributes(account, None) {
         Ok(response) => Ok(response.attributes),
         Err(error) => Err(error),
-    }
+    };
 }
 
 pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
@@ -66,7 +66,6 @@ pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
         from_address: from.into().to_string(),
         to_address: to.into().to_string(),
     };
-
     Ok(request)
 }
 

@@ -1,7 +1,3 @@
-use cosmwasm_std::{
-    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
-};
 use crate::ask_order::{
     get_ask_storage, get_ask_storage_read, migrate_ask_orders, AskOrderClass, AskOrderStatus,
     AskOrderV1,
@@ -22,10 +18,11 @@ use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
     PACKAGE_VERSION,
 };
-use provwasm_std::types::{
-    provenance::attribute::v1::AttributeQuerier,
-    provenance::marker::v1::MsgTransferRequest,
+use cosmwasm_std::{
+    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
+    DepsMut, Env, MessageInfo, Order, Record, Response, StdError, StdResult, Uint128,
 };
+use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
 use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
@@ -420,10 +417,8 @@ fn create_ask(
     if !contract_info.ask_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .ask_required_attributes
             .iter()
@@ -579,10 +574,8 @@ fn create_bid(
     if !contract_info.bid_required_attributes.is_empty() {
         let querier = AttributeQuerier::new(&deps.querier);
         let attributes = get_attributes(info.sender.to_string(), &querier)?;
-        let attributes_names: HashSet<String> = attributes
-            .into_iter()
-            .map(|item| item.name)
-            .collect();
+        let attributes_names: HashSet<String> =
+            attributes.into_iter().map(|item| item.name).collect();
         if contract_info
             .bid_required_attributes
             .iter()
@@ -1628,11 +1621,7 @@ fn execute_match(
 
 // smart contract migrate/upgrade entrypoint
 #[entry_point]
-pub fn migrate(
-    mut deps: DepsMut,
-    env: Env,
-    msg: MigrateMsg,
-) -> Result<Response, ContractError> {
+pub fn migrate(mut deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     msg.validate()?;
 
     // build response
