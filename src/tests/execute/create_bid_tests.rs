@@ -1457,6 +1457,20 @@ mod create_bid_tests {
             },
         );
 
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "bidder".to_string(),
+                attributes: vec![Attribute {
+                    name: "bid_tag_1".to_string(),
+                    value: "bid_tag_1_value".as_bytes().to_vec(),
+                    attribute_type: AttributeType::String.into(),
+                    address: "".to_string(),
+                }],
+                pagination: None,
+            },
+        );
+
         // create bid data
         let create_bid_msg = ExecuteMsg::CreateBid {
             base: "base_denom".into(),

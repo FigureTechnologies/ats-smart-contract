@@ -902,6 +902,20 @@ mod create_ask_tests {
             },
         );
 
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![Attribute {
+                    name: "ask_tag_1".to_string(),
+                    value: "ask_tag_1_value".as_bytes().to_vec(),
+                    attribute_type: AttributeType::String.into(),
+                    address: "".to_string(),
+                }],
+                pagination: None,
+            },
+        );
+
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
