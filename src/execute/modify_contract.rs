@@ -134,7 +134,7 @@ fn check_fee_rate(
                     None => {
                         // Currently there is no fee
 
-                        // Error since trying to set a fee with an existing ask order
+                        // Error since trying to set a fee with an existing order
                         true
                     }
                 };
