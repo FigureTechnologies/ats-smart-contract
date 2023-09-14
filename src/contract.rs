@@ -9,8 +9,7 @@ use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::util::{
-    get_attributes, into_cosmos_msg, is_invalid_price_precision, is_restricted_marker,
-    transfer_marker_coins,
+    get_attributes, is_invalid_price_precision, is_restricted_marker, transfer_marker_coins,
 };
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
@@ -681,26 +680,31 @@ fn cancel_ask(
     // is ask base a marker
     let is_base_restricted_marker = is_restricted_marker(&deps.querier, base.clone());
 
+    let mut response = Response::new();
+
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response::new()
-        .add_message(match is_base_restricted_marker {
-            true => into_cosmos_msg(transfer_marker_coins(
+    match is_base_restricted_marker {
+        true => {
+            response = response.add_message(transfer_marker_coins(
                 size.into(),
                 base,
                 owner,
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?),
-            false => BankMsg::Send {
+            )?);
+        }
+        false => {
+            response = response.add_message(BankMsg::Send {
                 to_address: owner.to_string(),
                 amount: coins(u128::from(size), base),
-            }
-            .into(),
-        })
-        .add_attributes(vec![
-            attr("action", ContractAction::CancelAsk.to_string()),
-            attr("id", id),
-        ]);
+            });
+        }
+    }
+
+    response = response.add_attributes(vec![
+        attr("action", ContractAction::CancelAsk.to_string()),
+        attr("id", id),
+    ]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -713,20 +717,23 @@ fn cancel_ask(
         let is_convertible_restricted_marker =
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
-        response = response.add_message(match is_convertible_restricted_marker {
-            true => into_cosmos_msg(transfer_marker_coins(
-                converted_base.amount.into(),
-                converted_base.denom,
-                approver,
-                env.contract.address.to_owned(),
-                env.contract.address,
-            )?),
-            false => BankMsg::Send {
-                to_address: approver.to_string(),
-                amount: vec![converted_base],
+        match is_convertible_restricted_marker {
+            true => {
+                response = response.add_message(transfer_marker_coins(
+                    converted_base.amount.into(),
+                    converted_base.denom,
+                    approver,
+                    env.contract.address.to_owned(),
+                    env.contract.address,
+                )?);
             }
-            .into(),
-        });
+            false => {
+                response = response.add_message(BankMsg::Send {
+                    to_address: approver.to_string(),
+                    amount: vec![converted_base],
+                });
+            }
+        }
     }
 
     Ok(response)
@@ -786,27 +793,32 @@ fn reverse_ask(
     // is ask base a marker
     let is_base_restricted_marker = is_restricted_marker(&deps.querier, ask_order.base.clone());
 
+    let mut response = Response::new();
+
     // return 'base' to owner, return converted_base to issuer if applicable
-    let mut response = Response::new()
-        .add_message(match is_base_restricted_marker {
-            true => into_cosmos_msg(transfer_marker_coins(
+    match is_base_restricted_marker {
+        true => {
+            response = response.add_message(transfer_marker_coins(
                 effective_cancel_size.into(),
                 ask_order.base.to_owned(),
                 ask_order.owner.to_owned(),
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?),
-            false => BankMsg::Send {
+            )?);
+        }
+        false => {
+            response = response.add_message(BankMsg::Send {
                 to_address: ask_order.owner.to_string(),
                 amount: coins(u128::from(effective_cancel_size), ask_order.base.to_owned()),
-            }
-            .into(),
-        })
-        .add_attributes(vec![
-            attr("action", action.to_string()),
-            attr("id", id),
-            attr("reverse_size", effective_cancel_size),
-        ]);
+            });
+        }
+    }
+
+    response = response.add_attributes(vec![
+        attr("action", action.to_string()),
+        attr("id", id),
+        attr("reverse_size", effective_cancel_size),
+    ]);
 
     if let AskOrderClass::Convertible {
         status: AskOrderStatus::Ready {
@@ -819,20 +831,23 @@ fn reverse_ask(
         let is_convertible_restricted_marker =
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
-        response = response.add_message(match is_convertible_restricted_marker {
-            true => into_cosmos_msg(transfer_marker_coins(
-                effective_cancel_size.into(),
-                converted_base.denom,
-                approver,
-                env.contract.address.to_owned(),
-                env.contract.address,
-            )?),
-            false => BankMsg::Send {
-                to_address: approver.to_string(),
-                amount: coins(u128::from(effective_cancel_size), converted_base.denom),
+        match is_convertible_restricted_marker {
+            true => {
+                response = response.add_message(transfer_marker_coins(
+                    effective_cancel_size.into(),
+                    converted_base.denom,
+                    approver,
+                    env.contract.address.to_owned(),
+                    env.contract.address,
+                )?);
             }
-            .into(),
-        });
+            false => {
+                response = response.add_message(BankMsg::Send {
+                    to_address: approver.to_string(),
+                    amount: coins(u128::from(effective_cancel_size), converted_base.denom),
+                });
+            }
+        }
     }
 
     // remove the ask order from storage if remaining size is 0, otherwise, store updated order
@@ -961,48 +976,56 @@ fn reverse_bid(
         },
     })?;
 
+    let mut response = Response::new();
+
     // 'send quote back to owner' message
-    let mut response = Response::new()
-        .add_message(match is_quote_restricted_marker {
-            true => into_cosmos_msg(transfer_marker_coins(
+    match is_quote_restricted_marker {
+        true => {
+            response = response.add_message(transfer_marker_coins(
                 effective_cancel_quote_size.u128(),
                 bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?),
-            false => BankMsg::Send {
+            )?);
+        }
+        false => {
+            response = response.add_message(BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(
                     effective_cancel_quote_size.u128(),
                     bid_order.quote.denom.to_owned(),
                 )],
-            }
-            .into(),
-        })
-        .add_attributes(vec![
-            attr("action", action.to_string()),
-            attr("id", id),
-            attr("reverse_size", effective_cancel_size),
-        ]);
+            });
+        }
+    }
+
+    response = response.add_attributes(vec![
+        attr("action", action.to_string()),
+        attr("id", id),
+        attr("reverse_size", effective_cancel_size),
+    ]);
 
     // add 'send fee back to owner' message
     if let Some(fee) = effective_cancel_fee_size {
         if fee.amount.gt(&Uint128::zero()) {
-            response = response.add_message(match is_quote_restricted_marker {
-                true => into_cosmos_msg(transfer_marker_coins(
-                    fee.amount.u128(),
-                    bid_order.quote.denom.to_owned(),
-                    bid_order.owner.to_owned(),
-                    env.contract.address.to_owned(),
-                    env.contract.address,
-                )?),
-                false => BankMsg::Send {
-                    to_address: bid_order.owner.to_string(),
-                    amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
+            match is_quote_restricted_marker {
+                true => {
+                    response = response.add_message(transfer_marker_coins(
+                        fee.amount.u128(),
+                        bid_order.quote.denom.to_owned(),
+                        bid_order.owner.to_owned(),
+                        env.contract.address.to_owned(),
+                        env.contract.address,
+                    )?);
                 }
-                .into(),
-            });
+                false => {
+                    response = response.add_message(BankMsg::Send {
+                        to_address: bid_order.owner.to_string(),
+                        amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
+                    });
+                }
+            }
         }
     }
 
