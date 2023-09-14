@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Addr, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use cosmwasm_std::{Addr, CosmosMsg, Empty, QuerierWrapper, StdError, StdResult, Uint128};
 use provwasm_std::types::cosmos::base::v1beta1::Coin;
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
 use provwasm_std::types::provenance::marker::v1::{
@@ -66,6 +66,10 @@ pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
         to_address: to.into().to_string(),
     };
     Ok(request)
+}
+
+pub fn into_cosmos_msg(msg: MsgTransferRequest) -> CosmosMsg {
+    Into::<CosmosMsg>::into(msg)
 }
 
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {

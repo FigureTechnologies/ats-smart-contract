@@ -7,7 +7,7 @@ mod create_ask_tests {
     use crate::msg::ExecuteMsg;
     use crate::tests::test_constants::UNHYPHENATED_ASK_ID;
     use crate::tests::test_setup_utils::{setup_test_base, setup_test_base_contract_v3};
-    use crate::tests::test_utils::setup_asset_marker;
+    use crate::tests::test_utils::setup_restricted_asset_marker;
     use crate::tests::test_utils::validate_execute_invalid_id_field;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
@@ -328,7 +328,7 @@ mod create_ask_tests {
 
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "base_1".to_string(),
@@ -456,7 +456,7 @@ mod create_ask_tests {
 
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "base_1".to_string(),

@@ -10,7 +10,7 @@ mod expire_bid_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_bid,
     };
-    use crate::tests::test_utils::setup_asset_marker;
+    use crate::tests::test_utils::setup_restricted_asset_marker;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coins, Addr, BankMsg, Coin, CosmosMsg, Uint128};
@@ -171,7 +171,7 @@ mod expire_bid_tests {
 
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "quote_1".to_string(),

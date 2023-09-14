@@ -19,10 +19,24 @@ pub fn validate_execute_invalid_id_field(execute_response: Result<Response, Cont
     }
 }
 
+pub fn setup_restricted_asset_marker(
+    base_address: String,
+    access_address: String,
+    marker_denom: String,
+) -> QueryMarkerResponse {
+    setup_asset_marker(
+        base_address,
+        access_address,
+        marker_denom,
+        MarkerType::Restricted,
+    )
+}
+
 pub fn setup_asset_marker(
     base_address: String,
     access_address: String,
     marker_denom: String,
+    marker_type: MarkerType,
 ) -> QueryMarkerResponse {
     let expected_marker: MarkerAccount = MarkerAccount {
         base_account: Some(BaseAccount {
@@ -39,7 +53,7 @@ pub fn setup_asset_marker(
         status: MarkerStatus::Active.into(),
         denom: marker_denom,
         supply: "1000".to_string(),
-        marker_type: MarkerType::Restricted.into(),
+        marker_type: marker_type.into(),
         supply_fixed: false,
         allow_governance_control: true,
         allow_forced_transfer: false,

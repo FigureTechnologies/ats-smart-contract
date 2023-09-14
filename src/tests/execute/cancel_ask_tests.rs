@@ -9,7 +9,7 @@ mod cancel_ask_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base_contract_v3, store_test_ask, store_test_bid,
     };
-    use crate::tests::test_utils::setup_asset_marker;
+    use crate::tests::test_utils::setup_restricted_asset_marker;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
     use cosmwasm_std::{attr, coin, coins, Addr, BankMsg, Coin, CosmosMsg, Uint128};
@@ -173,7 +173,7 @@ mod cancel_ask_tests {
 
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "base_1".to_string(),
@@ -326,7 +326,7 @@ mod cancel_ask_tests {
         // TODO - fix test since mock response returns same result no matter the input
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "con_base_1".to_string(),
@@ -334,7 +334,7 @@ mod cancel_ask_tests {
         );
         QueryMarkerRequest::mock_response(
             &mut deps.querier,
-            setup_asset_marker(
+            setup_restricted_asset_marker(
                 "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
                 "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
                 "base_1".to_string(),

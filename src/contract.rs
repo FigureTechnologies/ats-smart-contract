@@ -9,7 +9,8 @@ use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::util::{
-    get_attributes, is_invalid_price_precision, is_restricted_marker, transfer_marker_coins,
+    get_attributes, into_cosmos_msg, is_invalid_price_precision, is_restricted_marker,
+    transfer_marker_coins,
 };
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
@@ -24,7 +25,6 @@ use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
 use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::convert::TryInto;
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -684,14 +684,13 @@ fn cancel_ask(
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
         .add_message(match is_base_restricted_marker {
-            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+            true => into_cosmos_msg(transfer_marker_coins(
                 size.into(),
                 base,
                 owner,
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?)
-            .unwrap(),
+            )?),
             false => BankMsg::Send {
                 to_address: owner.to_string(),
                 amount: coins(u128::from(size), base),
@@ -715,14 +714,13 @@ fn cancel_ask(
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
-            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+            true => into_cosmos_msg(transfer_marker_coins(
                 converted_base.amount.into(),
                 converted_base.denom,
                 approver,
                 env.contract.address.to_owned(),
                 env.contract.address,
-            )?)
-            .unwrap(),
+            )?),
             false => BankMsg::Send {
                 to_address: approver.to_string(),
                 amount: vec![converted_base],
@@ -791,14 +789,13 @@ fn reverse_ask(
     // return 'base' to owner, return converted_base to issuer if applicable
     let mut response = Response::new()
         .add_message(match is_base_restricted_marker {
-            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+            true => into_cosmos_msg(transfer_marker_coins(
                 effective_cancel_size.into(),
                 ask_order.base.to_owned(),
                 ask_order.owner.to_owned(),
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?)
-            .unwrap(),
+            )?),
             false => BankMsg::Send {
                 to_address: ask_order.owner.to_string(),
                 amount: coins(u128::from(effective_cancel_size), ask_order.base.to_owned()),
@@ -823,14 +820,13 @@ fn reverse_ask(
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
         response = response.add_message(match is_convertible_restricted_marker {
-            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+            true => into_cosmos_msg(transfer_marker_coins(
                 effective_cancel_size.into(),
                 converted_base.denom,
                 approver,
                 env.contract.address.to_owned(),
                 env.contract.address,
-            )?)
-            .unwrap(),
+            )?),
             false => BankMsg::Send {
                 to_address: approver.to_string(),
                 amount: coins(u128::from(effective_cancel_size), converted_base.denom),
@@ -968,14 +964,13 @@ fn reverse_bid(
     // 'send quote back to owner' message
     let mut response = Response::new()
         .add_message(match is_quote_restricted_marker {
-            true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+            true => into_cosmos_msg(transfer_marker_coins(
                 effective_cancel_quote_size.u128(),
                 bid_order.quote.denom.to_owned(),
                 bid_order.owner.to_owned(),
                 env.contract.address.to_owned(),
                 env.contract.address.to_owned(),
-            )?)
-            .unwrap(),
+            )?),
             false => BankMsg::Send {
                 to_address: bid_order.owner.to_string(),
                 amount: vec![coin(
@@ -995,14 +990,13 @@ fn reverse_bid(
     if let Some(fee) = effective_cancel_fee_size {
         if fee.amount.gt(&Uint128::zero()) {
             response = response.add_message(match is_quote_restricted_marker {
-                true => TryInto::<CosmosMsg>::try_into(transfer_marker_coins(
+                true => into_cosmos_msg(transfer_marker_coins(
                     fee.amount.u128(),
                     bid_order.quote.denom.to_owned(),
                     bid_order.owner.to_owned(),
                     env.contract.address.to_owned(),
                     env.contract.address,
-                )?)
-                .unwrap(),
+                )?),
                 false => BankMsg::Send {
                     to_address: bid_order.owner.to_string(),
                     amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
@@ -1162,7 +1156,7 @@ fn execute_match(
                 fee_total => {
                     let ask_fee = Coin {
                         denom: bid_order.quote.denom.to_owned(),
-                        amount: Uint128::new(fee_total.clone()),
+                        amount: Uint128::new(fee_total),
                     };
 
                     match is_quote_restricted_marker {
