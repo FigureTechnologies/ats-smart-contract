@@ -7,12 +7,17 @@ mod create_ask_tests {
     use crate::msg::ExecuteMsg;
     use crate::tests::test_constants::UNHYPHENATED_ASK_ID;
     use crate::tests::test_setup_utils::{setup_test_base, setup_test_base_contract_v3};
+    use crate::tests::test_utils::setup_restricted_asset_marker;
     use crate::tests::test_utils::validate_execute_invalid_id_field;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{attr, coin, coins, from_binary, Addr, Binary, Uint128};
+    use cosmwasm_std::{attr, coin, coins, Addr, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
-    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
+    use provwasm_std::types::provenance::attribute::v1::{
+        Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
+    };
+    use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
+    use std::convert::TryInto;
 
     #[test]
     fn create_ask_invalid_input_unhyphenated_id() {
@@ -64,14 +69,27 @@ mod create_ask_tests {
             },
         );
 
-        // TODO: find alternative function
-        // deps.querier.with_attributes(
-        //     "asker",
-        //     &[
-        //         ("ask_tag_1", "ask_tag_1_value", "String"),
-        //         ("ask_tag_2", "ask_tag_2_value", "String"),
-        //     ],
-        // );
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
@@ -177,14 +195,27 @@ mod create_ask_tests {
             },
         );
 
-        // TODO: find alternative function
-        // deps.querier.with_attributes(
-        //     "asker",
-        //     &[
-        //         ("ask_tag_1", "ask_tag_1_value", "String"),
-        //         ("ask_tag_2", "ask_tag_2_value", "String"),
-        //     ],
-        // );
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
@@ -295,39 +326,14 @@ mod create_ask_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
@@ -377,8 +383,11 @@ mod create_ask_tests {
                         500,
                         "base_1",
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
-                        Addr::unchecked("asker")
+                        Addr::unchecked("asker"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -445,39 +454,14 @@ mod create_ask_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // create ask data
         let create_ask_msg = ExecuteMsg::CreateAsk {
@@ -922,6 +906,20 @@ mod create_ask_tests {
                 bid_required_attributes: vec!["bid_tag_1".into(), "bid_tag_2".into()],
                 price_precision: Uint128::new(2),
                 size_increment: Uint128::new(100),
+            },
+        );
+
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![Attribute {
+                    name: "ask_tag_1".to_string(),
+                    value: "ask_tag_1_value".as_bytes().to_vec(),
+                    attribute_type: AttributeType::String.into(),
+                    address: "".to_string(),
+                }],
+                pagination: None,
             },
         );
 

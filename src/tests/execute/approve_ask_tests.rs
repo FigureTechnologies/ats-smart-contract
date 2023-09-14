@@ -11,12 +11,14 @@ mod approve_ask_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_ask,
     };
+    use crate::tests::test_utils::setup_restricted_asset_marker;
     use crate::tests::test_utils::validate_execute_invalid_id_field;
     use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{attr, coin, from_binary, Addr, Binary, Uint128};
+    use cosmwasm_std::{attr, coin, Addr, Uint128};
     use provwasm_mocks::mock_provenance_dependencies;
-    use provwasm_std::types::provenance::marker::v1::MarkerAccount;
+    use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
+    use std::convert::TryInto;
 
     #[test]
     fn approve_ask_invalid_input_unhyphenated_id() {
@@ -254,39 +256,14 @@ mod approve_ask_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // store valid ask order
         store_test_ask(
@@ -352,8 +329,11 @@ mod approve_ask_tests {
                         100,
                         "base_1",
                         Addr::unchecked(MOCK_CONTRACT_ADDR),
-                        Addr::unchecked("approver_1")
+                        Addr::unchecked("approver_1"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -763,39 +743,14 @@ mod approve_ask_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // store valid ask order
         store_test_ask(
@@ -858,39 +813,14 @@ mod approve_ask_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let _test_marker: MarkerAccount = from_binary(&Binary::from(marker_json)).unwrap();
-        // deps.querier.with_markers(vec![test_marker]); // TODO: find alternative function
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // store valid ask order
         store_test_ask(

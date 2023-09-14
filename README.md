@@ -98,6 +98,12 @@ _NOTE: Address bech32 values may vary._
     # Run the blockchain locally (this is an independent network)
     # `localnet-start` runs 4 nodes, `run` runs 1 node
     make localnet-start OR make run
+
+    # If running the blockchain gives a segmentation fault, try these commands
+    make clean
+    make build WITH_CLEVELDB=no
+    make install WITH_CLEVELDB=no
+    make localnet-start OR make run
     ```
 #### Please make sure you are under provenance dir before continue
 4. Set the directory of the Provenance node you will be communicating with (private keys will be stored here as well):
