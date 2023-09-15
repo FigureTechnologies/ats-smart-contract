@@ -1,5 +1,7 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Addr, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use cosmwasm_std::{
+    coins, Addr, BankMsg, Empty, QuerierWrapper, Response, StdError, StdResult, Uint128,
+};
 use provwasm_std::types::cosmos::base::v1beta1::Coin;
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
 use provwasm_std::types::provenance::marker::v1::{
@@ -68,6 +70,31 @@ pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
     Ok(request)
 }
 
+pub fn add_transfer<S: Into<String>, H: Into<Addr>>(
+    mut response: Response,
+    is_restricted: bool,
+    amount: u128,
+    denom: S,
+    to: H,
+    from: H,
+    contract_address: H,
+) -> Response {
+    match is_restricted {
+        true => {
+            response = response.add_message(
+                transfer_marker_coins(amount, denom, to, from, contract_address).unwrap(),
+            );
+        }
+        false => {
+            response = response.add_message(BankMsg::Send {
+                to_address: to.into().to_string(),
+                amount: coins(u128::from(amount), denom),
+            });
+        }
+    }
+    response
+}
+
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {
     price
         .checked_mul(Decimal::from(10u128.pow(price_precision.u128() as u32)))
@@ -97,7 +124,12 @@ pub fn is_hyphenated_uuid_str(uuid: &String) -> bool {
 
 #[cfg(test)]
 mod util_tests {
-    use crate::util::{is_hyphenated_uuid_str, to_hyphenated_uuid_str};
+    use crate::util::{
+        add_transfer, is_hyphenated_uuid_str, to_hyphenated_uuid_str, transfer_marker_coins,
+    };
+    use cosmwasm_std::testing::MOCK_CONTRACT_ADDR;
+    use cosmwasm_std::{coin, Addr, BankMsg, CosmosMsg, Response};
+    use std::convert::TryInto;
     const UUID_HYPHENATED: &str = "093231fc-e4b3-4fbc-a441-838787f16933";
     const UUID_NOT_HYPHENATED: &str = "093231fce4b34fbca441838787f16933";
 
@@ -163,5 +195,53 @@ mod util_tests {
             true => {}
             false => panic!("Expected true"),
         }
+    }
+
+    #[test]
+    fn add_transfer_gives_msg_transfer_request_if_is_restricted() {
+        let result = add_transfer(
+            Response::new(),
+            true,
+            100,
+            "base_1",
+            Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+            Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+            Addr::unchecked(MOCK_CONTRACT_ADDR),
+        );
+
+        assert_eq!(
+            result.messages[0].msg,
+            transfer_marker_coins(
+                100,
+                "base_1",
+                Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+                Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+                Addr::unchecked(MOCK_CONTRACT_ADDR),
+            )
+            .unwrap()
+            .try_into()
+            .unwrap()
+        )
+    }
+
+    #[test]
+    fn add_transfer_gives_bank_msg_if_is_not_restricted() {
+        let result = add_transfer(
+            Response::new(),
+            false,
+            100,
+            "base_1",
+            Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+            Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+            Addr::unchecked(MOCK_CONTRACT_ADDR),
+        );
+
+        assert_eq!(
+            result.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".into(),
+                amount: vec![coin(100, "base_1")],
+            })
+        )
     }
 }
