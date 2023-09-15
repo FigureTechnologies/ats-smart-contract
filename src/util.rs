@@ -124,7 +124,12 @@ pub fn is_hyphenated_uuid_str(uuid: &String) -> bool {
 
 #[cfg(test)]
 mod util_tests {
-    use crate::util::{is_hyphenated_uuid_str, to_hyphenated_uuid_str};
+    use crate::util::{
+        add_transfer, is_hyphenated_uuid_str, to_hyphenated_uuid_str, transfer_marker_coins,
+    };
+    use cosmwasm_std::testing::MOCK_CONTRACT_ADDR;
+    use cosmwasm_std::{coin, Addr, BankMsg, CosmosMsg, Response};
+    use std::convert::TryInto;
     const UUID_HYPHENATED: &str = "093231fc-e4b3-4fbc-a441-838787f16933";
     const UUID_NOT_HYPHENATED: &str = "093231fce4b34fbca441838787f16933";
 
@@ -190,5 +195,53 @@ mod util_tests {
             true => {}
             false => panic!("Expected true"),
         }
+    }
+
+    #[test]
+    fn add_transfer_gives_msg_transfer_request_if_is_restricted() {
+        let result = add_transfer(
+            Response::new(),
+            true,
+            100,
+            "base_1",
+            Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+            Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+            Addr::unchecked(MOCK_CONTRACT_ADDR),
+        );
+
+        assert_eq!(
+            result.messages[0].msg,
+            transfer_marker_coins(
+                100,
+                "base_1",
+                Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+                Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+                Addr::unchecked(MOCK_CONTRACT_ADDR),
+            )
+            .unwrap()
+            .try_into()
+            .unwrap()
+        )
+    }
+
+    #[test]
+    fn add_transfer_gives_bank_msg_if_is_not_restricted() {
+        let result = add_transfer(
+            Response::new(),
+            false,
+            100,
+            "base_1",
+            Addr::unchecked("tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u"),
+            Addr::unchecked("tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz"),
+            Addr::unchecked(MOCK_CONTRACT_ADDR),
+        );
+
+        assert_eq!(
+            result.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".into(),
+                amount: vec![coin(100, "base_1")],
+            })
+        )
     }
 }

@@ -17,8 +17,8 @@ use crate::version_info::{
     PACKAGE_VERSION,
 };
 use cosmwasm_std::{
-    attr, coin, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128,
+    attr, coin, coins, entry_point, to_binary, Addr, Binary, Coin, Deps, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, Uint128,
 };
 use provwasm_std::types::provenance::attribute::v1::AttributeQuerier;
 use rust_decimal::prelude::{FromPrimitive, FromStr, ToPrimitive, Zero};
