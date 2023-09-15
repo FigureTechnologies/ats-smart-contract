@@ -44,7 +44,7 @@ checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
 
 [[package]]
 name = "ats-smart-contract"
-version = "0.19.4"
+version = "0.20.0"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -645,18 +645,18 @@ dependencies = [
 
 [[package]]
 name = "provwasm-common"
-version = "0.1.0-rc1"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed894f8af9c86dd6d8af04ada480529f759574ab617d125c4667956c27a7e001"
+checksum = "938fe0a8914598b5aa201221ce2d9c5388412e348ea312bcba36b5077376b96d"
 dependencies = [
  "cosmwasm-std",
 ]
 
 [[package]]
 name = "provwasm-mocks"
-version = "2.0.0-rc1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04101c497d7c397fd8bd0c0e9c1afca30b622e74395ddd21299976a7612db474"
+checksum = "02175727ba6205cb5feac4724d3ab6f4e5833dddae517961bf820f6df4d3a6bd"
 dependencies = [
  "cosmwasm-std",
  "provwasm-common",
@@ -667,9 +667,9 @@ dependencies = [
 
 [[package]]
 name = "provwasm-proc-macro"
-version = "0.1.0-rc1"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7564880a5ab7eaf9c8734d49514e6537fbf50bbb94a98db13f818c12150c4778"
+checksum = "792736fb76e0acb3118b22e5e55e456b22c67ac3ee51bfb1f7dfde09bd954560"
 dependencies = [
  "itertools",
  "proc-macro2",
@@ -679,9 +679,9 @@ dependencies = [
 
 [[package]]
 name = "provwasm-std"
-version = "2.0.0-rc1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf32599dcbcb6658277b66136b6656c2a22459ac5a951989d3c294cfe10dca9b"
+checksum = "d216752a4c37d7bc39ee1d397f6500fa92cf1c191c60b501038aa98cafa07c69"
 dependencies = [
  "base64",
  "chrono",
