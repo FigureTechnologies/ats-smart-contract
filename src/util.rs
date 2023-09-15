@@ -1,5 +1,7 @@
 use crate::error::ContractError;
-use cosmwasm_std::{Addr, Empty, QuerierWrapper, StdError, StdResult, Uint128};
+use cosmwasm_std::{
+    coins, Addr, BankMsg, Empty, QuerierWrapper, Response, StdError, StdResult, Uint128,
+};
 use provwasm_std::types::cosmos::base::v1beta1::Coin;
 use provwasm_std::types::provenance::attribute::v1::{Attribute, AttributeQuerier};
 use provwasm_std::types::provenance::marker::v1::{
@@ -66,6 +68,31 @@ pub fn transfer_marker_coins<S: Into<String>, H: Into<Addr>>(
         to_address: to.into().to_string(),
     };
     Ok(request)
+}
+
+pub fn add_transfer<S: Into<String>, H: Into<Addr>>(
+    mut response: Response,
+    is_restricted: bool,
+    amount: u128,
+    denom: S,
+    to: H,
+    from: H,
+    contract_address: H,
+) -> Response {
+    match is_restricted {
+        true => {
+            response = response.add_message(
+                transfer_marker_coins(amount, denom, to, from, contract_address).unwrap(),
+            );
+        }
+        false => {
+            response = response.add_message(BankMsg::Send {
+                to_address: to.into().to_string(),
+                amount: coins(u128::from(amount), denom),
+            });
+        }
+    }
+    response
 }
 
 pub fn is_invalid_price_precision(price: Decimal, price_precision: Uint128) -> bool {

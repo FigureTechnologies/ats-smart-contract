@@ -9,7 +9,8 @@ use crate::error::ContractError::InvalidPricePrecisionSizePair;
 use crate::execute::modify_contract::modify_contract;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::util::{
-    get_attributes, is_invalid_price_precision, is_restricted_marker, transfer_marker_coins,
+    add_transfer, get_attributes, is_invalid_price_precision, is_restricted_marker,
+    transfer_marker_coins,
 };
 use crate::version_info::{
     get_version_info, migrate_version_info, set_version_info, VersionInfoV1, CRATE_NAME,
@@ -683,23 +684,15 @@ fn cancel_ask(
     let mut response = Response::new();
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    match is_base_restricted_marker {
-        true => {
-            response = response.add_message(transfer_marker_coins(
-                size.into(),
-                base,
-                owner,
-                env.contract.address.to_owned(),
-                env.contract.address.to_owned(),
-            )?);
-        }
-        false => {
-            response = response.add_message(BankMsg::Send {
-                to_address: owner.to_string(),
-                amount: coins(u128::from(size), base),
-            });
-        }
-    }
+    response = add_transfer(
+        response,
+        is_base_restricted_marker,
+        size.into(),
+        base,
+        owner,
+        env.contract.address.to_owned(),
+        env.contract.address.to_owned(),
+    );
 
     response = response.add_attributes(vec![
         attr("action", ContractAction::CancelAsk.to_string()),
@@ -717,23 +710,15 @@ fn cancel_ask(
         let is_convertible_restricted_marker =
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
-        match is_convertible_restricted_marker {
-            true => {
-                response = response.add_message(transfer_marker_coins(
-                    converted_base.amount.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address.to_owned(),
-                    env.contract.address,
-                )?);
-            }
-            false => {
-                response = response.add_message(BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: vec![converted_base],
-                });
-            }
-        }
+        response = add_transfer(
+            response,
+            is_convertible_restricted_marker,
+            converted_base.amount.into(),
+            converted_base.denom,
+            approver,
+            env.contract.address.to_owned(),
+            env.contract.address,
+        );
     }
 
     Ok(response)
@@ -796,23 +781,15 @@ fn reverse_ask(
     let mut response = Response::new();
 
     // return 'base' to owner, return converted_base to issuer if applicable
-    match is_base_restricted_marker {
-        true => {
-            response = response.add_message(transfer_marker_coins(
-                effective_cancel_size.into(),
-                ask_order.base.to_owned(),
-                ask_order.owner.to_owned(),
-                env.contract.address.to_owned(),
-                env.contract.address.to_owned(),
-            )?);
-        }
-        false => {
-            response = response.add_message(BankMsg::Send {
-                to_address: ask_order.owner.to_string(),
-                amount: coins(u128::from(effective_cancel_size), ask_order.base.to_owned()),
-            });
-        }
-    }
+    response = add_transfer(
+        response,
+        is_base_restricted_marker,
+        effective_cancel_size.into(),
+        ask_order.base.to_owned(),
+        ask_order.owner.to_owned(),
+        env.contract.address.to_owned(),
+        env.contract.address.to_owned(),
+    );
 
     response = response.add_attributes(vec![
         attr("action", action.to_string()),
@@ -831,23 +808,15 @@ fn reverse_ask(
         let is_convertible_restricted_marker =
             is_restricted_marker(&deps.querier, converted_base.denom.clone());
 
-        match is_convertible_restricted_marker {
-            true => {
-                response = response.add_message(transfer_marker_coins(
-                    effective_cancel_size.into(),
-                    converted_base.denom,
-                    approver,
-                    env.contract.address.to_owned(),
-                    env.contract.address,
-                )?);
-            }
-            false => {
-                response = response.add_message(BankMsg::Send {
-                    to_address: approver.to_string(),
-                    amount: coins(u128::from(effective_cancel_size), converted_base.denom),
-                });
-            }
-        }
+        response = add_transfer(
+            response,
+            is_convertible_restricted_marker,
+            effective_cancel_size.into(),
+            converted_base.denom,
+            approver,
+            env.contract.address.to_owned(),
+            env.contract.address,
+        );
     }
 
     // remove the ask order from storage if remaining size is 0, otherwise, store updated order
@@ -979,26 +948,15 @@ fn reverse_bid(
     let mut response = Response::new();
 
     // 'send quote back to owner' message
-    match is_quote_restricted_marker {
-        true => {
-            response = response.add_message(transfer_marker_coins(
-                effective_cancel_quote_size.u128(),
-                bid_order.quote.denom.to_owned(),
-                bid_order.owner.to_owned(),
-                env.contract.address.to_owned(),
-                env.contract.address.to_owned(),
-            )?);
-        }
-        false => {
-            response = response.add_message(BankMsg::Send {
-                to_address: bid_order.owner.to_string(),
-                amount: vec![coin(
-                    effective_cancel_quote_size.u128(),
-                    bid_order.quote.denom.to_owned(),
-                )],
-            });
-        }
-    }
+    response = add_transfer(
+        response,
+        is_quote_restricted_marker.to_owned(),
+        effective_cancel_quote_size.u128(),
+        bid_order.quote.denom.to_owned(),
+        bid_order.owner.to_owned(),
+        env.contract.address.to_owned(),
+        env.contract.address.to_owned(),
+    );
 
     response = response.add_attributes(vec![
         attr("action", action.to_string()),
@@ -1009,23 +967,15 @@ fn reverse_bid(
     // add 'send fee back to owner' message
     if let Some(fee) = effective_cancel_fee_size {
         if fee.amount.gt(&Uint128::zero()) {
-            match is_quote_restricted_marker {
-                true => {
-                    response = response.add_message(transfer_marker_coins(
-                        fee.amount.u128(),
-                        bid_order.quote.denom.to_owned(),
-                        bid_order.owner.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address,
-                    )?);
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: bid_order.owner.to_string(),
-                        amount: vec![coin(fee.amount.u128(), bid_order.quote.denom.to_owned())],
-                    });
-                }
-            }
+            response = add_transfer(
+                response,
+                is_quote_restricted_marker,
+                fee.amount.u128(),
+                bid_order.quote.denom.to_owned(),
+                bid_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address,
+            );
         }
     }
 
@@ -1182,23 +1132,15 @@ fn execute_match(
                         amount: Uint128::new(fee_total),
                     };
 
-                    match is_quote_restricted_marker {
-                        true => {
-                            response = response.add_message(transfer_marker_coins(
-                                fee_total,
-                                bid_order.quote.denom.to_owned(),
-                                ask_fee_info.account,
-                                env.contract.address.to_owned(),
-                                env.contract.address.to_owned(),
-                            )?);
-                        }
-                        false => {
-                            response = response.add_message(BankMsg::Send {
-                                to_address: ask_fee_info.account.to_string(),
-                                amount: vec![ask_fee.to_owned()],
-                            });
-                        }
-                    }
+                    response = add_transfer(
+                        response,
+                        is_quote_restricted_marker.to_owned(),
+                        fee_total,
+                        bid_order.quote.denom.to_owned(),
+                        ask_fee_info.account,
+                        env.contract.address.to_owned(),
+                        env.contract.address.to_owned(),
+                    );
 
                     // subtract the fees and assign to net proceeds
                     net_proceeds =
@@ -1237,23 +1179,15 @@ fn execute_match(
     match &actual_bid_fee {
         Some(bid_fee) => match contract_info.bid_fee_info {
             Some(bid_fee_info) => {
-                match is_quote_restricted_marker {
-                    true => {
-                        response = response.add_message(transfer_marker_coins(
-                            bid_fee.amount.to_owned().u128(),
-                            bid_fee.denom.to_owned(),
-                            bid_fee_info.account,
-                            env.contract.address.to_owned(),
-                            env.contract.address.to_owned(),
-                        )?);
-                    }
-                    false => {
-                        response = response.add_message(BankMsg::Send {
-                            to_address: bid_fee_info.account.to_string(),
-                            amount: vec![bid_fee.to_owned()],
-                        });
-                    }
-                };
+                response = add_transfer(
+                    response,
+                    is_quote_restricted_marker.to_owned(),
+                    bid_fee.amount.to_owned().u128(),
+                    bid_fee.denom.to_owned(),
+                    bid_fee_info.account,
+                    env.contract.address.to_owned(),
+                    env.contract.address.to_owned(),
+                );
             }
             None => return Err(ContractError::BidFeeAccountMissing),
         },
@@ -1271,46 +1205,24 @@ fn execute_match(
     // add 'send quote to asker' and 'send base to bidder' messages
     match &ask_order.class {
         AskOrderClass::Basic => {
-            match is_quote_restricted_marker {
-                true => {
-                    response = response.add_message(transfer_marker_coins(
-                        net_proceeds.into(),
-                        bid_order.quote.denom.to_owned(),
-                        ask_order.owner.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: ask_order.owner.to_string(),
-                        amount: vec![Coin {
-                            denom: bid_order.quote.denom.to_owned(),
-                            amount: net_proceeds,
-                        }],
-                    });
-                }
-            }
-            match is_base_restricted_marker {
-                true => {
-                    response = response.add_message(transfer_marker_coins(
-                        execute_size.into(),
-                        ask_order.base.to_owned(),
-                        bid_order.owner.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: bid_order.owner.to_string(),
-                        amount: vec![Coin {
-                            denom: ask_order.base.clone(),
-                            amount: execute_size,
-                        }],
-                    });
-                }
-            }
+            response = add_transfer(
+                response,
+                is_quote_restricted_marker.to_owned(),
+                net_proceeds.into(),
+                bid_order.quote.denom.to_owned(),
+                ask_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
+            response = add_transfer(
+                response,
+                is_base_restricted_marker.to_owned(),
+                execute_size.into(),
+                ask_order.base.to_owned(),
+                bid_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
         }
         AskOrderClass::Convertible {
             status:
@@ -1319,60 +1231,34 @@ fn execute_match(
                     converted_base,
                 },
         } => {
-            match is_base_restricted_marker {
-                true => {
-                    response = response.add_message(transfer_marker_coins(
-                        execute_size.into(),
-                        converted_base.to_owned().denom,
-                        bid_order.owner.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                    response = response.add_message(transfer_marker_coins(
-                        execute_size.into(),
-                        ask_order.base.to_owned(),
-                        approver.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: bid_order.owner.to_owned().into(),
-                        amount: vec![Coin {
-                            denom: converted_base.to_owned().denom,
-                            amount: execute_size,
-                        }],
-                    });
-                    response = response.add_message(BankMsg::Send {
-                        to_address: approver.to_string(),
-                        amount: vec![Coin {
-                            denom: ask_order.base.clone(),
-                            amount: execute_size,
-                        }],
-                    });
-                }
-            }
-            match is_quote_restricted_marker {
-                true => {
-                    response = response.add_message(transfer_marker_coins(
-                        net_proceeds.into(),
-                        bid_order.quote.denom.clone(),
-                        approver.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: approver.to_string(),
-                        amount: vec![Coin {
-                            denom: bid_order.quote.denom.clone(),
-                            amount: net_proceeds,
-                        }],
-                    });
-                }
-            }
+            response = add_transfer(
+                response,
+                is_base_restricted_marker.to_owned(),
+                execute_size.into(),
+                converted_base.to_owned().denom,
+                bid_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
+            response = add_transfer(
+                response,
+                is_base_restricted_marker,
+                execute_size.into(),
+                ask_order.base.to_owned(),
+                approver.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
+
+            response = add_transfer(
+                response,
+                is_quote_restricted_marker.to_owned(),
+                net_proceeds.into(),
+                bid_order.quote.denom.clone(),
+                approver.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
         }
         AskOrderClass::Convertible { status } => {
             return Err(ContractError::AskOrderNotReady {
@@ -1424,42 +1310,25 @@ fn execute_match(
         };
 
         if bid_quote_refund.gt(&0u128) {
-            match is_quote_restricted_marker {
-                true => {
-                    // add the quote refund
-                    response = response.add_message(transfer_marker_coins(
-                        bid_quote_refund,
-                        bid_order.quote.denom.to_owned(),
-                        bid_order.owner.to_owned(),
-                        env.contract.address.to_owned(),
-                        env.contract.address.to_owned(),
-                    )?);
-                    // add the fee refund
-                    if let Some(fee_refund) = &bid_fee_refund {
-                        response = response.add_message(transfer_marker_coins(
-                            fee_refund.amount.u128(),
-                            fee_refund.denom.to_owned(),
-                            bid_order.owner.to_owned(),
-                            env.contract.address.to_owned(),
-                            env.contract.address,
-                        )?);
-                    }
-                }
-                false => {
-                    response = response.add_message(BankMsg::Send {
-                        to_address: bid_order.owner.to_string(),
-                        amount: vec![Coin {
-                            denom: bid_order.quote.denom.clone(),
-                            amount: bid_quote_refund.into(),
-                        }],
-                    });
-                    if let Some(fee_refund) = &bid_fee_refund {
-                        response = response.add_message(BankMsg::Send {
-                            to_address: bid_order.owner.to_string(),
-                            amount: vec![fee_refund.to_owned()],
-                        });
-                    }
-                }
+            response = add_transfer(
+                response,
+                is_quote_restricted_marker.to_owned(),
+                bid_quote_refund,
+                bid_order.quote.denom.to_owned(),
+                bid_order.owner.to_owned(),
+                env.contract.address.to_owned(),
+                env.contract.address.to_owned(),
+            );
+            if let Some(fee_refund) = &bid_fee_refund {
+                response = add_transfer(
+                    response,
+                    is_quote_restricted_marker,
+                    fee_refund.amount.u128(),
+                    fee_refund.denom.to_owned(),
+                    bid_order.owner.to_owned(),
+                    env.contract.address.to_owned(),
+                    env.contract.address,
+                );
             }
         }
 
