@@ -9,16 +9,17 @@ mod cancel_ask_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base_contract_v3, store_test_ask, store_test_bid,
     };
+    use crate::tests::test_utils::setup_restricted_asset_marker;
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{
-        attr, coin, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128,
-    };
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::{transfer_marker_coins, Marker};
+    use cosmwasm_std::{attr, coin, coins, Addr, BankMsg, Coin, CosmosMsg, Uint128};
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
+    use std::convert::TryInto;
 
     #[test]
     fn cancel_ask_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -79,7 +80,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_empty_id_string_returns_err() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // cancel ask order
@@ -106,7 +107,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_valid_legacy_unhyphenated_id_then_cancels_order() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -167,42 +168,17 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // create bid data
         store_test_ask(
@@ -246,8 +222,11 @@ mod cancel_ask_tests {
                         100,
                         "base_1",
                         Addr::unchecked("asker"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -265,7 +244,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_convertible_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -341,76 +320,26 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_convertible_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
-        let convertible_marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"con_base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"con_base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let base_marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"base_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"base_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let base_marker: Marker = from_binary(&Binary::from(base_marker_json)).unwrap();
-        let convertible_marker: Marker =
-            from_binary(&Binary::from(convertible_marker_json)).unwrap();
-        deps.querier
-            .with_markers(vec![base_marker, convertible_marker]);
+        // TODO - fix test since mock response returns same result no matter the input
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "con_base_1".to_string(),
+            ),
+        );
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "base_1".to_string(),
+            ),
+        );
 
         // store valid ask order
         store_test_ask(
@@ -463,8 +392,11 @@ mod cancel_ask_tests {
                         100,
                         "con_base_1",
                         asker_info.sender,
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
                 assert_eq!(
@@ -473,8 +405,11 @@ mod cancel_ask_tests {
                         100,
                         "base_1",
                         Addr::unchecked("approver_1"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -492,7 +427,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_invalid_data() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -516,7 +451,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_non_exist() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -541,7 +476,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_sender_notequal() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let asker_info = mock_info("asker", &[]);
@@ -579,7 +514,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_with_sent_funds() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // cancel ask order with sent_funds returns ContractError::CancelWithFunds
@@ -603,7 +538,7 @@ mod cancel_ask_tests {
 
     #[test]
     fn cancel_ask_partial() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let bid_id = "c13f8888-ca43-4a64-ab1b-1ca8d60aa49b";

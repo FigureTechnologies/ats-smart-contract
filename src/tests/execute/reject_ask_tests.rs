@@ -11,11 +11,11 @@ mod reject_ask_tests {
     };
     use cosmwasm_std::testing::{mock_env, mock_info};
     use cosmwasm_std::{attr, coins, Addr, BankMsg, CosmosMsg, Uint128};
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     fn reject_ask_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -80,7 +80,7 @@ mod reject_ask_tests {
 
     #[test]
     fn reject_ask_legacy_unhyphenated_id_then_rejects_ask() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -145,7 +145,7 @@ mod reject_ask_tests {
 
     #[test]
     fn reject_partial_ask_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -229,7 +229,7 @@ mod reject_ask_tests {
 
     #[test]
     fn reject_partial_ask_cancel_size_not_increment() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // store valid ask order
@@ -292,7 +292,7 @@ mod reject_ask_tests {
 
     #[test]
     fn reject_partial_ask_cancel_size_greater_than_order_size() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {

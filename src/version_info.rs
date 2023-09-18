@@ -1,7 +1,6 @@
 use crate::error::ContractError;
 use cosmwasm_std::{DepsMut, Storage};
 use cw_storage_plus::Item;
-use provwasm_std::ProvenanceQuery;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -29,9 +28,7 @@ pub fn get_version_info(store: &dyn Storage) -> Result<VersionInfoV1, ContractEr
     VERSION_INFO.load(store).map_err(ContractError::Std)
 }
 
-pub fn migrate_version_info(
-    deps: DepsMut<ProvenanceQuery>,
-) -> Result<VersionInfoV1, ContractError> {
+pub fn migrate_version_info(deps: DepsMut) -> Result<VersionInfoV1, ContractError> {
     let version_info = VersionInfoV1 {
         definition: CRATE_NAME.to_string(),
         version: PACKAGE_VERSION.to_string(),
@@ -47,11 +44,11 @@ mod tests {
     use crate::error::ContractError;
     use crate::version_info::{get_version_info, set_version_info, VersionInfoV1};
     use cosmwasm_std::StdError;
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     pub fn set_version_info_with_valid_data() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let result = set_version_info(
             &mut deps.storage,
             &VersionInfoV1 {
@@ -76,7 +73,7 @@ mod tests {
 
     #[test]
     pub fn version_info_not_found() -> Result<(), ContractError> {
-        let deps = mock_dependencies(&[]);
+        let deps = mock_provenance_dependencies();
 
         let version_info = get_version_info(&deps.storage);
         match version_info {

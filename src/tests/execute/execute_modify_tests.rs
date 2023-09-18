@@ -10,16 +10,18 @@ mod execute_modify_test {
     use crate::version_info::{set_version_info, VersionInfoV1};
     use cosmwasm_std::testing::{mock_env, mock_info};
     use cosmwasm_std::{coin, Addr, MessageInfo, Response, Uint128};
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::ProvenanceMsg;
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::attribute::v1::{
+        Attribute, AttributeType, QueryAttributesRequest, QueryAttributesResponse,
+    };
 
-    fn get_expected_modify_contract_response() -> Response<ProvenanceMsg> {
+    fn get_expected_modify_contract_response() -> Response {
         Response::new().add_attribute("action", "modify_contract")
     }
 
     #[test]
     fn execute_modify_contract_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -133,7 +135,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_executor() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -248,7 +250,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_fields() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -427,7 +429,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_version() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -546,7 +548,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_attributes() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -616,13 +618,28 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        deps.querier.with_attributes(
-            "asker",
-            &[
-                ("ask_tag_1", "ask_tag_1_value", "String"),
-                ("ask_tag_2", "ask_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
@@ -687,13 +704,28 @@ mod execute_modify_test {
             },
         }
 
-        deps.querier.with_attributes(
-            "bidder",
-            &[
-                ("bid_tag_1", "bid_tag_1_value", "String"),
-                ("bid_tag_2", "bid_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "bidder".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "bid_tag_1".to_string(),
+                        value: "bid_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "bid_tag_2".to_string(),
+                        value: "bid_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let bidder_info: MessageInfo = mock_info("bidder", &[coin(200, "quote_1")]);
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-61ccc51ec367".into(),
@@ -761,7 +793,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_add_approvers() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -810,13 +842,28 @@ mod execute_modify_test {
             }
         }
 
-        deps.querier.with_attributes(
-            "asker",
-            &[
-                ("ask_tag_1", "ask_tag_1_value", "String"),
-                ("ask_tag_2", "ask_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
@@ -908,7 +955,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_input_executors() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1044,7 +1091,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_attributes_conflict() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1078,12 +1125,26 @@ mod execute_modify_test {
             },
         );
 
-        deps.querier.with_attributes(
-            "asker",
-            &[
-                ("ask_tag_1", "ask_tag_1_value", "String"),
-                ("ask_tag_2", "ask_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
 
         let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
@@ -1274,7 +1335,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_valid_remove_attributes() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1371,7 +1432,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_conflicting_bid_attributes() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1420,13 +1481,28 @@ mod execute_modify_test {
             }
         }
 
-        deps.querier.with_attributes(
-            "asker",
-            &[
-                ("ask_tag_1", "ask_tag_1_value", "String"),
-                ("ask_tag_2", "ask_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
@@ -1464,13 +1540,28 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        deps.querier.with_attributes(
-            "bidder",
-            &[
-                ("bid_tag_1", "bid_tag_1_value", "String"),
-                ("bid_tag_2", "bid_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "bidder".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "bid_tag_1".to_string(),
+                        value: "bid_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "bid_tag_2".to_string(),
+                        value: "bid_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let bidder_info = mock_info("bidder", &[coin(200, "quote_1")]);
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec468".into(),
@@ -1518,7 +1609,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_existing_ask_order_invalid_ask_fee_change() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1568,13 +1659,28 @@ mod execute_modify_test {
         }
 
         // Store 1 ask order
-        deps.querier.with_attributes(
-            "asker",
-            &[
-                ("ask_tag_1", "ask_tag_1_value", "String"),
-                ("ask_tag_2", "ask_tag_2_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "asker".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "ask_tag_1".to_string(),
+                        value: "ask_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "ask_tag_2".to_string(),
+                        value: "ask_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
@@ -1638,7 +1744,7 @@ mod execute_modify_test {
 
     #[test]
     fn execute_modify_contract_invalid_conflicting_bid_fee() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1688,15 +1794,40 @@ mod execute_modify_test {
             }
         }
 
-        deps.querier.with_attributes(
-            "bidder",
-            &[
-                ("bid_tag_1", "bid_tag_1_value", "String"),
-                ("bid_tag_2", "bid_tag_2_value", "String"),
-                ("bid_tag_3", "bid_tag_3_value", "String"),
-                ("bid_tag_4", "bid_tag_4_value", "String"),
-            ],
+        QueryAttributesRequest::mock_response(
+            &mut deps.querier,
+            QueryAttributesResponse {
+                account: "bidder".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "bid_tag_1".to_string(),
+                        value: "bid_tag_1_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "bid_tag_2".to_string(),
+                        value: "bid_tag_2_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "bid_tag_3".to_string(),
+                        value: "bid_tag_3_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                    Attribute {
+                        name: "bid_tag_4".to_string(),
+                        value: "bid_tag_4_value".as_bytes().to_vec(),
+                        attribute_type: AttributeType::String.into(),
+                        address: "".to_string(),
+                    },
+                ],
+                pagination: None,
+            },
         );
+
         let bidder_info = mock_info("bidder", &[coin(200, "quote_1")]);
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec468".into(),

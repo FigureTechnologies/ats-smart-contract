@@ -8,12 +8,12 @@ mod instantiate_tests {
     use crate::version_info::{get_version_info, VersionInfoV1, CRATE_NAME, PACKAGE_VERSION};
     use cosmwasm_std::testing::{mock_env, mock_info};
     use cosmwasm_std::{attr, Addr, Uint128};
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     fn instantiate_valid_data() {
         // create valid init data
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let info = mock_info("contract_admin", &[]);
         let init_msg = InstantiateMsg {
             name: "contract_name".into(),
@@ -89,7 +89,7 @@ mod instantiate_tests {
     #[test]
     fn instantiate_invalid_data() {
         // create invalid init data
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let info = mock_info("contract_owner", &[]);
         let init_msg = InstantiateMsg {
             name: "".into(),
@@ -129,7 +129,7 @@ mod instantiate_tests {
     #[test]
     fn instantiate_invalid_price_size_increment_pair() {
         // create invalid init data
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         let info = mock_info("contract_owner", &[]);
         let init_msg = InstantiateMsg {
             name: "contract_name".into(),

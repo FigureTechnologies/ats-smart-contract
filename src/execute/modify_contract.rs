@@ -4,13 +4,12 @@ use crate::common::{ContractAction, FeeInfo};
 use crate::contract_info::{get_contract_info, modify_contract_info};
 use crate::error::ContractError;
 use cosmwasm_std::{DepsMut, Env, MessageInfo, Response};
-use provwasm_std::{ProvenanceMsg, ProvenanceQuery};
 use rust_decimal::Decimal;
 use std::collections::HashSet;
 use std::str::FromStr;
 
 pub fn modify_contract(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     _env: Env,
     info: &MessageInfo,
     approvers: Option<Vec<String>>,
@@ -21,7 +20,7 @@ pub fn modify_contract(
     bid_fee_account: Option<String>,
     ask_required_attributes: Option<Vec<String>>,
     bid_required_attributes: Option<Vec<String>>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     let contract_info = get_contract_info(deps.storage)?;
 
     if !contract_info.executors.contains(&info.sender) {

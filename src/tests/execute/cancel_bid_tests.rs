@@ -11,14 +11,17 @@ mod cancel_bid_tests {
     use crate::tests::test_setup_utils::{
         setup_test_base, setup_test_base_contract_v3, store_test_ask, store_test_bid,
     };
+    use crate::tests::test_utils::setup_restricted_asset_marker;
+    use crate::util::transfer_marker_coins;
     use cosmwasm_std::testing::{mock_env, mock_info, MOCK_CONTRACT_ADDR};
-    use cosmwasm_std::{attr, coins, from_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Uint128};
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::{transfer_marker_coins, Marker};
+    use cosmwasm_std::{attr, coins, Addr, BankMsg, Coin, CosmosMsg, Uint128};
+    use provwasm_mocks::mock_provenance_dependencies;
+    use provwasm_std::types::provenance::marker::v1::QueryMarkerRequest;
+    use std::convert::TryInto;
 
     #[test]
     fn cancel_bid_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // create bid data
@@ -96,7 +99,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_legacy_unhyphenated_id_then_cancels_order() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // create bid data
@@ -174,7 +177,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_restricted_marker() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -194,39 +197,14 @@ mod cancel_bid_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"quote_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"quote_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "quote_1".to_string(),
+            ),
+        );
 
         // create bid data
         store_test_bid(
@@ -286,8 +264,11 @@ mod cancel_bid_tests {
                         200,
                         "quote_1",
                         Addr::unchecked("bidder"),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                         Addr::unchecked(MOCK_CONTRACT_ADDR)
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -305,7 +286,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_with_fees_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -416,7 +397,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_with_fees_eq_zero_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -520,7 +501,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_restricted_marker_with_fees() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -543,39 +524,14 @@ mod cancel_bid_tests {
             },
         );
 
-        let marker_json = b"{
-              \"address\": \"tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u\",
-              \"coins\": [
-                {
-                  \"denom\": \"quote_1\",
-                  \"amount\": \"1000\"
-                }
-              ],
-              \"account_number\": 10,
-              \"sequence\": 0,
-              \"permissions\": [
-                {
-                  \"permissions\": [
-                    \"burn\",
-                    \"delete\",
-                    \"deposit\",
-                    \"admin\",
-                    \"mint\",
-                    \"withdraw\"
-                  ],
-                  \"address\": \"tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz\"
-                }
-              ],
-              \"status\": \"active\",
-              \"denom\": \"quote_1\",
-              \"total_supply\": \"1000\",
-              \"marker_type\": \"restricted\",
-              \"allow_forced_transfer\": false,
-              \"supply_fixed\": false
-            }";
-
-        let test_marker: Marker = from_binary(&Binary::from(marker_json)).unwrap();
-        deps.querier.with_markers(vec![test_marker]);
+        QueryMarkerRequest::mock_response(
+            &mut deps.querier,
+            setup_restricted_asset_marker(
+                "tp18vmzryrvwaeykmdtu6cfrz5sau3dhc5c73ms0u".to_string(),
+                "tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz".to_string(),
+                "quote_1".to_string(),
+            ),
+        );
 
         // create bid data
         store_test_bid(
@@ -638,8 +594,11 @@ mod cancel_bid_tests {
                         200,
                         "quote_1",
                         Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
                 assert_eq!(
@@ -648,8 +607,11 @@ mod cancel_bid_tests {
                         20,
                         "quote_1",
                         Addr::unchecked("bidder"),
-                        Addr::unchecked(MOCK_CONTRACT_ADDR)
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
+                        Addr::unchecked(MOCK_CONTRACT_ADDR),
                     )
+                    .unwrap()
+                    .try_into()
                     .unwrap()
                 );
             }
@@ -667,7 +629,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_invalid_data() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let bidder_info = mock_info("bidder", &[]);
@@ -691,7 +653,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_non_exist() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let bidder_info = mock_info("bidder", &[]);
@@ -716,7 +678,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_sender_notequal() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         let bidder_info = mock_info("bidder", &[]);
@@ -762,7 +724,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_with_sent_funds() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // cancel bid order with sent_funds returns ContractError::CancelWithFunds
@@ -786,7 +748,7 @@ mod cancel_bid_tests {
 
     #[test]
     fn cancel_bid_partial() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {

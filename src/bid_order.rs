@@ -5,7 +5,6 @@ use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use cosmwasm_std::{Addr, Coin, DepsMut, Env, Order, Response, Uint128};
 use cw_storage_plus::Map;
-use provwasm_std::{ProvenanceMsg, ProvenanceQuery};
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
 use schemars::JsonSchema;
@@ -218,11 +217,11 @@ impl BidOrderV3 {
 
 #[allow(deprecated)]
 pub fn migrate_bid_orders(
-    deps: DepsMut<ProvenanceQuery>,
+    deps: DepsMut,
     _env: Env,
     _msg: &MigrateMsg,
-    response: Response<ProvenanceMsg>,
-) -> Result<Response<ProvenanceMsg>, ContractError> {
+    response: Response,
+) -> Result<Response, ContractError> {
     let store = deps.storage;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
@@ -260,8 +259,7 @@ mod tests {
     use crate::version_info::{set_version_info, VersionInfoV1, CRATE_NAME};
     use cosmwasm_std::testing::mock_env;
     use cosmwasm_std::{Addr, Coin, Response, Uint128};
-    use provwasm_mocks::mock_dependencies;
-    use provwasm_std::ProvenanceMsg;
+    use provwasm_mocks::mock_provenance_dependencies;
     use rust_decimal::prelude::FromStr;
     use rust_decimal::Decimal;
 
@@ -302,7 +300,7 @@ mod tests {
     #[test]
     pub fn bid_migration_fails_if_contract_is_too_old() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         // Contract too old:
         set_version_info(
@@ -314,7 +312,7 @@ mod tests {
         )?;
 
         let result = {
-            let response: Response<ProvenanceMsg> = Response::new();
+            let response: Response = Response::new();
             migrate_bid_orders(
                 deps.as_mut(),
                 mock_env(),
@@ -351,7 +349,7 @@ mod tests {
     #[test]
     pub fn bid_migration_minimum_version_check() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         // Contract minimum version:
         set_version_info(
@@ -363,7 +361,7 @@ mod tests {
         )?;
 
         let result = {
-            let response: Response<ProvenanceMsg> = Response::new();
+            let response: Response = Response::new();
             migrate_bid_orders(
                 deps.as_mut(),
                 mock_env(),
@@ -390,7 +388,7 @@ mod tests {
     #[allow(deprecated)]
     pub fn migrate_bid_order_v2_to_bid_order_v3() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         set_version_info(
             &mut deps.storage,
@@ -653,7 +651,7 @@ mod tests {
     #[allow(deprecated)]
     pub fn migrate_contract_v0_19_0_bid_order_v2_to_bid_order_v3() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         set_version_info(
             &mut deps.storage,

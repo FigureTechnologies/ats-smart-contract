@@ -12,11 +12,11 @@ mod reject_bid_tests {
     };
     use cosmwasm_std::testing::{mock_env, mock_info};
     use cosmwasm_std::{attr, coins, Addr, BankMsg, Coin, CosmosMsg, Uint128};
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     fn reject_bid_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // create bid data
@@ -90,7 +90,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_bid_legacy_unhyphenated_id_then_rejects_bid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // create bid data
@@ -164,7 +164,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_partial_bid_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base_contract_v3(&mut deps.storage);
 
         // create bid data
@@ -265,7 +265,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_partial_bid_with_fees_valid() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -399,7 +399,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_partial_bid_with_fees_round_down() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -533,7 +533,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_partial_bid_with_fees_round_up() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -667,7 +667,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_partial_bid_cancel_size_not_increment() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -764,7 +764,7 @@ mod reject_bid_tests {
 
     #[test]
     fn reject_bid_cancel_size_greater_than_order_size() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {

@@ -4,7 +4,6 @@ use crate::msg::MigrateMsg;
 use crate::version_info::get_version_info;
 use cosmwasm_std::{Addr, Coin, DepsMut, Uint128};
 use cw_storage_plus::Map;
-use provwasm_std::ProvenanceQuery;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -39,10 +38,7 @@ pub struct AskOrderV1 {
     pub size: Uint128,
 }
 
-pub fn migrate_ask_orders(
-    deps: DepsMut<ProvenanceQuery>,
-    _msg: &MigrateMsg,
-) -> Result<(), ContractError> {
+pub fn migrate_ask_orders(deps: DepsMut, _msg: &MigrateMsg) -> Result<(), ContractError> {
     let store = deps.storage;
     let version_info = get_version_info(store)?;
     let current_version = Version::parse(&version_info.version)?;
@@ -60,12 +56,12 @@ mod tests {
     use crate::error::ContractError;
     use crate::msg::MigrateMsg;
     use crate::version_info::{set_version_info, VersionInfoV1, CRATE_NAME};
-    use provwasm_mocks::mock_dependencies;
+    use provwasm_mocks::mock_provenance_dependencies;
 
     #[test]
     pub fn ask_migration_fails_if_contract_is_too_old() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         // Contract too old:
         set_version_info(
@@ -109,7 +105,7 @@ mod tests {
     #[test]
     pub fn ask_migration_minimum_version_check() -> Result<(), ContractError> {
         // Setup
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_provenance_dependencies();
 
         // Contract minimum version:
         set_version_info(
