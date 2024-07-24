@@ -1147,7 +1147,7 @@ fn execute_match(
                         net_proceeds
                             .checked_sub(Uint128::new(fee_total))
                             .map_err(|error| {
-                                ContractError::Std(StdError::Overflow { source: error })
+                                StdError::overflow(error)
                             })?;
 
                     Some(ask_fee)

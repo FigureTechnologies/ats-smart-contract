@@ -488,14 +488,14 @@ mod tests {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![deps.api.addr_make("approver_1"), deps.api.addr_make("approver_2")],
+                executors: vec![deps.api.addr_make("exec_1"), deps.api.addr_make("exec_2")],
                 ask_fee_info: Some(FeeInfo {
-                    account: Addr::unchecked("ask_fee_account"),
+                    account: deps.api.addr_make("ask_fee_account"),
                     rate: "0.01".into(),
                 }),
                 bid_fee_info: Some(FeeInfo {
-                    account: Addr::unchecked("bid_fee_account"),
+                    account: deps.api.addr_make("bid_fee_account"),
                     rate: "0.02".into(),
                 }),
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -505,15 +505,20 @@ mod tests {
             },
         )?;
 
+        let approver_3_addr = deps.api.addr_make("approver_3").to_string();
+        let approver_4_addr = deps.api.addr_make("approver_4").to_string();
+        let new_ask_fee_account_addr = deps.api.addr_make("new_ask_fee_account").to_string();
+        let new_bid_fee_account_addr = deps.api.addr_make("new_bid_fee_account").to_string();
+
         // migrate with new fees
         migrate_contract_info(
             deps.as_mut(),
             &MigrateMsg {
-                approvers: Some(vec!["approver_3".into(), "approver_4".into()]),
+                approvers: Some(vec![approver_3_addr.clone(), approver_4_addr.clone()]),
                 ask_fee_rate: Some("0.03".into()),
-                ask_fee_account: Some("new_ask_fee_account".into()),
+                ask_fee_account: Some(new_ask_fee_account_addr),
                 bid_fee_rate: Some("0.04".into()),
-                bid_fee_account: Some("new_bid_fee_account".into()),
+                bid_fee_account: Some(new_bid_fee_account_addr),
                 ask_required_attributes: Some(vec!["ask_tag_3".into(), "ask_tag_4".into()]),
                 bid_required_attributes: Some(vec!["bid_tag_3".into(), "bid_tag_4".into()]),
             },
@@ -527,14 +532,14 @@ mod tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-            approvers: vec![Addr::unchecked("approver_3"), Addr::unchecked("approver_4")],
-            executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+            approvers: vec![deps.api.addr_make("approver_3"), deps.api.addr_make("approver_4")],
+            executors: vec![deps.api.addr_make("exec_1"), deps.api.addr_make("exec_2")],
             ask_fee_info: Some(FeeInfo {
-                account: Addr::unchecked("new_ask_fee_account"),
+                account: deps.api.addr_make("new_ask_fee_account"),
                 rate: "0.03".into(),
             }),
             bid_fee_info: Some(FeeInfo {
-                account: Addr::unchecked("new_bid_fee_account"),
+                account: deps.api.addr_make("new_bid_fee_account"),
                 rate: "0.04".into(),
             }),
             ask_required_attributes: vec!["ask_tag_3".into(), "ask_tag_4".into()],

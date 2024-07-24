@@ -61,12 +61,14 @@ pub fn set_default_required_attributes(
                 value: "ask_tag_1_value".as_bytes().to_vec(),
                 attribute_type: AttributeType::String.into(),
                 address: "".to_string(),
+                expiration_date: None,
             },
             Attribute {
                 name: "ask_tag_2".to_string(),
                 value: "ask_tag_2_value".as_bytes().to_vec(),
                 attribute_type: AttributeType::String.into(),
                 address: "".to_string(),
+                expiration_date: None,
             },
         ])
     }
@@ -77,12 +79,14 @@ pub fn set_default_required_attributes(
                 value: "bid_tag_1_value".as_bytes().to_vec(),
                 attribute_type: AttributeType::String.into(),
                 address: "".to_string(),
+                expiration_date: None,
             },
             Attribute {
                 name: "bid_tag_2".to_string(),
                 value: "bid_tag_2_value".as_bytes().to_vec(),
                 attribute_type: AttributeType::String.into(),
                 address: "".to_string(),
+                expiration_date: None,
             },
         ])
     }

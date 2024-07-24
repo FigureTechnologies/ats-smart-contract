@@ -63,7 +63,7 @@ pub fn setup_asset_marker(
     QueryMarkerResponse {
         marker: Some(Any {
             type_url: "/provenance.marker.v1.MarkerAccount".to_string(),
-            value: expected_marker.encode_to_vec(),
+            value: expected_marker.to_proto_bytes(),
         }),
     }
 }

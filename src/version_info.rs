@@ -41,6 +41,7 @@ pub fn migrate_version_info(deps: DepsMut) -> Result<VersionInfoV1, ContractErro
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use crate::error::ContractError;
     use crate::version_info::{get_version_info, set_version_info, VersionInfoV1};
     use cosmwasm_std::StdError;
@@ -81,8 +82,8 @@ mod tests {
                 panic!("expected error, but ok")
             }
             Err(error) => match error {
-                ContractError::Std(StdError::NotFound { kind }) => {
-                    assert_eq!(kind, "ats_smart_contract::version_info::VersionInfoV1");
+                ContractError::Std(StdError::NotFound { kind, backtrace: _ }) => {
+                    assert_eq!(kind.contains("ats_smart_contract::version_info::VersionInfoV1"), true);
                 }
                 _ => panic!("unexpected error: {:?}", error),
             },
