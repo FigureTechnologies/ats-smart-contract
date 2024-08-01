@@ -82,7 +82,10 @@ mod execute_modify_test {
 
         let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
             ask_fee_account: Some(fee_account_1_addr.to_string()),
@@ -904,7 +907,10 @@ mod execute_modify_test {
         // empty executors not allowed, else anyone can execute
         let exec_info = mock_info(&deps.api.addr_make("exec_1").to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: None,
             ask_fee_rate: None,
             ask_fee_account: None,
@@ -1169,7 +1175,10 @@ mod execute_modify_test {
             },
         );
 
-        let asker_info: MessageInfo = mock_info(&deps.api.addr_make("asker").to_string(), &[coin(100, "base_denom")]);
+        let asker_info: MessageInfo = mock_info(
+            &deps.api.addr_make("asker").to_string(),
+            &[coin(100, "base_denom")],
+        );
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -1301,7 +1310,10 @@ mod execute_modify_test {
 
         let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
             ask_fee_account: Some(ask_fee_account.to_string()),
@@ -1424,7 +1436,7 @@ mod execute_modify_test {
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec![
                 deps.api.addr_make("approver_1").to_string(),
-                deps.api.addr_make("approver_3").to_string()
+                deps.api.addr_make("approver_3").to_string(),
             ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
@@ -1908,7 +1920,10 @@ mod execute_modify_test {
 
         let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
             ask_fee_account: Some(fee_acct_1_addr.to_string()),
@@ -1935,7 +1950,10 @@ mod execute_modify_test {
 
         let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
             ask_fee_account: Some(fee_acct_1_addr.to_string()),
@@ -1973,7 +1991,10 @@ mod execute_modify_test {
 
         let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec![approver_1_addr.to_string(), approver_3_addr.to_string()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
             ask_fee_account: Some(fee_acct_1_addr.to_string()),

@@ -1143,12 +1143,9 @@ fn execute_match(
                     );
 
                     // subtract the fees and assign to net proceeds
-                    net_proceeds =
-                        net_proceeds
-                            .checked_sub(Uint128::new(fee_total))
-                            .map_err(|error| {
-                                StdError::overflow(error)
-                            })?;
+                    net_proceeds = net_proceeds
+                        .checked_sub(Uint128::new(fee_total))
+                        .map_err(|error| StdError::overflow(error))?;
 
                     Some(ask_fee)
                 }

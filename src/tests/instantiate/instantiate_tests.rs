@@ -20,8 +20,14 @@ mod instantiate_tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-            approvers: vec![deps.api.addr_make("approver_1").to_string(), deps.api.addr_make("approver_2").to_string()],
-            executors: vec![deps.api.addr_make("exec_1").to_string(), deps.api.addr_make("exec_2").to_string()],
+            approvers: vec![
+                deps.api.addr_make("approver_1").to_string(),
+                deps.api.addr_make("approver_2").to_string(),
+            ],
+            executors: vec![
+                deps.api.addr_make("exec_1").to_string(),
+                deps.api.addr_make("exec_2").to_string(),
+            ],
             ask_fee_rate: Some("0.01".into()),
             ask_fee_account: Some(deps.api.addr_make("ask_fee_account").to_string()),
             bid_fee_rate: Some("0.02".into()),
@@ -45,7 +51,10 @@ mod instantiate_tests {
                     base_denom: "base_denom".into(),
                     convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                     supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                    approvers: vec![deps.api.addr_make("approver_1"), deps.api.addr_make("approver_2")],
+                    approvers: vec![
+                        deps.api.addr_make("approver_1"),
+                        deps.api.addr_make("approver_2"),
+                    ],
                     executors: vec![deps.api.addr_make("exec_1"), deps.api.addr_make("exec_2")],
                     ask_fee_info: Some(FeeInfo {
                         account: deps.api.addr_make("ask_fee_account"),
@@ -136,8 +145,14 @@ mod instantiate_tests {
             base_denom: "base_denom".into(),
             convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
             supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-            approvers: vec![deps.api.addr_make("approver_1").to_string(), deps.api.addr_make("approver_2").to_string()],
-            executors: vec![deps.api.addr_make("exec_1").to_string(), deps.api.addr_make("exec_2").to_string()],
+            approvers: vec![
+                deps.api.addr_make("approver_1").to_string(),
+                deps.api.addr_make("approver_2").to_string(),
+            ],
+            executors: vec![
+                deps.api.addr_make("exec_1").to_string(),
+                deps.api.addr_make("exec_2").to_string(),
+            ],
             ask_fee_rate: None,
             ask_fee_account: None,
             bid_fee_rate: None,
