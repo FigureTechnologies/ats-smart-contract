@@ -28,7 +28,7 @@ overflow-checks = true
 #backtraces = ["cosmwasm-std/backtraces"]
 
 [dependencies]
-cosmwasm-std = { version = "2.1.0" }
+cosmwasm-std = { version = "2.1.1" }
 cw-storage-plus = { version = "2.0.0" }
 provwasm-std = { version = "2.3.0" }
 rust_decimal = "1.29.0"
