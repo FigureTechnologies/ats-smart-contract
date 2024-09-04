@@ -36,6 +36,10 @@ mod execute_modify_test {
             Ok(_) => {}
         }
 
+        let exec_1_addr = deps.api.addr_make("exec_1");
+        let exec_2_addr = deps.api.addr_make("exec_2");
+        let exec_3_addr = deps.api.addr_make("exec_3");
+
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -44,8 +48,8 @@ mod execute_modify_test {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![exec_1_addr.clone(), exec_2_addr.clone()],
+                executors: vec![exec_1_addr.clone(), exec_2_addr.clone()],
                 ask_fee_info: None,
                 bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -61,7 +65,7 @@ mod execute_modify_test {
             Ok(contract_info) => {
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec_1"), Addr::unchecked("exec_2")])
+                    Vec::from([exec_1_addr.clone(), exec_2_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.convertible_base_denoms,
@@ -71,14 +75,22 @@ mod execute_modify_test {
             }
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let approver_1_addr = deps.api.addr_make("approver_1");
+        let approver_3_addr = deps.api.addr_make("approver_3");
+        let fee_account_1_addr = deps.api.addr_make("fee_acct_1");
+        let fee_account_2_addr = deps.api.addr_make("fee_acct_2");
+
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec1".into(), "exec3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(fee_account_1_addr.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_2".into()),
+            bid_fee_account: Some(fee_account_2_addr.to_string()),
             ask_required_attributes: Some(vec!["ask_tag_1".into()]),
             bid_required_attributes: Some(vec!["bid_tag_1".into(), "bid_tag_3".into()]),
         };
@@ -101,23 +113,23 @@ mod execute_modify_test {
                 );
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec1"), Addr::unchecked("exec3")])
+                    Vec::from([exec_1_addr, exec_3_addr])
                 );
                 assert_eq!(
                     contract_info.approvers,
-                    Vec::from([Addr::unchecked("approver_1"), Addr::unchecked("approver_3")])
+                    Vec::from([approver_1_addr, approver_3_addr])
                 );
                 assert_eq!(
                     contract_info.ask_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_1"),
+                        account: fee_account_1_addr,
                         rate: "0.123".into()
                     })
                 );
                 assert_eq!(
                     contract_info.bid_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_2"),
+                        account: fee_account_2_addr,
                         rate: "0.234".into()
                     })
                 );
@@ -628,12 +640,14 @@ mod execute_modify_test {
                         value: "ask_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "ask_tag_2".to_string(),
                         value: "ask_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -714,12 +728,14 @@ mod execute_modify_test {
                         value: "bid_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "bid_tag_2".to_string(),
                         value: "bid_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -794,6 +810,9 @@ mod execute_modify_test {
     #[test]
     fn execute_modify_contract_add_approvers() {
         let mut deps = mock_provenance_dependencies();
+        let approver_1_addr = deps.api.addr_make("approver_1");
+        let approver_2_addr = deps.api.addr_make("approver_2");
+        let approver_3_addr = deps.api.addr_make("approver_3");
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -815,8 +834,8 @@ mod execute_modify_test {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("approver_1"), Addr::unchecked("approver_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![approver_1_addr.clone(), approver_2_addr.clone()],
+                executors: vec![deps.api.addr_make("exec_1"), deps.api.addr_make("exec_2")],
                 ask_fee_info: None,
                 bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -832,7 +851,7 @@ mod execute_modify_test {
             Ok(contract_info) => {
                 assert_eq!(
                     contract_info.approvers,
-                    Vec::from([Addr::unchecked("approver_1"), Addr::unchecked("approver_2")])
+                    Vec::from([approver_1_addr.clone(), approver_2_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.convertible_base_denoms,
@@ -852,12 +871,14 @@ mod execute_modify_test {
                         value: "ask_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "ask_tag_2".to_string(),
                         value: "ask_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -884,9 +905,12 @@ mod execute_modify_test {
         }
 
         // empty executors not allowed, else anyone can execute
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&deps.api.addr_make("exec_1").to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
             executors: None,
             ask_fee_rate: None,
             ask_fee_account: None,
@@ -908,12 +932,12 @@ mod execute_modify_test {
         }
 
         // empty executors not allowed, else anyone can execute
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&deps.api.addr_make("exec_1").to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec![
-                "approver_1".into(),
-                "approver_2".into(),
-                "approver_3".into(),
+                approver_1_addr.to_string(),
+                approver_2_addr.to_string(),
+                approver_3_addr.to_string(),
             ]),
             executors: None,
             ask_fee_rate: None,
@@ -939,9 +963,9 @@ mod execute_modify_test {
                 assert_eq!(
                     contract_info.approvers,
                     Vec::from([
-                        Addr::unchecked("approver_1"),
-                        Addr::unchecked("approver_2"),
-                        Addr::unchecked("approver_3")
+                        approver_1_addr.clone(),
+                        approver_2_addr.clone(),
+                        approver_3_addr.clone(),
                     ])
                 );
                 assert_eq!(
@@ -1092,6 +1116,8 @@ mod execute_modify_test {
     #[test]
     fn execute_modify_contract_invalid_attributes_conflict() {
         let mut deps = mock_provenance_dependencies();
+        let exec_1_addr = deps.api.addr_make("exec_1");
+        let exec_2_addr = deps.api.addr_make("exec_2");
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1114,8 +1140,8 @@ mod execute_modify_test {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![exec_1_addr.clone(), exec_2_addr.clone()],
+                executors: vec![exec_1_addr.clone(), exec_2_addr.clone()],
                 ask_fee_info: None,
                 bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -1135,19 +1161,24 @@ mod execute_modify_test {
                         value: "ask_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "ask_tag_2".to_string(),
                         value: "ask_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
             },
         );
 
-        let asker_info: MessageInfo = mock_info("asker", &[coin(100, "base_denom")]);
+        let asker_info: MessageInfo = mock_info(
+            &deps.api.addr_make("asker").to_string(),
+            &[coin(100, "base_denom")],
+        );
         let create_ask_msg = ExecuteMsg::CreateAsk {
             base: "base_denom".into(),
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
@@ -1172,7 +1203,7 @@ mod execute_modify_test {
             Ok(contract_info) => {
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec_1"), Addr::unchecked("exec_2")])
+                    Vec::from([exec_1_addr.clone(), exec_2_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.convertible_base_denoms,
@@ -1183,7 +1214,7 @@ mod execute_modify_test {
         }
 
         // ask_required_attributes conflict with active asks
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
             executors: Some(vec!["exec_1".into(), "exec_3".into()]),
@@ -1206,7 +1237,7 @@ mod execute_modify_test {
             },
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
             executors: Some(vec!["exec_1".into(), "exec_3".into()]),
@@ -1229,7 +1260,7 @@ mod execute_modify_test {
             },
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
             approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
             executors: Some(vec!["exec_1".into(), "exec_3".into()]),
@@ -1256,7 +1287,7 @@ mod execute_modify_test {
             },
         }
 
-        let cancel_info: MessageInfo = mock_info("asker", &[]);
+        let cancel_info: MessageInfo = mock_info(&deps.api.addr_make("asker").to_string(), &[]);
         let cancel_ask_msg = ExecuteMsg::CancelAsk {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec367".into(),
         };
@@ -1271,14 +1302,23 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let approver_1_addr = deps.api.addr_make("approver_1");
+        let approver_3_addr = deps.api.addr_make("approver_3");
+        let exec_3_addr = deps.api.addr_make("exec_3");
+        let ask_fee_account = deps.api.addr_make("fee_acct_1");
+        let bid_fee_account = deps.api.addr_make("fee_acct_1");
+
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec1".into(), "exec3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(ask_fee_account.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_2".into()),
+            bid_fee_account: Some(bid_fee_account.to_string()),
             ask_required_attributes: Some(vec!["ask_tag_1".into()]),
             bid_required_attributes: Some(vec!["bid_tag_1".into(), "bid_tag_3".into()]),
         };
@@ -1301,23 +1341,23 @@ mod execute_modify_test {
                 );
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec1"), Addr::unchecked("exec3")])
+                    Vec::from([exec_1_addr.clone(), exec_3_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.approvers,
-                    Vec::from([Addr::unchecked("approver_1"), Addr::unchecked("approver_3")])
+                    Vec::from([approver_1_addr.clone(), approver_3_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.ask_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_1"),
+                        account: ask_fee_account.clone(),
                         rate: "0.123".into()
                     })
                 );
                 assert_eq!(
                     contract_info.bid_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_2"),
+                        account: bid_fee_account.clone(),
                         rate: "0.234".into()
                     })
                 );
@@ -1350,6 +1390,10 @@ mod execute_modify_test {
             Ok(_) => {}
         }
 
+        let exec_1_addr = deps.api.addr_make("exec_1");
+        let exec_2_addr = deps.api.addr_make("exec_2");
+        let exec_3_addr = deps.api.addr_make("exec_3");
+
         setup_test_base(
             &mut deps.storage,
             &ContractInfoV3 {
@@ -1358,8 +1402,8 @@ mod execute_modify_test {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![exec_1_addr.clone(), exec_2_addr.clone()],
+                executors: vec![exec_1_addr.clone(), exec_2_addr.clone()],
                 ask_fee_info: None,
                 bid_fee_info: None,
                 ask_required_attributes: vec!["ask_tag_1".into(), "ask_tag_2".into()],
@@ -1375,7 +1419,7 @@ mod execute_modify_test {
             Ok(contract_info) => {
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec_1"), Addr::unchecked("exec_2")])
+                    Vec::from([exec_1_addr.clone(), exec_2_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.convertible_base_denoms,
@@ -1385,14 +1429,20 @@ mod execute_modify_test {
             }
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let fee_acct_1_addr = deps.api.addr_make("fee_acct_1");
+        let fee_acct_2_addr = deps.api.addr_make("fee_acct_2");
+
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec_1".into(), "exec_3".into()]),
+            approvers: Some(vec![
+                deps.api.addr_make("approver_1").to_string(),
+                deps.api.addr_make("approver_3").to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(fee_acct_1_addr.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_2".into()),
+            bid_fee_account: Some(fee_acct_2_addr.to_string()),
             ask_required_attributes: None,
             bid_required_attributes: Some(vec![]),
         };
@@ -1422,7 +1472,7 @@ mod execute_modify_test {
                 assert_eq!(
                     contract_info.ask_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_1"),
+                        account: fee_acct_1_addr,
                         rate: "0.123".to_string(),
                     })
                 );
@@ -1491,12 +1541,14 @@ mod execute_modify_test {
                         value: "ask_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "ask_tag_2".to_string(),
                         value: "ask_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -1550,12 +1602,14 @@ mod execute_modify_test {
                         value: "bid_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "bid_tag_2".to_string(),
                         value: "bid_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -1669,12 +1723,14 @@ mod execute_modify_test {
                         value: "ask_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "ask_tag_2".to_string(),
                         value: "ask_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
@@ -1745,6 +1801,9 @@ mod execute_modify_test {
     #[test]
     fn execute_modify_contract_invalid_conflicting_bid_fee() {
         let mut deps = mock_provenance_dependencies();
+        let exec_1_addr = deps.api.addr_make("exec_1");
+        let exec_2_addr = deps.api.addr_make("exec_2");
+        let exec_3_addr = deps.api.addr_make("exec_3");
 
         let version_info = set_version_info(
             &mut deps.storage,
@@ -1767,8 +1826,8 @@ mod execute_modify_test {
                 base_denom: "base_denom".into(),
                 convertible_base_denoms: vec!["con_base_1".into(), "con_base_2".into()],
                 supported_quote_denoms: vec!["quote_1".into(), "quote_2".into()],
-                approvers: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
-                executors: vec![Addr::unchecked("exec_1"), Addr::unchecked("exec_2")],
+                approvers: vec![exec_1_addr.clone(), exec_2_addr.clone()],
+                executors: vec![exec_1_addr.clone(), exec_2_addr.clone()],
                 ask_fee_info: None,
                 bid_fee_info: None,
                 ask_required_attributes: vec![],
@@ -1784,7 +1843,7 @@ mod execute_modify_test {
             Ok(contract_info) => {
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec_1"), Addr::unchecked("exec_2")])
+                    Vec::from([exec_1_addr.clone(), exec_2_addr.clone()])
                 );
                 assert_eq!(
                     contract_info.convertible_base_denoms,
@@ -1804,31 +1863,36 @@ mod execute_modify_test {
                         value: "bid_tag_1_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "bid_tag_2".to_string(),
                         value: "bid_tag_2_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "bid_tag_3".to_string(),
                         value: "bid_tag_3_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                     Attribute {
                         name: "bid_tag_4".to_string(),
                         value: "bid_tag_4_value".as_bytes().to_vec(),
                         attribute_type: AttributeType::String.into(),
                         address: "".to_string(),
+                        expiration_date: None,
                     },
                 ],
                 pagination: None,
             },
         );
 
-        let bidder_info = mock_info("bidder", &[coin(200, "quote_1")]);
+        let bidder_addr = deps.api.addr_make("bidder");
+        let bidder_info = mock_info(&bidder_addr.to_string(), &[coin(200, "quote_1")]);
         let create_bid_msg = ExecuteMsg::CreateBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec468".into(),
             base: "base_denom".to_string(),
@@ -1849,14 +1913,22 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let approver_1_addr = deps.api.addr_make("approver_1");
+        let approver_3_addr = deps.api.addr_make("approver_3");
+        let fee_acct_1_addr = deps.api.addr_make("fee_acct_1");
+        let fee_acct_2_addr = deps.api.addr_make("fee_acct_2");
+
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec_1".into(), "exec_3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(fee_acct_1_addr.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_1".into()),
+            bid_fee_account: Some(fee_acct_1_addr.to_string()),
             ask_required_attributes: None,
             bid_required_attributes: Some(vec![
                 "bid_tag_1".into(),
@@ -1876,14 +1948,17 @@ mod execute_modify_test {
             },
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec_1".into(), "exec_3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(fee_acct_1_addr.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_1".into()),
+            bid_fee_account: Some(fee_acct_1_addr.to_string()),
             ask_required_attributes: None,
             bid_required_attributes: None,
         };
@@ -1899,7 +1974,7 @@ mod execute_modify_test {
             },
         }
 
-        let cancel_info: MessageInfo = mock_info("bidder", &[]);
+        let cancel_info: MessageInfo = mock_info(&bidder_addr.to_string(), &[]);
         let cancel_bid_msg = ExecuteMsg::CancelBid {
             id: "ab5f5a62-f6fc-46d1-aa84-51ccc51ec468".into(),
         };
@@ -1914,14 +1989,17 @@ mod execute_modify_test {
             Err(error) => panic!("unexpected error: {:?}", error),
         }
 
-        let exec_info = mock_info("exec_1", &[]);
+        let exec_info = mock_info(&exec_1_addr.to_string(), &[]);
         let modify_contract_msg = ExecuteMsg::ModifyContract {
-            approvers: Some(vec!["approver_1".into(), "approver_3".into()]),
-            executors: Some(vec!["exec1".into(), "exec3".into()]),
+            approvers: Some(vec![
+                approver_1_addr.to_string(),
+                approver_3_addr.to_string(),
+            ]),
+            executors: Some(vec![exec_1_addr.to_string(), exec_3_addr.to_string()]),
             ask_fee_rate: Some("0.123".into()),
-            ask_fee_account: Some("fee_acct_1".into()),
+            ask_fee_account: Some(fee_acct_1_addr.to_string()),
             bid_fee_rate: Some("0.234".into()),
-            bid_fee_account: Some("fee_acct_2".into()),
+            bid_fee_account: Some(fee_acct_2_addr.to_string()),
             ask_required_attributes: Some(vec!["ask_tag_1".into()]),
             bid_required_attributes: Some(vec!["bid_tag_1".into(), "bid_tag_3".into()]),
         };
@@ -1944,23 +2022,23 @@ mod execute_modify_test {
                 );
                 assert_eq!(
                     contract_info.executors,
-                    Vec::from([Addr::unchecked("exec1"), Addr::unchecked("exec3")])
+                    Vec::from([exec_1_addr, exec_3_addr])
                 );
                 assert_eq!(
                     contract_info.approvers,
-                    Vec::from([Addr::unchecked("approver_1"), Addr::unchecked("approver_3")])
+                    Vec::from([approver_1_addr, approver_3_addr])
                 );
                 assert_eq!(
                     contract_info.ask_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_1"),
+                        account: fee_acct_1_addr.clone(),
                         rate: "0.123".into()
                     })
                 );
                 assert_eq!(
                     contract_info.bid_fee_info,
                     Some(FeeInfo {
-                        account: Addr::unchecked("fee_acct_2"),
+                        account: fee_acct_2_addr.clone(),
                         rate: "0.234".into()
                     })
                 );
