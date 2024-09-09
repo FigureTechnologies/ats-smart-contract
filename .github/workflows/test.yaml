@@ -23,7 +23,7 @@ jobs:
     name: Test ATS Smart Contract
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Add wasm32 target
         run: |
           rustup target add wasm32-unknown-unknown
@@ -33,7 +33,6 @@ jobs:
       - name: Run ATS Test
         uses: provenance-io/provenance-testing-action@v1.1.2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           provenance_version: "v1.14.1"
           test_script: "./scripts/test_ats.sh"
           wasm_path: "./artifacts/ats_smart_contract.wasm"
