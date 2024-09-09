@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -45,7 +45,7 @@ jobs:
           fail_ci_if_error: false
           verbose: true
       - name: archive code coverage results
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report
           path: cobertura.xml
@@ -55,7 +55,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: optimize
         run: make optimize
       - name : release
